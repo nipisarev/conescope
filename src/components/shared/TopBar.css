@@ -1,71 +1,67 @@
 .top-bar {
+  height: 44px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #3c3c3c;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
-  background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  padding: 0 12px;
+  padding-left: 80px; /* Space for traffic lights */
+  position: relative;
+  -webkit-app-region: drag;
 }
 
-.top-bar-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.top-bar-drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  -webkit-app-region: drag;
 }
 
-.app-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.top-bar-center {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.stat {
-  font-size: 13px;
-  color: #9d9d9d;
-}
-
-.stat-divider {
-  color: #4a4a4a;
-}
-
+.top-bar-left,
 .top-bar-right {
   display: flex;
   align-items: center;
   gap: 8px;
+  -webkit-app-region: no-drag;
+  z-index: 1;
 }
 
-.btn {
+.app-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+
+.top-bar-btn {
   padding: 6px 12px;
   border: none;
+  background: #3c3c3c;
+  color: #ccc;
   border-radius: 4px;
-  font-size: 13px;
   cursor: pointer;
-  transition: background 0.2s;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.15s ease;
 }
 
-.btn-primary {
+.top-bar-btn:hover {
+  background: #4c4c4c;
+  color: #fff;
+}
+
+.top-bar-btn.primary {
   background: #0e639c;
   color: #fff;
 }
 
-.btn-primary:hover {
+.top-bar-btn.primary:hover {
   background: #1177bb;
 }
 
-.btn-icon {
-  background: transparent;
-  color: #9d9d9d;
-  font-size: 16px;
-  padding: 6px 8px;
-}
-
-.btn-icon:hover {
-  background: #3c3c3c;
+.top-bar-btn.active {
+  background: #0e639c;
   color: #fff;
 }
