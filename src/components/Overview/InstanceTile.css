@@ -1,119 +1,132 @@
 .instance-tile {
-  display: flex;
-  flex-direction: column;
   background: #252526;
-  border: 2px solid;
   border-radius: 8px;
+  border: 1px solid #3c3c3c;
   overflow: hidden;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s ease;
 }
 
 .instance-tile:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-color: #0e639c;
 }
 
 .tile-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   padding: 12px;
-  border-bottom: 1px solid;
-  background: #2d2d2d;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.tile-color {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.tile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+}
+
+.tile-number {
+  font-weight: 700;
+  font-size: 14px;
 }
 
 .tile-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  font-weight: 500;
+  font-size: 14px;
+  color: #fff;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.project-name {
-  font-size: 14px;
-  font-weight: 600;
+.tile-edit-btn {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.instance-tile:hover .tile-edit-btn {
+  opacity: 1;
+}
+
+.tile-edit-btn:hover {
+  background: #3c3c3c;
   color: #fff;
 }
 
-.project-path {
+.tile-title-input {
+  flex: 1;
+  background: #1e1e1e;
+  border: 1px solid #0e639c;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  outline: none;
+}
+
+.tile-path {
   font-size: 11px;
-  color: #808080;
+  color: #888;
+  padding-left: 8px;
+}
+
+.tile-preview {
+  flex: 1;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.tile-terminal {
+  font-family: 'SF Mono', Monaco, monospace;
+  font-size: 11px;
+  color: #aaa;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.4;
+  max-height: 80px;
+  overflow: hidden;
+}
+
+.tile-footer {
+  padding: 8px 12px;
+  background: #1e1e1e;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
 }
 
 .tile-status {
   display: flex;
   align-items: center;
   gap: 6px;
+  color: #888;
 }
 
-.status-icon {
-  font-size: 12px;
-}
-
-.status-text {
-  font-size: 11px;
-  color: #9d9d9d;
-  text-transform: capitalize;
-}
-
-.tile-terminal {
-  flex: 1;
-  padding: 8px 12px;
-  overflow: hidden;
-  min-height: 120px;
-  max-height: 160px;
-}
-
-.tile-terminal pre {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 10px;
-  color: #d4d4d4;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 0;
-  line-height: 1.4;
-}
-
-.tile-question {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: #3c3c3c;
-}
-
-.question-badge {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  background: #f9a825;
-  color: #000;
-  font-size: 11px;
-  font-weight: 700;
+.tile-status-dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
 }
 
-.question-text {
-  font-size: 11px;
-  color: #d4d4d4;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tile-stats {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  font-size: 11px;
-  color: #808080;
-  background: #1e1e1e;
-}
-
-.stats-divider {
-  color: #3c3c3c;
+.tile-tokens {
+  color: #888;
 }
