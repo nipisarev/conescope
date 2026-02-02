@@ -3,13 +3,20 @@ import { TopBar } from '@/components/shared/TopBar'
 import { OverviewGrid } from '@/components/Overview/OverviewGrid'
 import { InboxPanel } from '@/components/Overview/InboxPanel'
 import { FocusView } from '@/components/Focus/FocusView'
+import { NewInstanceModal } from '@/components/shared/NewInstanceModal'
 import './index.css'
 
 export default function App() {
   const viewMode = useAppStore(state => state.viewMode)
+  const newInstanceModalOpen = useAppStore(state => state.newInstanceModalOpen)
 
   if (viewMode === 'focus') {
-    return <FocusView />
+    return (
+      <>
+        <FocusView />
+        {newInstanceModalOpen && <NewInstanceModal />}
+      </>
+    )
   }
 
   return (
@@ -19,6 +26,7 @@ export default function App() {
         <OverviewGrid />
         <InboxPanel />
       </div>
+      {newInstanceModalOpen && <NewInstanceModal />}
     </div>
   )
 }
