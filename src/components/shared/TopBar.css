@@ -65,3 +65,64 @@
   background: #0e639c;
   color: #fff;
 }
+
+.top-bar-center {
+  display: flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+  z-index: 1;
+}
+
+.top-bar-back {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-right: 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.top-bar-back:hover {
+  background: #3c3c3c;
+  color: #fff;
+}
+
+.top-bar-instance {
+  font-weight: 700;
+  font-size: 14px;
+  margin-right: 8px;
+}
+
+.top-bar-instance-title {
+  font-size: 14px;
+  color: #ccc;
+}
+
+.instance-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.control-btn {
+  padding: 4px 10px;
+  border: none;
+  background: #3c3c3c;
+  color: #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+}
+
+.control-btn:hover {
+  background: #4c4c4c;
+  color: #fff;
+}
+
+.control-btn.danger:hover {
+  background: #c53030;
+  color: #fff;
+}
