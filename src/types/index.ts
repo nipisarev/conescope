@@ -9,52 +9,36 @@ export interface Project {
 
 export type InstanceStatus = 'starting' | 'working' | 'waiting' | 'paused' | 'stopped'
 
-export interface PendingQuestion {
-  text: string
-  askedAt: string
-  context?: string
-}
-
 export interface Instance {
   id: string
   projectId: string
-  pid: number | null
+  title: string
+  instanceNumber: number
   status: InstanceStatus
   tokensUsed: number
   costEstimate: number
   startedAt: string
-  pendingQuestion?: PendingQuestion
   terminalHistory: string[]
 }
 
-export type Urgency = 'normal' | 'elevated' | 'urgent'
-
-export interface InboxItem {
+export interface Question {
+  id: string
   instanceId: string
-  projectId: string
-  question: string
+  questionText: string
+  context?: string
   askedAt: string
-  urgency: Urgency
-  snoozed: boolean
+  answeredAt?: string
+  answer?: string
+  snoozedUntil?: string
+  // Joined fields
+  instanceTitle?: string
+  projectName?: string
+  projectColor?: string
 }
 
 export const PROJECT_COLORS = [
-  '#E57373', // red
-  '#64B5F6', // blue
-  '#81C784', // green
-  '#FFB74D', // orange
-  '#BA68C8', // purple
-  '#4DD0E1', // cyan
-  '#FFD54F', // yellow
-  '#A1887F', // brown
-  '#90A4AE', // gray
+  '#E57373', '#64B5F6', '#81C784', '#FFB74D', '#BA68C8',
+  '#4DD0E1', '#FFD54F', '#A1887F', '#90A4AE',
 ] as const
 
 export type ViewMode = 'overview' | 'focus'
-
-export interface AppState {
-  viewMode: ViewMode
-  focusedInstanceId: string | null
-  questionsQueueOpen: boolean
-  settingsOpen: boolean
-}

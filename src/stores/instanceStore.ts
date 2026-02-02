@@ -1,111 +1,112 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import { Instance, InstanceStatus, PendingQuestion, InboxItem, Urgency } from '@/types'
+import { Instance, InstanceStatus } from '@/types'
 
 interface InstanceStore {
   instances: Instance[]
+  isLoading: boolean
 
-  createInstance: (projectId: string, instanceId?: string) => Instance
+  loadInstances: () => Promise<void>
+  createInstance: (projectId: string, projectName: string) => Promise<Instance>
   updateInstance: (id: string, updates: Partial<Instance>) => void
-  removeInstance: (id: string) => void
+  updateInstanceDb: (id: string, updates: Partial<Instance>) => Promise<void>
+  removeInstance: (id: string) => Promise<void>
   getInstance: (id: string) => Instance | undefined
+  getInstanceByNumber: (num: number) => Instance | undefined
 
   appendTerminalOutput: (id: string, output: string) => void
   setStatus: (id: string, status: InstanceStatus) => void
-  setPendingQuestion: (id: string, question: PendingQuestion | undefined) => void
-
-  getInboxItems: () => InboxItem[]
-}
-
-function calculateUrgency(askedAt: string): Urgency {
-  const waitMs = Date.now() - new Date(askedAt).getTime()
-  const waitMinutes = waitMs / 1000 / 60
-  if (waitMinutes > 10) return 'urgent'
-  if (waitMinutes > 5) return 'elevated'
-  return 'normal'
 }
 
 export const useInstanceStore = create<InstanceStore>((set, get) => ({
   instances: [],
+  isLoading: true,
 
-  createInstance: (projectId: string, instanceId?: string) => {
+  loadInstances: async () => {
+    const dbInstances = await window.electronAPI.dbInstancesGetAll()
+    const instances: Instance[] = dbInstances.map(i => ({
+      id: i.id,
+      projectId: i.project_id,
+      title: i.title || '',
+      instanceNumber: i.instance_number,
+      status: i.status as InstanceStatus,
+      tokensUsed: i.tokens_used,
+      costEstimate: i.cost_estimate,
+      startedAt: i.started_at,
+      terminalHistory: [],
+    }))
+    set({ instances, isLoading: false })
+  },
+
+  createInstance: async (projectId: string, projectName: string) => {
+    const instanceNumber = await window.electronAPI.dbInstancesGetNextNumber()
     const instance: Instance = {
-      id: instanceId || uuid(),
+      id: uuid(),
       projectId,
-      pid: null,
+      title: projectName,
+      instanceNumber,
       status: 'starting',
       tokensUsed: 0,
       costEstimate: 0,
       startedAt: new Date().toISOString(),
-      terminalHistory: []
+      terminalHistory: [],
     }
+
+    await window.electronAPI.dbInstancesInsert({
+      id: instance.id,
+      project_id: instance.projectId,
+      title: instance.title,
+      status: instance.status,
+      instance_number: instance.instanceNumber,
+      tokens_used: instance.tokensUsed,
+      cost_estimate: instance.costEstimate,
+      started_at: instance.startedAt,
+      ended_at: null,
+    })
+
     set(state => ({ instances: [...state.instances, instance] }))
     return instance
   },
 
   updateInstance: (id, updates) => {
     set(state => ({
-      instances: state.instances.map(i =>
-        i.id === id ? { ...i, ...updates } : i
-      )
+      instances: state.instances.map(i => i.id === id ? { ...i, ...updates } : i)
     }))
   },
 
-  removeInstance: (id) => {
-    set(state => ({
-      instances: state.instances.filter(i => i.id !== id)
-    }))
+  updateInstanceDb: async (id, updates) => {
+    const dbUpdates: Record<string, any> = {}
+    if (updates.title !== undefined) dbUpdates.title = updates.title
+    if (updates.status !== undefined) dbUpdates.status = updates.status
+    if (updates.tokensUsed !== undefined) dbUpdates.tokens_used = updates.tokensUsed
+    if (updates.costEstimate !== undefined) dbUpdates.cost_estimate = updates.costEstimate
+
+    await window.electronAPI.dbInstancesUpdate(id, dbUpdates)
+    get().updateInstance(id, updates)
+  },
+
+  removeInstance: async (id) => {
+    await window.electronAPI.dbInstancesUpdate(id, { ended_at: new Date().toISOString() })
+    set(state => ({ instances: state.instances.filter(i => i.id !== id) }))
   },
 
   getInstance: (id) => get().instances.find(i => i.id === id),
+
+  getInstanceByNumber: (num) => get().instances.find(i => i.instanceNumber === num),
 
   appendTerminalOutput: (id, output) => {
     set(state => ({
       instances: state.instances.map(i =>
         i.id === id
-          ? {
-              ...i,
-              terminalHistory: [...i.terminalHistory.slice(-500), output]
-            }
+          ? { ...i, terminalHistory: [...i.terminalHistory.slice(-500), output] }
           : i
       )
     }))
   },
 
   setStatus: (id, status) => {
-    set(state => ({
-      instances: state.instances.map(i =>
-        i.id === id ? { ...i, status } : i
-      )
-    }))
+    get().updateInstance(id, { status })
+    // Don't await, fire and forget for performance
+    window.electronAPI.dbInstancesUpdate(id, { status })
   },
-
-  setPendingQuestion: (id, question) => {
-    set(state => ({
-      instances: state.instances.map(i =>
-        i.id === id
-          ? {
-              ...i,
-              pendingQuestion: question,
-              status: question ? 'waiting' : i.status
-            }
-          : i
-      )
-    }))
-  },
-
-  getInboxItems: () => {
-    return get()
-      .instances
-      .filter(i => i.pendingQuestion)
-      .map(i => ({
-        instanceId: i.id,
-        projectId: i.projectId,
-        question: i.pendingQuestion!.text,
-        askedAt: i.pendingQuestion!.askedAt,
-        urgency: calculateUrgency(i.pendingQuestion!.askedAt),
-        snoozed: false
-      }))
-      .sort((a, b) => new Date(a.askedAt).getTime() - new Date(b.askedAt).getTime())
-  }
 }))
