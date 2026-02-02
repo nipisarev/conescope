@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAppStore, useProjectStore, useInstanceStore, useSettingsStore } from '@/stores'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { NavSidebar } from '@/components/shared/NavSidebar'
 import { TopBar } from '@/components/shared/TopBar'
 import { StatusBar } from '@/components/shared/StatusBar'
@@ -29,6 +30,8 @@ export default function App() {
     loadInstances()
     loadSettings()
   }, [])
+
+  useKeyboardShortcuts()
 
   const isLoading = projectsLoading || instancesLoading || settingsLoading
 
