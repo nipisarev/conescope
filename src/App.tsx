@@ -7,11 +7,13 @@ import { OverviewGrid } from '@/components/Overview/OverviewGrid'
 import { QuestionsPanel } from '@/components/Overview/QuestionsPanel'
 import { FocusView } from '@/components/Focus/FocusView'
 import { NewInstanceModal } from '@/components/shared/NewInstanceModal'
+import { SettingsModal } from '@/components/shared/SettingsModal'
 import './index.css'
 
 export default function App() {
   const viewMode = useAppStore(state => state.viewMode)
   const newInstanceModalOpen = useAppStore(state => state.newInstanceModalOpen)
+  const settingsOpen = useAppStore(state => state.settingsOpen)
   const questionsPanelVisible = useSettingsStore(state => state.questionsPanelVisible)
 
   const loadProjects = useProjectStore(state => state.loadProjects)
@@ -55,6 +57,7 @@ export default function App() {
         <StatusBar />
       </div>
       {newInstanceModalOpen && <NewInstanceModal />}
+      {settingsOpen && <SettingsModal />}
     </div>
   )
 }

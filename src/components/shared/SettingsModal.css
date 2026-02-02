@@ -1,0 +1,91 @@
+.settings-modal {
+  background: #252526;
+  border-radius: 8px;
+  width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.settings-content {
+  padding: 16px 20px 20px;
+}
+
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+}
+
+.settings-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.setting-row label {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.setting-row select,
+.setting-row input[type="number"] {
+  background: #3c3c3c;
+  border: 1px solid #4c4c4c;
+  border-radius: 4px;
+  color: #fff;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.setting-row select:focus,
+.setting-row input:focus {
+  border-color: #0e639c;
+}
+
+.setting-row select {
+  min-width: 140px;
+}
+
+.setting-row input[type="number"] {
+  width: 60px;
+  text-align: right;
+}
+
+.setting-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-suffix {
+  font-size: 12px;
+  color: #888;
+}
+
+.about-info {
+  color: #ccc;
+  font-size: 13px;
+}
+
+.about-info p {
+  margin: 0 0 8px;
+}
+
+.about-description {
+  color: #888;
+  font-size: 12px;
+}
