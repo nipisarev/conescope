@@ -1,18 +1,32 @@
-import { useCallback } from 'react'
-import { useInstanceStore, useProjectStore, useAppStore } from '@/stores'
+import { useState, useCallback, useEffect } from 'react'
+import { useInstanceStore, useProjectStore, useAppStore, useEditorStore } from '@/stores'
+import { FileTree } from './FileTree'
+import { EditorTabs } from './EditorTabs'
+import { Editor } from './Editor'
 import { Terminal } from './Terminal'
 import './FocusView.css'
 
 export function FocusView() {
+  const [terminalHeight, setTerminalHeight] = useState(300)
+  const [isResizing, setIsResizing] = useState(false)
+
   const focusedInstanceId = useAppStore(state => state.focusedInstanceId)
-  const returnToOverview = useAppStore(state => state.returnToOverview)
-  const removeInstance = useInstanceStore(state => state.removeInstance)
   const instance = useInstanceStore(state =>
     focusedInstanceId ? state.getInstance(focusedInstanceId) : undefined
   )
   const project = useProjectStore(state =>
     instance ? state.getProject(instance.projectId) : undefined
   )
+  const openFiles = useEditorStore(state => state.openFiles)
+  const activeFilePath = useEditorStore(state => state.activeFilePath)
+  const closeAllFiles = useEditorStore(state => state.closeAllFiles)
+
+  const activeFile = openFiles.find(f => f.path === activeFilePath) || null
+
+  // Close all files when switching instances
+  useEffect(() => {
+    closeAllFiles()
+  }, [focusedInstanceId, closeAllFiles])
 
   const handleInput = useCallback((data: string) => {
     if (focusedInstanceId) {
@@ -20,86 +34,64 @@ export function FocusView() {
     }
   }, [focusedInstanceId])
 
-  const handlePause = () => {
-    if (focusedInstanceId) {
-      window.electronAPI.pauseInstance(focusedInstanceId)
-    }
-  }
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
 
-  const handleKill = () => {
-    if (focusedInstanceId && confirm('Are you sure you want to kill this instance?')) {
-      window.electronAPI.killInstance(focusedInstanceId)
-      removeInstance(focusedInstanceId)
-      returnToOverview()
+  useEffect(() => {
+    if (!isResizing) return
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const container = document.querySelector('.focus-main')
+      if (!container) return
+
+      const rect = container.getBoundingClientRect()
+      const newHeight = rect.bottom - e.clientY
+      setTerminalHeight(Math.max(100, Math.min(newHeight, rect.height - 100)))
     }
-  }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizing])
 
   if (!instance || !project) {
     return (
       <div className="focus-view-empty">
         <p>No instance selected</p>
-        <button onClick={returnToOverview}>Return to Overview</button>
       </div>
     )
   }
 
-  const duration = Math.floor(
-    (Date.now() - new Date(instance.startedAt).getTime()) / 1000 / 60
-  )
-
   return (
     <div className="focus-view">
-      <div className="focus-header" style={{ borderBottomColor: project.color }}>
-        <button className="back-btn" onClick={returnToOverview}>
-          ← Back to Overview
-        </button>
-        <span className="focus-project-name">{project.displayName}</span>
-        <div className="focus-actions">
-          {instance.status === 'paused' ? (
-            <button
-              className="action-btn"
-              onClick={() => window.electronAPI.resumeInstance(focusedInstanceId!)}
-            >
-              Resume
-            </button>
-          ) : (
-            <button className="action-btn" onClick={handlePause}>
-              Pause
-            </button>
-          )}
-          <button className="action-btn action-btn-danger" onClick={handleKill}>
-            Kill
-          </button>
-        </div>
+      <div className="focus-sidebar">
+        <FileTree projectPath={project.path} />
       </div>
 
-      <div className="focus-content">
-        <div className="focus-sidebar">
-          <div className="sidebar-section">
-            <h3>Files</h3>
-            <p className="placeholder">File explorer coming soon</p>
-          </div>
+      <div className="focus-main">
+        <div className="focus-editor-area" style={{ flex: 1 }}>
+          <EditorTabs />
+          <Editor file={activeFile} />
         </div>
 
-        <div className="focus-main">
-          <div className="focus-editor">
-            <p className="placeholder">Monaco Editor coming soon</p>
-          </div>
+        <div
+          className={`focus-resize-handle ${isResizing ? 'active' : ''}`}
+          onMouseDown={handleResizeStart}
+        />
 
-          <div className="focus-terminal">
-            <Terminal instanceId={instance.id} onInput={handleInput} />
-          </div>
+        <div className="focus-terminal" style={{ height: terminalHeight }}>
+          <Terminal instanceId={instance.id} onInput={handleInput} />
         </div>
-      </div>
-
-      <div className="focus-stats-bar">
-        <span>Stats: {(instance.tokensUsed / 1000).toFixed(0)}k tokens</span>
-        <span className="stats-divider">│</span>
-        <span>${instance.costEstimate.toFixed(2)}</span>
-        <span className="stats-divider">│</span>
-        <span>{duration} min</span>
-        <span className="stats-divider">│</span>
-        <span>Git Changes: 0</span>
       </div>
     </div>
   )
