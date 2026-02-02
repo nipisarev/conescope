@@ -8,6 +8,7 @@ import { QuestionsPanel } from '@/components/Overview/QuestionsPanel'
 import { FocusView } from '@/components/Focus/FocusView'
 import { NewInstanceModal } from '@/components/shared/NewInstanceModal'
 import { SettingsModal } from '@/components/shared/SettingsModal'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 import './index.css'
 
 export default function App() {
@@ -40,24 +41,26 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
-      <NavSidebar />
-      <div className="app-main">
-        <TopBar />
-        <div className="app-content">
-          {viewMode === 'focus' ? (
-            <FocusView />
-          ) : (
-            <>
-              <OverviewGrid />
-              {questionsPanelVisible && <QuestionsPanel />}
-            </>
-          )}
+    <ErrorBoundary>
+      <div className="app-container">
+        <NavSidebar />
+        <div className="app-main">
+          <TopBar />
+          <div className="app-content">
+            {viewMode === 'focus' ? (
+              <FocusView />
+            ) : (
+              <>
+                <OverviewGrid />
+                {questionsPanelVisible && <QuestionsPanel />}
+              </>
+            )}
+          </div>
+          <StatusBar />
         </div>
-        <StatusBar />
+        {newInstanceModalOpen && <NewInstanceModal />}
+        {settingsOpen && <SettingsModal />}
       </div>
-      {newInstanceModalOpen && <NewInstanceModal />}
-      {settingsOpen && <SettingsModal />}
-    </div>
+    </ErrorBoundary>
   )
 }
