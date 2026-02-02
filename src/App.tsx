@@ -1,8 +1,10 @@
 import { useEffect } from 'react'
 import { useAppStore, useProjectStore, useInstanceStore, useSettingsStore } from '@/stores'
+import { NavSidebar } from '@/components/shared/NavSidebar'
 import { TopBar } from '@/components/shared/TopBar'
+import { StatusBar } from '@/components/shared/StatusBar'
 import { OverviewGrid } from '@/components/Overview/OverviewGrid'
-import { InboxPanel } from '@/components/Overview/InboxPanel'
+import { QuestionsPanel } from '@/components/Overview/QuestionsPanel'
 import { FocusView } from '@/components/Focus/FocusView'
 import { NewInstanceModal } from '@/components/shared/NewInstanceModal'
 import './index.css'
@@ -10,6 +12,7 @@ import './index.css'
 export default function App() {
   const viewMode = useAppStore(state => state.viewMode)
   const newInstanceModalOpen = useAppStore(state => state.newInstanceModalOpen)
+  const questionsPanelVisible = useSettingsStore(state => state.questionsPanelVisible)
 
   const loadProjects = useProjectStore(state => state.loadProjects)
   const loadInstances = useInstanceStore(state => state.loadInstances)
@@ -34,21 +37,22 @@ export default function App() {
     )
   }
 
-  if (viewMode === 'focus') {
-    return (
-      <>
-        <FocusView />
-        {newInstanceModalOpen && <NewInstanceModal />}
-      </>
-    )
-  }
-
   return (
     <div className="app-container">
-      <TopBar />
-      <div className="main-content">
-        <OverviewGrid />
-        <InboxPanel />
+      <NavSidebar />
+      <div className="app-main">
+        <TopBar />
+        <div className="app-content">
+          {viewMode === 'focus' ? (
+            <FocusView />
+          ) : (
+            <>
+              <OverviewGrid />
+              {questionsPanelVisible && <QuestionsPanel />}
+            </>
+          )}
+        </div>
+        <StatusBar />
       </div>
       {newInstanceModalOpen && <NewInstanceModal />}
     </div>
