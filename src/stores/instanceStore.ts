@@ -5,7 +5,7 @@ import { Instance, InstanceStatus, PendingQuestion, InboxItem, Urgency } from '@
 interface InstanceStore {
   instances: Instance[]
 
-  createInstance: (projectId: string) => Instance
+  createInstance: (projectId: string, instanceId?: string) => Instance
   updateInstance: (id: string, updates: Partial<Instance>) => void
   removeInstance: (id: string) => void
   getInstance: (id: string) => Instance | undefined
@@ -28,9 +28,9 @@ function calculateUrgency(askedAt: string): Urgency {
 export const useInstanceStore = create<InstanceStore>((set, get) => ({
   instances: [],
 
-  createInstance: (projectId: string) => {
+  createInstance: (projectId: string, instanceId?: string) => {
     const instance: Instance = {
-      id: uuid(),
+      id: instanceId || uuid(),
       projectId,
       pid: null,
       status: 'starting',

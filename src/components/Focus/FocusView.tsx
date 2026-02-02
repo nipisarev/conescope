@@ -6,6 +6,7 @@ import './FocusView.css'
 export function FocusView() {
   const focusedInstanceId = useAppStore(state => state.focusedInstanceId)
   const returnToOverview = useAppStore(state => state.returnToOverview)
+  const removeInstance = useInstanceStore(state => state.removeInstance)
   const instance = useInstanceStore(state =>
     focusedInstanceId ? state.getInstance(focusedInstanceId) : undefined
   )
@@ -28,6 +29,7 @@ export function FocusView() {
   const handleKill = () => {
     if (focusedInstanceId && confirm('Are you sure you want to kill this instance?')) {
       window.electronAPI.killInstance(focusedInstanceId)
+      removeInstance(focusedInstanceId)
       returnToOverview()
     }
   }
