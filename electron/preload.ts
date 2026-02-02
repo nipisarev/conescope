@@ -2,8 +2,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // Instance management
-  createInstance: (projectPath: string) =>
-    ipcRenderer.invoke('instance:create', projectPath),
+  createInstance: (instanceId: string, projectPath: string) =>
+    ipcRenderer.invoke('instance:create', instanceId, projectPath),
   killInstance: (instanceId: string) =>
     ipcRenderer.invoke('instance:kill', instanceId),
   pauseInstance: (instanceId: string) =>

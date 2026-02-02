@@ -35,7 +35,7 @@ export interface DbQuestion {
 
 export interface ElectronAPI {
   // Instance management
-  createInstance: (projectPath: string) => Promise<string>
+  createInstance: (instanceId: string, projectPath: string) => Promise<string>
   killInstance: (instanceId: string) => Promise<void>
   pauseInstance: (instanceId: string) => Promise<void>
   resumeInstance: (instanceId: string) => Promise<void>

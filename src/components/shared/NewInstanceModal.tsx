@@ -18,9 +18,11 @@ export function NewInstanceModal() {
   }
 
   const handleCreateInstance = async (projectPath: string) => {
-    const project = addProject(projectPath)
-    const instanceId = await window.electronAPI.createInstance(projectPath)
-    const instance = createInstance(project.id, instanceId)
+    const project = await addProject(projectPath)
+    // Create instance in store first (gets ID and instance number from DB)
+    const instance = await createInstance(project.id, project.displayName)
+    // Start the PTY process with the same instance ID
+    await window.electronAPI.createInstance(instance.id, projectPath)
     toggleNewInstanceModal()
     focusInstance(instance.id)
   }

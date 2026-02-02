@@ -37,14 +37,14 @@ function createWindow() {
 }
 
 // IPC Handlers
-ipcMain.handle('instance:create', async (_, projectPath: string) => {
-  logger.info('IPC: instance:create', { projectPath })
+ipcMain.handle('instance:create', async (_, instanceId: string, projectPath: string) => {
+  logger.info('IPC: instance:create', { instanceId, projectPath })
   try {
-    const id = crypto.randomUUID()
-    instanceManager.createInstance(id, projectPath)
-    return id
+    instanceManager.createInstance(instanceId, projectPath)
+    return instanceId
   } catch (error) {
     logger.error('IPC: instance:create failed', {
+      instanceId,
       projectPath,
       error: error instanceof Error ? error.message : String(error)
     })
