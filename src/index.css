@@ -26,3 +26,16 @@ body {
   flex: 1;
   overflow: hidden;
 }
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: #1e1e1e;
+  color: #888;
+}
+
+.loading-spinner {
+  font-size: 18px;
+}
