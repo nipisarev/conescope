@@ -45,7 +45,7 @@ export function OverviewGrid() {
         gridTemplateRows: `repeat(${rows}, 1fr)`
       }}
     >
-      {instances.map(instance => (
+      {[...instances].sort((a, b) => a.instanceNumber - b.instanceNumber).map(instance => (
         <InstanceTile key={instance.id} instance={instance} />
       ))}
       {showEmptySlot && <EmptySlot />}

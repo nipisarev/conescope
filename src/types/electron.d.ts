@@ -40,10 +40,11 @@ export interface ElectronAPI {
   pauseInstance: (instanceId: string) => Promise<void>
   resumeInstance: (instanceId: string) => Promise<void>
   sendInput: (instanceId: string, input: string) => Promise<void>
+  resizeInstance: (instanceId: string, cols: number, rows: number) => Promise<void>
 
-  // Event listeners
-  onInstanceOutput: (callback: (instanceId: string, data: string) => void) => void
-  onInstanceStatusChange: (callback: (instanceId: string, status: string) => void) => void
+  // Event listeners (return cleanup function)
+  onInstanceOutput: (callback: (instanceId: string, data: string) => void) => () => void
+  onInstanceStatusChange: (callback: (instanceId: string, status: string) => void) => () => void
 
   // File system
   selectDirectory: () => Promise<string | null>

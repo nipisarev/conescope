@@ -12,13 +12,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('instance:resume', instanceId),
   sendInput: (instanceId: string, input: string) =>
     ipcRenderer.invoke('instance:input', instanceId, input),
+  resizeInstance: (instanceId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('instance:resize', instanceId, cols, rows),
 
-  // Event listeners
+  // Event listeners (return cleanup function)
   onInstanceOutput: (callback: (instanceId: string, data: string) => void) => {
-    ipcRenderer.on('instance:output', (_, instanceId, data) => callback(instanceId, data))
+    const handler = (_: any, instanceId: string, data: string) => callback(instanceId, data)
+    ipcRenderer.on('instance:output', handler)
+    return () => ipcRenderer.removeListener('instance:output', handler)
   },
   onInstanceStatusChange: (callback: (instanceId: string, status: string) => void) => {
-    ipcRenderer.on('instance:status', (_, instanceId, status) => callback(instanceId, status))
+    const handler = (_: any, instanceId: string, status: string) => callback(instanceId, status)
+    ipcRenderer.on('instance:status', handler)
+    return () => ipcRenderer.removeListener('instance:status', handler)
   },
 
   // File system
@@ -41,6 +47,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dbInstancesUpdate: (id: string, updates: any) => ipcRenderer.invoke('db:instances:update', id, updates),
   dbInstancesDelete: (id: string) => ipcRenderer.invoke('db:instances:delete', id),
   dbInstancesGetNextNumber: () => ipcRenderer.invoke('db:instances:getNextNumber'),
+  dbInstancesSaveTerminalHistory: (id: string, history: string[]) => ipcRenderer.invoke('db:instances:saveTerminalHistory', id, history),
+  dbInstancesGetTerminalHistory: (id: string) => ipcRenderer.invoke('db:instances:getTerminalHistory', id),
 
   // Database - Settings
   dbSettingsGet: (key: string) => ipcRenderer.invoke('db:settings:get', key),

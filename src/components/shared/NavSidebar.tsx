@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAppStore, useInstanceStore, useProjectStore, useSettingsStore } from '@/stores'
+import { ViewGrid, Folder, Page, Terminal } from 'iconoir-react'
 import { InstancePopup } from './InstancePopup'
 import './NavSidebar.css'
 
@@ -33,7 +34,7 @@ export function NavSidebar() {
           onClick={returnToOverview}
           title="Overview"
         >
-          <span className="activity-btn-icon">▣</span>
+          <ViewGrid width={18} height={18} />
         </button>
         {isFocusMode && showPopup && instances.length > 0 && (
           <InstancePopup onClose={() => setShowPopup(false)} />
@@ -50,21 +51,21 @@ export function NavSidebar() {
               onClick={toggleFolderPanel}
               title="Toggle Folder Panel"
             >
-              <span className="activity-btn-icon">📁</span>
+              <Folder width={18} height={18} />
             </button>
             <button
               className={`activity-btn panel-toggle ${sessionState.editorPanelVisible ? 'panel-active' : ''}`}
               onClick={toggleEditorPanel}
               title="Toggle Editor Panel"
             >
-              <span className="activity-btn-icon">📄</span>
+              <Page width={18} height={18} />
             </button>
             <button
               className={`activity-btn panel-toggle ${sessionState.terminalPanelVisible ? 'panel-active' : ''}`}
               onClick={toggleTerminalPanel}
               title="Toggle Terminal Panel"
             >
-              <span className="activity-btn-icon">⌨</span>
+              <Terminal width={18} height={18} />
             </button>
           </div>
         </>

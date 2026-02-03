@@ -5,6 +5,7 @@ import {
   useInstanceStore,
   useProjectStore,
 } from '@/stores'
+import { Settings, Minus, Xmark } from 'iconoir-react'
 import { CloseConfirmModal } from './CloseConfirmModal'
 import './TopBar.css'
 
@@ -75,14 +76,14 @@ export function TopBar() {
                 onClick={handleMinimize}
                 title="Minimize (return to overview)"
               >
-                −
+                <Minus width={18} height={18} />
               </button>
               <button
                 className="control-btn icon-btn"
                 onClick={handleCloseClick}
                 title="Close Instance"
               >
-                ×
+                <Xmark width={18} height={18} />
               </button>
             </div>
           ) : (
@@ -104,7 +105,7 @@ export function TopBar() {
                 onClick={toggleSettings}
                 title="Settings"
               >
-                ⚙
+                <Settings width={18} height={18} />
               </button>
             </>
           )}

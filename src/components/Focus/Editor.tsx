@@ -1,11 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { javascript } from '@codemirror/lang-javascript'
-import { json } from '@codemirror/lang-json'
-import { markdown } from '@codemirror/lang-markdown'
-import { css } from '@codemirror/lang-css'
-import { html } from '@codemirror/lang-html'
-import { python } from '@codemirror/lang-python'
+import { oneDark } from '@codemirror/theme-one-dark'
+import { loadLanguage, LanguageName } from '@uiw/codemirror-extensions-langs'
 import { useEditorStore, OpenFile } from '@/stores/editorStore'
 import './Editor.css'
 
@@ -19,25 +15,8 @@ export function Editor({ file }: EditorProps) {
 
   const extensions = useMemo(() => {
     if (!file) return []
-
-    switch (file.language) {
-      case 'javascript':
-        return [javascript({ jsx: true })]
-      case 'typescript':
-        return [javascript({ jsx: true, typescript: true })]
-      case 'json':
-        return [json()]
-      case 'markdown':
-        return [markdown()]
-      case 'css':
-        return [css()]
-      case 'html':
-        return [html()]
-      case 'python':
-        return [python()]
-      default:
-        return []
-    }
+    const lang = loadLanguage(file.language as LanguageName)
+    return lang ? [lang] : []
   }, [file?.language])
 
   const handleChange = useCallback((value: string) => {
@@ -72,7 +51,7 @@ export function Editor({ file }: EditorProps) {
       <CodeMirror
         value={file.content}
         height="100%"
-        theme="dark"
+        theme={oneDark}
         extensions={extensions}
         onChange={handleChange}
         basicSetup={{

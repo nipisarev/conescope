@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { ViewMode } from '@/types'
+import { useSettingsStore } from './settingsStore'
 
 interface AppStore {
   viewMode: ViewMode
@@ -8,6 +9,7 @@ interface AppStore {
   settingsOpen: boolean
   newInstanceModalOpen: boolean
 
+  initFromSession: () => void
   setViewMode: (mode: ViewMode) => void
   focusInstance: (instanceId: string) => void
   returnToOverview: () => void
@@ -23,17 +25,40 @@ export const useAppStore = create<AppStore>((set) => ({
   settingsOpen: false,
   newInstanceModalOpen: false,
 
-  setViewMode: (mode) => set({ viewMode: mode }),
+  initFromSession: () => {
+    const { sessionState } = useSettingsStore.getState()
+    set({
+      viewMode: sessionState.viewMode,
+      focusedInstanceId: sessionState.focusedInstanceId,
+    })
+  },
 
-  focusInstance: (instanceId) => set({
-    viewMode: 'focus',
-    focusedInstanceId: instanceId
-  }),
+  setViewMode: (mode) => {
+    set({ viewMode: mode })
+    useSettingsStore.getState().saveSessionState({ viewMode: mode })
+  },
 
-  returnToOverview: () => set({
-    viewMode: 'overview',
-    focusedInstanceId: null
-  }),
+  focusInstance: (instanceId) => {
+    set({
+      viewMode: 'focus',
+      focusedInstanceId: instanceId
+    })
+    useSettingsStore.getState().saveSessionState({
+      viewMode: 'focus',
+      focusedInstanceId: instanceId
+    })
+  },
+
+  returnToOverview: () => {
+    set({
+      viewMode: 'overview',
+      focusedInstanceId: null
+    })
+    useSettingsStore.getState().saveSessionState({
+      viewMode: 'overview',
+      focusedInstanceId: null
+    })
+  },
 
   toggleQuestionsQueue: () => set(state => ({
     questionsQueueOpen: !state.questionsQueueOpen

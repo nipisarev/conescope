@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tree, NodeRendererProps } from 'react-arborist'
 import { useEditorStore } from '@/stores'
 import './FileTree.css'
@@ -64,6 +64,8 @@ function FileTreeNode({ node, style, dragHandle }: NodeRendererProps<FileNode>) 
 export function FileTree({ projectPath }: FileTreeProps) {
   const [data, setData] = useState<FileNode[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [dimensions, setDimensions] = useState({ width: 240, height: 500 })
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const loadDirectory = useCallback(async (dirPath: string): Promise<FileNode[]> => {
     const entries = await window.electronAPI.readDirectory(dirPath)
@@ -112,23 +114,61 @@ export function FileTree({ projectPath }: FileTreeProps) {
       .finally(() => setIsLoading(false))
   }, [projectPath, loadDirectory])
 
+  // Handle container resizing - re-run when data loads
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container || isLoading || data.length === 0) return
+
+    const updateDimensions = () => {
+      const rect = container.getBoundingClientRect()
+      if (rect.height > 0 && rect.width > 0) {
+        setDimensions({ width: rect.width, height: rect.height })
+      }
+    }
+
+    // Initial measurement after layout settles
+    const timeout = setTimeout(updateDimensions, 50)
+
+    const resizeObserver = new ResizeObserver(updateDimensions)
+    resizeObserver.observe(container)
+
+    return () => {
+      clearTimeout(timeout)
+      resizeObserver.disconnect()
+    }
+  }, [isLoading, data.length])
+
   if (isLoading) {
-    return <div className="file-tree-loading">Loading files...</div>
+    return (
+      <div className="file-tree">
+        <div className="file-tree-header">FILES</div>
+        <div className="file-tree-content">
+          <div className="file-tree-message">Loading files...</div>
+        </div>
+      </div>
+    )
   }
 
   if (data.length === 0) {
-    return <div className="file-tree-empty">No files found</div>
+    return (
+      <div className="file-tree">
+        <div className="file-tree-header">FILES</div>
+        <div className="file-tree-content">
+          <div className="file-tree-message">No files found</div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="file-tree">
       <div className="file-tree-header">FILES</div>
-      <div className="file-tree-content">
+      <div className="file-tree-content" ref={containerRef}>
         <Tree
           data={data}
           openByDefault={false}
-          width="100%"
-          height={600}
+          width={dimensions.width}
+          height={dimensions.height}
           indent={16}
           rowHeight={28}
           overscanCount={5}

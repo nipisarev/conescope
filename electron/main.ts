@@ -26,7 +26,6 @@ function createWindow() {
   if (process.env.NODE_ENV === 'development') {
     logger.info('Loading development URL')
     win.loadURL('http://localhost:5173')
-    win.webContents.openDevTools()
   } else {
     const indexPath = path.join(__dirname, '../dist/index.html')
     logger.info('Loading production file', { path: indexPath })
@@ -69,6 +68,10 @@ ipcMain.handle('instance:resume', (_, instanceId: string) => {
 
 ipcMain.handle('instance:input', (_, instanceId: string, input: string) => {
   instanceManager.sendInput(instanceId, input)
+})
+
+ipcMain.handle('instance:resize', (_, instanceId: string, cols: number, rows: number) => {
+  instanceManager.resizeInstance(instanceId, cols, rows)
 })
 
 ipcMain.handle('dialog:selectDirectory', async () => {
@@ -123,6 +126,8 @@ ipcMain.handle('db:instances:insert', (_, instance) => database.insertInstance(i
 ipcMain.handle('db:instances:update', (_, id: string, updates) => database.updateInstance(id, updates))
 ipcMain.handle('db:instances:delete', (_, id: string) => database.deleteInstance(id))
 ipcMain.handle('db:instances:getNextNumber', () => database.getNextInstanceNumber())
+ipcMain.handle('db:instances:saveTerminalHistory', (_, id: string, history: string[]) => database.saveTerminalHistory(id, history))
+ipcMain.handle('db:instances:getTerminalHistory', (_, id: string) => database.getTerminalHistory(id))
 
 ipcMain.handle('db:settings:get', (_, key: string) => database.getSetting(key))
 ipcMain.handle('db:settings:set', (_, key: string, value: string) => database.setSetting(key, value))

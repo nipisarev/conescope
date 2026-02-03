@@ -58,6 +58,7 @@ class DatabaseService {
         cost_estimate REAL DEFAULT 0,
         started_at TEXT NOT NULL,
         ended_at TEXT,
+        terminal_history TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
 
@@ -87,6 +88,14 @@ class DatabaseService {
     insertSetting.run('questions_panel_visible', 'true')
     insertSetting.run('editor_font_size', '13')
     insertSetting.run('terminal_font_size', '13')
+
+    // Migration: Add terminal_history column if it doesn't exist
+    try {
+      this.db.exec('ALTER TABLE instances ADD COLUMN terminal_history TEXT')
+      logger.info('Added terminal_history column')
+    } catch (e) {
+      // Column already exists, ignore
+    }
 
     logger.info('Database migration complete')
   }
@@ -168,6 +177,23 @@ class DatabaseService {
       'SELECT COALESCE(MAX(instance_number), 0) + 1 as next FROM instances WHERE ended_at IS NULL'
     ).get() as { next: number }
     return result.next
+  }
+
+  saveTerminalHistory(id: string, history: string[]): void {
+    if (!this.db) throw new Error('Database not initialized')
+    const json = JSON.stringify(history.slice(-500)) // Keep last 500 chunks
+    this.db.prepare('UPDATE instances SET terminal_history = ? WHERE id = ?').run(json, id)
+  }
+
+  getTerminalHistory(id: string): string[] {
+    if (!this.db) throw new Error('Database not initialized')
+    const row = this.db.prepare('SELECT terminal_history FROM instances WHERE id = ?').get(id) as { terminal_history: string | null } | undefined
+    if (!row?.terminal_history) return []
+    try {
+      return JSON.parse(row.terminal_history)
+    } catch {
+      return []
+    }
   }
 
   // Settings

@@ -7,6 +7,7 @@ interface InstanceStore {
   isLoading: boolean
 
   loadInstances: () => Promise<void>
+  restoreInstance: (id: string, projectPath: string) => Promise<void>
   createInstance: (projectId: string, projectName: string) => Promise<Instance>
   updateInstance: (id: string, updates: Partial<Instance>) => void
   updateInstanceDb: (id: string, updates: Partial<Instance>) => Promise<void>
@@ -29,13 +30,17 @@ export const useInstanceStore = create<InstanceStore>((set, get) => ({
       projectId: i.project_id,
       title: i.title || '',
       instanceNumber: i.instance_number,
-      status: i.status as InstanceStatus,
+      status: 'starting' as InstanceStatus, // Reset status - will be restored
       tokensUsed: i.tokens_used,
       costEstimate: i.cost_estimate,
       startedAt: i.started_at,
       terminalHistory: [],
     }))
     set({ instances, isLoading: false })
+  },
+
+  restoreInstance: async (id: string, projectPath: string) => {
+    await window.electronAPI.createInstance(id, projectPath)
   },
 
   createInstance: async (projectId: string, projectName: string) => {

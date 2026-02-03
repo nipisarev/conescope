@@ -98,14 +98,14 @@ class InstanceManager {
       }
 
       ptyProcess.onData((data) => {
-        if (this.mainWindow && !instance.isPaused) {
+        if (this.mainWindow && !this.mainWindow.isDestroyed() && !instance.isPaused) {
           this.mainWindow.webContents.send('instance:output', id, data)
         }
       })
 
       ptyProcess.onExit(({ exitCode, signal }) => {
         logger.info('PTY process exited', { id, exitCode, signal })
-        if (this.mainWindow) {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
           this.mainWindow.webContents.send('instance:status', id, 'stopped')
         }
         this.instances.delete(id)
@@ -117,7 +117,7 @@ class InstanceManager {
       logger.info('Starting Claude CLI', { id })
       ptyProcess.write('claude\r')
 
-      if (this.mainWindow) {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('instance:status', id, 'working')
       }
     } catch (error) {
@@ -145,7 +145,7 @@ class InstanceManager {
     if (instance) {
       instance.isPaused = true
       logger.info('Instance paused', { id })
-      if (this.mainWindow) {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('instance:status', id, 'paused')
       }
     }
@@ -156,7 +156,7 @@ class InstanceManager {
     if (instance) {
       instance.isPaused = false
       logger.info('Instance resumed', { id })
-      if (this.mainWindow) {
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
         this.mainWindow.webContents.send('instance:status', id, 'working')
       }
     }
