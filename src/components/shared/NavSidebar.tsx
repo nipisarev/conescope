@@ -1,4 +1,6 @@
-import { useAppStore, useInstanceStore } from '@/stores'
+import { useState } from 'react'
+import { useAppStore, useInstanceStore, useProjectStore, useSettingsStore } from '@/stores'
+import { InstancePopup } from './InstancePopup'
 import './NavSidebar.css'
 
 export function NavSidebar() {
@@ -6,56 +8,92 @@ export function NavSidebar() {
   const focusedInstanceId = useAppStore(state => state.focusedInstanceId)
   const returnToOverview = useAppStore(state => state.returnToOverview)
   const focusInstance = useAppStore(state => state.focusInstance)
-  const toggleSettings = useAppStore(state => state.toggleSettings)
   const instances = useInstanceStore(state => state.instances)
+  const getProject = useProjectStore(state => state.getProject)
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'working': return '#81C784'
-      case 'waiting': return '#FFB74D'
-      case 'paused': return '#90A4AE'
-      default: return '#666'
-    }
-  }
+  const sessionState = useSettingsStore(state => state.sessionState)
+  const toggleFolderPanel = useSettingsStore(state => state.toggleFolderPanel)
+  const toggleEditorPanel = useSettingsStore(state => state.toggleEditorPanel)
+  const toggleTerminalPanel = useSettingsStore(state => state.toggleTerminalPanel)
+
+  const [showPopup, setShowPopup] = useState(false)
+
+  const isFocusMode = viewMode === 'focus'
 
   return (
-    <nav className="nav-sidebar">
-      <div className="nav-top">
+    <nav className="activity-bar">
+      {/* Overview button */}
+      <div
+        className="overview-btn-wrapper"
+        onMouseEnter={() => isFocusMode && setShowPopup(true)}
+        onMouseLeave={() => setShowPopup(false)}
+      >
         <button
-          className={`nav-btn ${viewMode === 'overview' ? 'active' : ''}`}
+          className={`activity-btn ${!isFocusMode ? 'active' : ''}`}
           onClick={returnToOverview}
           title="Overview"
         >
-          <span className="nav-icon">▣</span>
+          <span className="activity-btn-icon">▣</span>
         </button>
-
-        <div className="nav-divider" />
-
-        {instances.map(instance => (
-          <button
-            key={instance.id}
-            className={`nav-btn ${focusedInstanceId === instance.id ? 'active' : ''}`}
-            onClick={() => focusInstance(instance.id)}
-            title={`#${instance.instanceNumber} ${instance.title}`}
-          >
-            <span className="nav-instance-num">{instance.instanceNumber}</span>
-            <span
-              className="nav-status-dot"
-              style={{ backgroundColor: getStatusColor(instance.status) }}
-            />
-          </button>
-        ))}
+        {isFocusMode && showPopup && instances.length > 0 && (
+          <InstancePopup onClose={() => setShowPopup(false)} />
+        )}
       </div>
 
-      <div className="nav-bottom">
-        <button
-          className="nav-btn"
-          onClick={toggleSettings}
-          title="Settings"
-        >
-          <span className="nav-icon">⚙</span>
-        </button>
-      </div>
+      {isFocusMode ? (
+        /* Focus mode: panel toggles */
+        <>
+          <div className="activity-bar-divider" />
+          <div className="activity-bar-section">
+            <button
+              className={`activity-btn panel-toggle ${sessionState.folderPanelVisible ? 'panel-active' : ''}`}
+              onClick={toggleFolderPanel}
+              title="Toggle Folder Panel"
+            >
+              <span className="activity-btn-icon">📁</span>
+            </button>
+            <button
+              className={`activity-btn panel-toggle ${sessionState.editorPanelVisible ? 'panel-active' : ''}`}
+              onClick={toggleEditorPanel}
+              title="Toggle Editor Panel"
+            >
+              <span className="activity-btn-icon">📄</span>
+            </button>
+            <button
+              className={`activity-btn panel-toggle ${sessionState.terminalPanelVisible ? 'panel-active' : ''}`}
+              onClick={toggleTerminalPanel}
+              title="Toggle Terminal Panel"
+            >
+              <span className="activity-btn-icon">⌨</span>
+            </button>
+          </div>
+        </>
+      ) : (
+        /* Overview mode: instance numbers */
+        instances.length > 0 && (
+          <div className="activity-bar-section">
+            {[...instances]
+              .sort((a, b) => a.instanceNumber - b.instanceNumber)
+              .map(instance => {
+                const project = getProject(instance.projectId)
+                const color = project?.color || '#888'
+                const isActive = focusedInstanceId === instance.id
+
+                return (
+                  <button
+                    key={instance.id}
+                    className={`activity-btn ${isActive ? 'active' : ''}`}
+                    style={{ color: isActive ? '#fff' : color }}
+                    onClick={() => focusInstance(instance.id)}
+                    title={`#${instance.instanceNumber} ${instance.title}`}
+                  >
+                    <span className="activity-btn-num">{instance.instanceNumber}</span>
+                  </button>
+                )
+              })}
+          </div>
+        )
+      )}
     </nav>
   )
 }
