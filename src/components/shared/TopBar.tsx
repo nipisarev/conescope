@@ -1,4 +1,11 @@
-import { useAppStore, useSettingsStore, useInstanceStore, useProjectStore } from '@/stores'
+import { useState } from 'react'
+import {
+  useAppStore,
+  useSettingsStore,
+  useInstanceStore,
+  useProjectStore,
+} from '@/stores'
+import { CloseConfirmModal } from './CloseConfirmModal'
 import './TopBar.css'
 
 export function TopBar() {
@@ -6,6 +13,7 @@ export function TopBar() {
   const focusedInstanceId = useAppStore(state => state.focusedInstanceId)
   const returnToOverview = useAppStore(state => state.returnToOverview)
   const toggleNewInstanceModal = useAppStore(state => state.toggleNewInstanceModal)
+  const toggleSettings = useAppStore(state => state.toggleSettings)
   const toggleQuestionsPanel = useSettingsStore(state => state.toggleQuestionsPanel)
   const questionsPanelVisible = useSettingsStore(state => state.questionsPanelVisible)
 
@@ -17,80 +25,102 @@ export function TopBar() {
     instance ? state.getProject(instance.projectId) : undefined
   )
 
-  const handlePause = () => {
-    if (focusedInstanceId) {
-      window.electronAPI.pauseInstance(focusedInstanceId)
-    }
+  const [showCloseModal, setShowCloseModal] = useState(false)
+
+  const handleMinimize = () => {
+    returnToOverview()
   }
 
-  const handleResume = () => {
-    if (focusedInstanceId) {
-      window.electronAPI.resumeInstance(focusedInstanceId)
-    }
+  const handleCloseClick = () => {
+    setShowCloseModal(true)
   }
 
-  const handleKill = () => {
-    if (focusedInstanceId && confirm('Are you sure you want to kill this instance?')) {
+  const handleCloseConfirm = () => {
+    if (focusedInstanceId) {
       window.electronAPI.killInstance(focusedInstanceId)
       removeInstance(focusedInstanceId)
       returnToOverview()
     }
+    setShowCloseModal(false)
+  }
+
+  const handleCloseCancel = () => {
+    setShowCloseModal(false)
   }
 
   const isFocusMode = viewMode === 'focus' && instance && project
 
   return (
-    <header className="top-bar">
-      <div className="top-bar-drag-region" />
+    <>
+      <header className="top-bar">
+        <div className="top-bar-drag-region" />
 
-      <div className="top-bar-left">
-        {isFocusMode ? (
-          <>
-            <button className="top-bar-back" onClick={returnToOverview} title="Back to Overview (Cmd+0)">
-              ←
-            </button>
-            <span className="top-bar-instance" style={{ color: project.color }}>
-              #{instance.instanceNumber}
+        <div className="top-bar-left" />
+
+        <div className="top-bar-center">
+          {isFocusMode ? (
+            <span className="app-title" style={{ color: project.color }}>
+              #{instance.instanceNumber} {instance.title}
             </span>
-            <span className="top-bar-instance-title">{instance.title}</span>
-          </>
-        ) : (
-          <span className="app-title">◉ Jenklaud</span>
-        )}
-      </div>
+          ) : (
+            <span className="app-title">Jenklaud</span>
+          )}
+        </div>
 
-      <div className="top-bar-center">
-        {isFocusMode && (
-          <div className="instance-controls">
-            {instance.status === 'paused' ? (
-              <button className="control-btn" onClick={handleResume} title="Resume">
-                ▶ Resume
+        <div className="top-bar-right">
+          {isFocusMode ? (
+            <div className="instance-controls">
+              <button
+                className="control-btn icon-btn"
+                onClick={handleMinimize}
+                title="Minimize (return to overview)"
+              >
+                −
               </button>
-            ) : (
-              <button className="control-btn" onClick={handlePause} title="Pause">
-                ⏸ Pause
+              <button
+                className="control-btn icon-btn"
+                onClick={handleCloseClick}
+                title="Close Instance"
+              >
+                ×
               </button>
-            )}
-            <button className="control-btn danger" onClick={handleKill} title="Kill Instance">
-              ✕ Kill
-            </button>
-          </div>
-        )}
-      </div>
+            </div>
+          ) : (
+            <>
+              <button
+                className="top-bar-btn primary"
+                onClick={toggleNewInstanceModal}
+              >
+                + New
+              </button>
+              <button
+                className={`top-bar-btn ${questionsPanelVisible ? 'active' : ''}`}
+                onClick={toggleQuestionsPanel}
+              >
+                Questions
+              </button>
+              <button
+                className="top-bar-btn icon-btn"
+                onClick={toggleSettings}
+                title="Settings"
+              >
+                ⚙
+              </button>
+            </>
+          )}
+        </div>
+      </header>
 
-      <div className="top-bar-right">
-        <button className="top-bar-btn primary" onClick={toggleNewInstanceModal}>
-          + New
-        </button>
-        {viewMode === 'overview' && (
-          <button
-            className={`top-bar-btn ${questionsPanelVisible ? 'active' : ''}`}
-            onClick={toggleQuestionsPanel}
-          >
-            Questions
-          </button>
-        )}
-      </div>
-    </header>
+      {showCloseModal && instance && project && (
+        <CloseConfirmModal
+          instanceNumber={instance.instanceNumber}
+          instanceTitle={instance.title}
+          projectColor={project.color}
+          status={instance.status}
+          onConfirm={handleCloseConfirm}
+          onCancel={handleCloseCancel}
+        />
+      )}
+    </>
   )
 }
