@@ -7,11 +7,20 @@
 }
 
 .editor-tabs::-webkit-scrollbar {
-  height: 3px;
+  height: 6px;
+}
+
+.editor-tabs::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .editor-tabs::-webkit-scrollbar-thumb {
-  background: #3c3c3c;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.editor-tabs::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .editor-tab {
