@@ -61,10 +61,10 @@ export function TopBar() {
         <div className="top-bar-center">
           {isFocusMode ? (
             <span className="app-title" style={{ color: project.color }}>
-              #{instance.instanceNumber} {instance.title}
+              #{instance.instanceNumber} {instance.title.toUpperCase()}
             </span>
           ) : (
-            <span className="app-title">Jenklaud</span>
+            <span className="app-title">JENKLAUD</span>
           )}
         </div>
 

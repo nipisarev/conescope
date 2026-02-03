@@ -3,9 +3,11 @@ import './InstancePopup.css'
 
 interface InstancePopupProps {
   onClose: () => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
 }
 
-export function InstancePopup({ onClose }: InstancePopupProps) {
+export function InstancePopup({ onClose, onMouseEnter, onMouseLeave }: InstancePopupProps) {
   const instances = useInstanceStore(state => state.instances)
   const getProject = useProjectStore(state => state.getProject)
   const focusedInstanceId = useAppStore(state => state.focusedInstanceId)
@@ -17,7 +19,7 @@ export function InstancePopup({ onClose }: InstancePopupProps) {
   }
 
   return (
-    <div className="instance-popup">
+    <div className="instance-popup" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       {[...instances]
         .sort((a, b) => a.instanceNumber - b.instanceNumber)
         .map(instance => {

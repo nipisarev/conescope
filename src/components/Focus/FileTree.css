@@ -48,13 +48,17 @@
   gap: 2px;
   flex-shrink: 0;
   color: #6d8086;
+  /* For files: add left padding to align with folder icons (arrow width + gap) */
+  padding-left: 18px;
 }
 
 .file-tree-icon svg {
   flex-shrink: 0;
 }
 
+/* Directories don't need extra padding - they have the arrow */
 .file-tree-node.is-directory .file-tree-icon {
+  padding-left: 0;
   color: #dcb67a;
 }
 

@@ -2,14 +2,32 @@
   position: fixed;
   bottom: 0;
   left: 0;
-  height: 36px;
+  right: 0;
+  height: 28px;
   background: #252526;
   border-top: 1px solid #2a2a2a;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 8px;
-  gap: 2px;
   z-index: 50;
+}
+
+.activity-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.activity-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.activity-stat {
+  font-size: 11px;
+  color: #666;
 }
 
 .activity-bar-section {
@@ -20,23 +38,23 @@
 
 .activity-bar-divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: #3c3c3c;
-  margin: 0 6px;
+  margin: 0 4px;
 }
 
 .activity-btn {
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border: none;
   background: transparent;
   color: #666;
-  border-radius: 4px;
+  border-radius: 3px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 12px;
   transition: all 0.15s ease;
   position: relative;
 }
@@ -51,13 +69,9 @@
   color: #fff;
 }
 
-.activity-btn-icon {
-  font-size: 16px;
-}
-
 .activity-btn-num {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 11px;
 }
 
 /* Panel toggle states */
@@ -71,7 +85,6 @@
 
 .activity-btn.panel-toggle.panel-active {
   color: #0e639c;
-  font-weight: 700;
 }
 
 .activity-btn.panel-toggle.panel-active:hover {
