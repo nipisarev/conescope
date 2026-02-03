@@ -14,9 +14,45 @@
   position: relative;
 }
 
-/* react-arborist tree container scrollbar */
+/* react-arborist / react-window scrollbar styling */
 .file-tree-content > div {
-  padding-right: 4px;
+  overflow: auto !important;
+}
+
+.file-tree-content > div > div {
+  overflow: auto !important;
+}
+
+/* Ensure scrollbar is visible in the tree */
+.file-tree-content ::-webkit-scrollbar {
+  width: 10px;
+}
+
+.file-tree-content ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-tree-content ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.file-tree-content ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+/* react-arborist tree specific */
+.file-tree-arborist {
+  outline: none;
+}
+
+.file-tree-arborist > div {
+  overflow-y: scroll !important;
+  overflow-x: hidden !important;
 }
 
 .file-tree-message {

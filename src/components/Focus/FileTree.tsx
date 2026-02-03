@@ -338,6 +338,7 @@ export function FileTree({ projectPath }: FileTreeProps) {
           overscanCount={5}
           disableDrag
           disableDrop
+          className="file-tree-arborist"
         >
           {FileTreeNode}
         </Tree>
