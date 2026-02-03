@@ -1,11 +1,13 @@
 .instance-tile {
   background: #252526;
   border-radius: 8px;
-  border: 1px solid #3c3c3c;
+  border: 1px solid #2a2a2a;
   overflow: hidden;
   cursor: pointer;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  height: 100%;
   transition: border-color 0.15s ease;
 }
 
@@ -18,22 +20,13 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  position: relative;
-}
-
-.tile-color {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
+  flex-shrink: 0;
 }
 
 .tile-title-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding-left: 8px;
 }
 
 .tile-number {
@@ -85,25 +78,38 @@
 .tile-path {
   font-size: 11px;
   color: #888;
-  padding-left: 8px;
 }
 
 .tile-preview {
   flex: 1;
-  padding: 0 12px;
+  min-height: 0;
   overflow: hidden;
 }
 
-.tile-terminal {
-  font-family: 'SF Mono', Monaco, monospace;
-  font-size: 11px;
-  color: #aaa;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.4;
-  max-height: 80px;
-  overflow: hidden;
+.tile-terminal-preview {
+  width: 100%;
+  height: 100%;
+  background: #252526;
+  padding: 4px;
+  box-sizing: border-box;
 }
+
+.tile-terminal-preview .xterm {
+  height: 100%;
+}
+
+.tile-terminal-preview .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.tile-terminal-preview .xterm-rows {
+  line-height: 1 !important;
+}
+
+.tile-terminal-preview .xterm-screen canvas {
+  image-rendering: pixelated;
+}
+
 
 .tile-footer {
   padding: 8px 12px;
@@ -112,6 +118,7 @@
   justify-content: space-between;
   align-items: center;
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .tile-status {

@@ -1,7 +1,7 @@
 .editor-tabs {
   display: flex;
   background: #252526;
-  border-bottom: 1px solid #3c3c3c;
+  border-bottom: 1px solid #2a2a2a;
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -20,7 +20,7 @@
   gap: 6px;
   padding: 8px 12px;
   background: #2d2d2d;
-  border-right: 1px solid #3c3c3c;
+  border-right: 1px solid #2a2a2a;
   cursor: pointer;
   font-size: 13px;
   color: #888;
