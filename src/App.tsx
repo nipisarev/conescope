@@ -1,9 +1,8 @@
-import { useEffect } from 'react'
+import React, { useEffect } from 'react'
 import { useAppStore, useProjectStore, useInstanceStore, useSettingsStore } from '@/stores'
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { NavSidebar } from '@/components/shared/NavSidebar'
 import { TopBar } from '@/components/shared/TopBar'
-import { StatusBar } from '@/components/shared/StatusBar'
 import { OverviewGrid } from '@/components/Overview/OverviewGrid'
 import { QuestionsPanel } from '@/components/Overview/QuestionsPanel'
 import { FocusView } from '@/components/Focus/FocusView'
@@ -21,17 +20,69 @@ export default function App() {
   const loadProjects = useProjectStore(state => state.loadProjects)
   const loadInstances = useInstanceStore(state => state.loadInstances)
   const loadSettings = useSettingsStore(state => state.loadSettings)
+  const restoreInstance = useInstanceStore(state => state.restoreInstance)
+  const getProject = useProjectStore(state => state.getProject)
+  const instances = useInstanceStore(state => state.instances)
   const projectsLoading = useProjectStore(state => state.isLoading)
   const instancesLoading = useInstanceStore(state => state.isLoading)
   const settingsLoading = useSettingsStore(state => state.isLoading)
+  const initFromSession = useAppStore(state => state.initFromSession)
+
+  const appendTerminalOutput = useInstanceStore(state => state.appendTerminalOutput)
+  const setStatus = useInstanceStore(state => state.setStatus)
+
+  // Track if we've already restored instances
+  const restoredRef = React.useRef(false)
 
   useEffect(() => {
     loadProjects()
     loadInstances()
     loadSettings()
+
+    // Set up global IPC listeners to capture all output
+    const cleanupOutput = window.electronAPI.onInstanceOutput((id, data) => {
+      appendTerminalOutput(id, data)
+    })
+
+    const cleanupStatus = window.electronAPI.onInstanceStatusChange((id, status) => {
+      setStatus(id, status as any)
+    })
+
+    return () => {
+      cleanupOutput()
+      cleanupStatus()
+    }
   }, [])
 
   useKeyboardShortcuts()
+
+  // Initialize app state from session and restore PTY processes
+  useEffect(() => {
+    if (!projectsLoading && !instancesLoading && !settingsLoading && !restoredRef.current) {
+      restoredRef.current = true
+
+      // Initialize view mode and focused instance from session
+      initFromSession()
+
+      // Restore each instance's PTY process
+      instances.forEach(instance => {
+        const project = getProject(instance.projectId)
+        if (project) {
+          restoreInstance(instance.id, project.path).catch(err => {
+            console.error('Failed to restore instance:', instance.id, err)
+          })
+        }
+      })
+    }
+  }, [projectsLoading, instancesLoading, settingsLoading, instances, getProject, restoreInstance, initFromSession])
+
+  // Trigger resize when view mode changes to help terminals re-fit
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      window.dispatchEvent(new Event('resize'))
+    }, 200)
+    return () => clearTimeout(timeout)
+  }, [viewMode])
 
   const isLoading = projectsLoading || instancesLoading || settingsLoading
 
@@ -46,9 +97,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="app-container">
-        <NavSidebar />
+        <TopBar />
         <div className="app-main">
-          <TopBar />
           <div className="app-content">
             {viewMode === 'focus' ? (
               <FocusView />
@@ -59,8 +109,8 @@ export default function App() {
               </>
             )}
           </div>
-          <StatusBar />
         </div>
+        <NavSidebar />
         {newInstanceModalOpen && <NewInstanceModal />}
         {settingsOpen && <SettingsModal />}
       </div>
