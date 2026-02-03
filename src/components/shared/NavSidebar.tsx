@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAppStore, useInstanceStore, useProjectStore, useSettingsStore } from '@/stores'
-import { ViewGrid, Folder, Page, Terminal } from 'iconoir-react'
+import { ViewGrid, Folder, PageEdit, TerminalTag } from 'iconoir-react'
 import { InstancePopup } from './InstancePopup'
 import './NavSidebar.css'
 
@@ -58,14 +58,14 @@ export function NavSidebar() {
               onClick={toggleEditorPanel}
               title="Toggle Editor Panel"
             >
-              <Page width={18} height={18} />
+              <PageEdit width={18} height={18} />
             </button>
             <button
               className={`activity-btn panel-toggle ${sessionState.terminalPanelVisible ? 'panel-active' : ''}`}
               onClick={toggleTerminalPanel}
               title="Toggle Terminal Panel"
             >
-              <Terminal width={18} height={18} />
+              <TerminalTag width={18} height={18} />
             </button>
           </div>
         </>

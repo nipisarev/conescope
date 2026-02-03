@@ -5,7 +5,7 @@ import {
   useInstanceStore,
   useProjectStore,
 } from '@/stores'
-import { Settings, Minus, Xmark } from 'iconoir-react'
+import { Settings, MinusCircleSolid, XmarkCircleSolid } from 'iconoir-react'
 import { CloseConfirmModal } from './CloseConfirmModal'
 import './TopBar.css'
 
@@ -76,14 +76,14 @@ export function TopBar() {
                 onClick={handleMinimize}
                 title="Minimize (return to overview)"
               >
-                <Minus width={18} height={18} />
+                <MinusCircleSolid width={18} height={18} />
               </button>
               <button
                 className="control-btn icon-btn"
                 onClick={handleCloseClick}
                 title="Close Instance"
               >
-                <Xmark width={18} height={18} />
+                <XmarkCircleSolid width={18} height={18} />
               </button>
             </div>
           ) : (
