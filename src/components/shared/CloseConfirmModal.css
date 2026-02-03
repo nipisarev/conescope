@@ -1,0 +1,98 @@
+.close-confirm-modal {
+  background: #252526;
+  border-radius: 8px;
+  width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid #3c3c3c;
+}
+
+.close-confirm-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.close-confirm-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.close-confirm-content {
+  padding: 16px 20px;
+}
+
+.close-confirm-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.close-confirm-number {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.close-confirm-title {
+  font-size: 13px;
+  color: #ccc;
+}
+
+.close-confirm-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 12px;
+}
+
+.close-confirm-status.running {
+  color: #4ec9b0;
+}
+
+.close-confirm-warning {
+  background: rgba(255, 200, 50, 0.1);
+  border: 1px solid rgba(255, 200, 50, 0.3);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: #ffc832;
+  margin-bottom: 16px;
+}
+
+.close-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.close-confirm-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.close-confirm-btn.secondary {
+  background: #3c3c3c;
+  color: #ccc;
+}
+
+.close-confirm-btn.secondary:hover {
+  background: #4c4c4c;
+  color: #fff;
+}
+
+.close-confirm-btn.danger {
+  background: #c53030;
+  color: #fff;
+}
+
+.close-confirm-btn.danger:hover {
+  background: #e53e3e;
+}
