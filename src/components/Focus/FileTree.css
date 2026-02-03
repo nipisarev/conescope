@@ -6,19 +6,10 @@
   background: #252526;
 }
 
-.file-tree-header {
-  padding: 12px 16px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #888;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid #2a2a2a;
-  flex-shrink: 0;
-}
-
 .file-tree-content {
   flex: 1;
   min-height: 0;
+  padding: 2px 10px;
   overflow: hidden;
   position: relative;
 }
@@ -52,10 +43,27 @@
 }
 
 .file-tree-icon {
-  font-size: 14px;
-  width: 18px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   flex-shrink: 0;
+  color: #6d8086;
+}
+
+.file-tree-icon svg {
+  flex-shrink: 0;
+}
+
+.file-tree-node.is-directory .file-tree-icon {
+  color: #dcb67a;
+}
+
+.file-tree-icon .folder-arrow {
+  color: #888;
+}
+
+.file-tree-icon .folder-icon {
+  color: #dcb67a;
 }
 
 .file-tree-name {
