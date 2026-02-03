@@ -19,6 +19,7 @@
 .questions-list {
   flex: 1;
   overflow-y: auto;
+  padding-right: 4px;
 }
 
 .questions-empty {

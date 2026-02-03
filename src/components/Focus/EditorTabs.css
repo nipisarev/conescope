@@ -7,20 +7,13 @@
 }
 
 .editor-tabs::-webkit-scrollbar {
-  height: 6px;
+  height: 0;
+  display: none;
 }
 
-.editor-tabs::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.editor-tabs::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
-}
-
-.editor-tabs::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
+.editor-tabs {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
 .editor-tab {

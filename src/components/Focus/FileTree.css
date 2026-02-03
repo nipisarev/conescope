@@ -9,9 +9,14 @@
 .file-tree-content {
   flex: 1;
   min-height: 0;
-  padding: 2px 10px;
+  padding: 2px 0 2px 10px;
   overflow: hidden;
   position: relative;
+}
+
+/* react-arborist tree container scrollbar */
+.file-tree-content > div {
+  padding-right: 4px;
 }
 
 .file-tree-message {

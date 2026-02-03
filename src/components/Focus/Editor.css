@@ -17,6 +17,7 @@
 .editor .cm-editor .cm-scroller {
   overflow: auto !important;
   font-family: inherit;
+  padding-right: 4px;
 }
 
 /* Override oneDark theme colors to match our dark scheme */
