@@ -9,14 +9,16 @@ export interface DbProject {
 
 export interface DbInstance {
   id: string
-  project_id: string
+  project_id: string | null
   title: string | null
   status: string
   instance_number: number
   tokens_used: number
   cost_estimate: number
   started_at: string
-  ended_at: string | null
+  ended_at?: string | null
+  type?: string
+  color?: string | null
 }
 
 export interface DbQuestion {
@@ -63,6 +65,7 @@ export interface ElectronAPI {
   }>>
   readFile: (path: string) => Promise<string | null>
   writeFile: (path: string, content: string) => Promise<boolean>
+  getHomePath: () => Promise<string>
 
   // Database - Projects
   dbProjectsGetAll: () => Promise<DbProject[]>

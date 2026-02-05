@@ -18,7 +18,9 @@ export function InstanceTile({ instance }: InstanceTileProps) {
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
 
-  const project = useProjectStore(state => state.getProject(instance.projectId))
+  const project = useProjectStore(state =>
+    instance.projectId ? state.getProject(instance.projectId) : undefined
+  )
   const updateInstanceDb = useInstanceStore(state => state.updateInstanceDb)
   const getDisplayNumber = useInstanceStore(state => state.getDisplayNumber)
   const focusInstance = useAppStore(state => state.focusInstance)
@@ -70,7 +72,10 @@ export function InstanceTile({ instance }: InstanceTileProps) {
     }
 
     // Listen for new output
-    const cleanupOutput = window.electronAPI.onInstanceOutput((id, data) => {
+    const onOutput = instance.type === 'terminal'
+      ? window.electronAPI.onShellOutput
+      : window.electronAPI.onInstanceOutput
+    const cleanupOutput = onOutput((id, data) => {
       if (id === instance.id && terminalRef.current) {
         terminalRef.current.write(data)
       }
@@ -120,7 +125,9 @@ export function InstanceTile({ instance }: InstanceTileProps) {
     }
   }, [terminalFontSize, instance.id])
 
-  if (!project) return null
+  const tileColor = instance.type === 'terminal'
+    ? instance.color || '#888'
+    : (project?.color || '#888')
 
   const shortenPath = (fullPath: string) => {
     return fullPath.replace(/^\/Users\/[^/]+/, '~')
@@ -165,10 +172,10 @@ export function InstanceTile({ instance }: InstanceTileProps) {
             />
           ) : (
             <>
-              <span className="tile-number" style={{ color: project.color }}>
+              <span className="tile-number" style={{ color: tileColor }}>
                 #{getDisplayNumber(instance.id)}
               </span>
-              <span className="tile-title" style={{ color: project.color }}>{instance.title}</span>
+              <span className="tile-title" style={{ color: tileColor }}>{instance.title}</span>
               <button
                 className="tile-edit-btn"
                 onClick={e => {
@@ -183,7 +190,7 @@ export function InstanceTile({ instance }: InstanceTileProps) {
           )}
         </div>
         <div className="tile-meta">
-          <span className="tile-path">{shortenPath(project.path)}</span>
+          <span className="tile-path">{project ? shortenPath(project.path) : '~'}</span>
           <span className="tile-tokens">{(instance.tokensUsed / 1000).toFixed(1)}k</span>
         </div>
       </div>

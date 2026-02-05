@@ -24,8 +24,15 @@ export function InstancePopup({ onClose, onMouseEnter, onMouseLeave }: InstanceP
   return (
     <div className="instance-popup" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
       {sortedInstances.map((instance, index) => {
-        const project = getProject(instance.projectId)
-        const color = project?.color || '#888'
+        const project = instance.projectId ? getProject(instance.projectId) : null
+        const color = instance.type === 'terminal'
+          ? instance.color || '#888'
+          : (project?.color || '#888')
+
+        const shortenPath = (fullPath: string) => {
+          return fullPath.replace(/^\/Users\/[^/]+/, '~')
+        }
+        const pathStr = project ? shortenPath(project.path) : '~'
         const isActive = focusedInstanceId === instance.id
         const displayNumber = index + 1
 
@@ -36,7 +43,10 @@ export function InstancePopup({ onClose, onMouseEnter, onMouseLeave }: InstanceP
             onClick={() => handleClick(instance.id)}
           >
             <span className="popup-number" style={{ color }}>{displayNumber}</span>
-            <span className="popup-title">{instance.title}</span>
+            <div className="popup-info">
+              <span className="popup-title">{instance.title}</span>
+              <span className="popup-path">{pathStr}</span>
+            </div>
           </button>
         )
       })}

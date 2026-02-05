@@ -1,19 +1,19 @@
-import { useState } from 'react'
+import { TerminalTag } from 'iconoir-react'
 import { useProjectStore, useInstanceStore, useAppStore } from '@/stores'
 import './NewInstanceModal.css'
 
 export function NewInstanceModal() {
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const projects = useProjectStore(state => state.projects)
   const addProject = useProjectStore(state => state.addProject)
   const createInstance = useInstanceStore(state => state.createInstance)
+  const createTerminalInstance = useInstanceStore(state => state.createTerminalInstance)
   const toggleNewInstanceModal = useAppStore(state => state.toggleNewInstanceModal)
   const focusInstance = useAppStore(state => state.focusInstance)
 
   const handleSelectDirectory = async () => {
     const path = await window.electronAPI.selectDirectory()
     if (path) {
-      setSelectedPath(path)
+      await handleCreateInstance(path)
     }
   }
 
@@ -27,9 +27,16 @@ export function NewInstanceModal() {
     focusInstance(instance.id)
   }
 
+  const handleCreateTerminal = async () => {
+    const homePath = await window.electronAPI.getHomePath()
+    const instance = await createTerminalInstance()
+    await window.electronAPI.createShellTerminal(instance.id, homePath)
+    toggleNewInstanceModal()
+    focusInstance(instance.id)
+  }
+
   const handleClose = () => {
     toggleNewInstanceModal()
-    setSelectedPath(null)
   }
 
   return (
@@ -70,17 +77,14 @@ export function NewInstanceModal() {
             <button className="browse-btn" onClick={handleSelectDirectory}>
               Select Directory...
             </button>
-            {selectedPath && (
-              <div className="selected-path">
-                <span>{selectedPath}</span>
-                <button
-                  className="launch-btn"
-                  onClick={() => handleCreateInstance(selectedPath)}
-                >
-                  Launch
-                </button>
-              </div>
-            )}
+          </div>
+
+          <div className="section">
+            <div className="section-divider" />
+            <button className="terminal-btn" onClick={handleCreateTerminal}>
+              <TerminalTag width={16} height={16} />
+              <span>Open Terminal</span>
+            </button>
           </div>
         </div>
       </div>

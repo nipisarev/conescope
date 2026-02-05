@@ -35,7 +35,7 @@ export function TopBar() {
   const removeInstance = useInstanceStore(state => state.removeInstance)
   const cleanupTerminalTabs = useTerminalTabStore(state => state.cleanupInstance)
   const project = useProjectStore(state =>
-    instance ? state.getProject(instance.projectId) : undefined
+    instance?.projectId ? state.getProject(instance.projectId) : undefined
   )
 
   const [showCloseModal, setShowCloseModal] = useState(false)

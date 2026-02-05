@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuid } from 'uuid'
-import { Instance, InstanceStatus } from '@/types'
+import { Instance, InstanceStatus, InstanceType, PROJECT_COLORS } from '@/types'
 
 interface InstanceStore {
   instances: Instance[]
@@ -9,6 +9,7 @@ interface InstanceStore {
   loadInstances: () => Promise<void>
   restoreInstance: (id: string, projectPath: string) => Promise<void>
   createInstance: (projectId: string, projectName: string) => Promise<Instance>
+  createTerminalInstance: () => Promise<Instance>
   updateInstance: (id: string, updates: Partial<Instance>) => void
   updateInstanceDb: (id: string, updates: Partial<Instance>) => Promise<void>
   removeInstance: (id: string) => Promise<void>
@@ -28,14 +29,16 @@ export const useInstanceStore = create<InstanceStore>((set, get) => ({
     const dbInstances = await window.electronAPI.dbInstancesGetAll()
     const instances: Instance[] = dbInstances.map(i => ({
       id: i.id,
-      projectId: i.project_id,
+      projectId: i.project_id || null,
       title: i.title || '',
       instanceNumber: i.instance_number,
-      status: 'starting' as InstanceStatus, // Reset status - will be restored
+      status: 'starting' as InstanceStatus,
       tokensUsed: i.tokens_used,
       costEstimate: i.cost_estimate,
       startedAt: i.started_at,
       terminalHistory: [],
+      type: (i.type || 'project') as InstanceType,
+      color: i.color || null,
     }))
     set({ instances, isLoading: false })
   },
@@ -56,6 +59,8 @@ export const useInstanceStore = create<InstanceStore>((set, get) => ({
       costEstimate: 0,
       startedAt: new Date().toISOString(),
       terminalHistory: [],
+      type: 'project',
+      color: null,
     }
 
     await window.electronAPI.dbInstancesInsert({
@@ -67,7 +72,44 @@ export const useInstanceStore = create<InstanceStore>((set, get) => ({
       tokens_used: instance.tokensUsed,
       cost_estimate: instance.costEstimate,
       started_at: instance.startedAt,
-      ended_at: null,
+      type: instance.type,
+      color: instance.color,
+    })
+
+    set(state => ({ instances: [...state.instances, instance] }))
+    return instance
+  },
+
+  createTerminalInstance: async () => {
+    const instanceNumber = await window.electronAPI.dbInstancesGetNextNumber()
+    const currentCount = get().instances.length
+    const color = PROJECT_COLORS[currentCount % PROJECT_COLORS.length]
+
+    const instance: Instance = {
+      id: uuid(),
+      projectId: null,
+      title: 'Shell',
+      instanceNumber,
+      status: 'starting',
+      tokensUsed: 0,
+      costEstimate: 0,
+      startedAt: new Date().toISOString(),
+      terminalHistory: [],
+      type: 'terminal',
+      color,
+    }
+
+    await window.electronAPI.dbInstancesInsert({
+      id: instance.id,
+      project_id: null,
+      title: instance.title,
+      status: instance.status,
+      instance_number: instance.instanceNumber,
+      tokens_used: instance.tokensUsed,
+      cost_estimate: instance.costEstimate,
+      started_at: instance.startedAt,
+      type: instance.type,
+      color: instance.color,
     })
 
     set(state => ({ instances: [...state.instances, instance] }))

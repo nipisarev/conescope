@@ -16,6 +16,7 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
   const fitAddonRef = useRef<FitAddon | null>(null)
   const instance = useInstanceStore(state => state.getInstance(instanceId))
   const terminalFontSize = useSettingsStore(state => state.terminalFontSize)
+  const isShellInstance = instance?.type === 'terminal'
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -46,13 +47,17 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
 
     terminal.open(containerRef.current)
 
+    const resize = isShellInstance
+      ? window.electronAPI.resizeShellTerminal
+      : window.electronAPI.resizeInstance
+
     // Delay fit() to allow terminal to fully initialize
     const fitTimeout = setTimeout(() => {
       try {
         fitAddon.fit()
         // Send initial dimensions to PTY
         const { cols, rows } = terminal
-        window.electronAPI.resizeInstance(instanceId, cols, rows)
+        resize(instanceId, cols, rows)
       } catch (e) {
         // Ignore fit errors during initialization
       }
@@ -73,7 +78,10 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
     }
 
     // Listen for new output from this instance
-    const cleanupOutput = window.electronAPI.onInstanceOutput((id, data) => {
+    const onOutput = isShellInstance
+      ? window.electronAPI.onShellOutput
+      : window.electronAPI.onInstanceOutput
+    const cleanupOutput = onOutput((id, data) => {
       if (id === instanceId && terminalRef.current) {
         terminalRef.current.write(data)
       }
@@ -89,7 +97,7 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
             fitAddonRef.current.fit()
             // Send new dimensions to PTY
             const { cols, rows } = terminalRef.current
-            window.electronAPI.resizeInstance(instanceId, cols, rows)
+            resize(instanceId, cols, rows)
           }
         } catch (e) {
           // Ignore fit errors
@@ -119,9 +127,12 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
       terminalRef.current.options.fontSize = terminalFontSize
       fitAddonRef.current.fit()
       const { cols, rows } = terminalRef.current
-      window.electronAPI.resizeInstance(instanceId, cols, rows)
+      const resizeFn = isShellInstance
+        ? window.electronAPI.resizeShellTerminal
+        : window.electronAPI.resizeInstance
+      resizeFn(instanceId, cols, rows)
     }
-  }, [terminalFontSize, instanceId])
+  }, [terminalFontSize, instanceId, isShellInstance])
 
   return <div ref={containerRef} className="terminal-container" />
 }

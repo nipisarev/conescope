@@ -25,7 +25,7 @@ export function FocusView() {
     focusedInstanceId ? state.getInstance(focusedInstanceId) : undefined
   )
   const project = useProjectStore(state =>
-    instance ? state.getProject(instance.projectId) : undefined
+    instance?.projectId ? state.getProject(instance.projectId) : undefined
   )
   const openFiles = useEditorStore(state => state.openFiles)
   const activeFilePath = useEditorStore(state => state.activeFilePath)
@@ -46,11 +46,17 @@ export function FocusView() {
     }
   }, [focusedInstanceId, switchInstance, initializeClaudeTab])
 
+  const isShellInstance = instance?.type === 'terminal'
+
   const handleInput = useCallback((data: string) => {
     if (focusedInstanceId) {
-      window.electronAPI.sendInput(focusedInstanceId, data)
+      if (isShellInstance) {
+        window.electronAPI.sendShellInput(focusedInstanceId, data)
+      } else {
+        window.electronAPI.sendInput(focusedInstanceId, data)
+      }
     }
-  }, [focusedInstanceId])
+  }, [focusedInstanceId, isShellInstance])
 
   const handleTerminalResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -103,7 +109,7 @@ export function FocusView() {
     }
   }, [isResizing, resizeType, terminalHeight, sidebarWidth, saveSessionState])
 
-  if (!instance || !project) {
+  if (!instance) {
     return (
       <div className="focus-view-empty">
         <p>No instance selected</p>
@@ -111,12 +117,14 @@ export function FocusView() {
     )
   }
 
+  const isTerminalOnly = instance.type === 'terminal'
+
   return (
     <div className="focus-view">
-      {folderPanelVisible && (
+      {!isTerminalOnly && folderPanelVisible && (
         <>
           <div className="focus-sidebar" style={{ width: sidebarWidth }}>
-            <FileTree projectPath={project.path} />
+            <FileTree projectPath={project!.path} />
           </div>
           <div
             className={`focus-sidebar-resize ${isResizing && resizeType === 'sidebar' ? 'active' : ''}`}
@@ -126,24 +134,24 @@ export function FocusView() {
       )}
 
       <div className="focus-main">
-        {editorPanelVisible && (
+        {!isTerminalOnly && editorPanelVisible && (
           <div className="focus-editor-area" style={{ flex: terminalPanelVisible ? 1 : undefined }}>
             <EditorTabs />
             <Editor file={activeFile} />
           </div>
         )}
 
-        {editorPanelVisible && terminalPanelVisible && (
+        {!isTerminalOnly && editorPanelVisible && terminalPanelVisible && (
           <div
             className={`focus-resize-handle ${isResizing && resizeType === 'terminal' ? 'active' : ''}`}
             onMouseDown={handleTerminalResizeStart}
           />
         )}
 
-        {terminalPanelVisible && (
+        {(isTerminalOnly || terminalPanelVisible) && (
           <div
             className="focus-terminal"
-            style={{ height: editorPanelVisible ? terminalHeight : '100%' }}
+            style={{ height: isTerminalOnly ? '100%' : (editorPanelVisible ? terminalHeight : '100%') }}
           >
             <TerminalTabs instanceId={instance.id} />
             <div className="focus-terminal-content">
@@ -156,7 +164,7 @@ export function FocusView() {
           </div>
         )}
 
-        {!editorPanelVisible && !terminalPanelVisible && (
+        {!isTerminalOnly && !editorPanelVisible && !terminalPanelVisible && (
           <div className="focus-empty-state">
             <p>All panels hidden</p>
             <p className="focus-empty-hint">Use the panel toggles in the activity bar</p>

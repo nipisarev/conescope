@@ -20,6 +20,11 @@ export function NavSidebar() {
   const [showPopup, setShowPopup] = useState(false)
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  const focusedInstance = useInstanceStore(state =>
+    focusedInstanceId ? state.getInstance(focusedInstanceId) : undefined
+  )
+  const isTerminalInstance = focusedInstance?.type === 'terminal'
+
   const isFocusMode = viewMode === 'focus'
 
   // Token/cost calculations
@@ -70,30 +75,34 @@ export function NavSidebar() {
         {isFocusMode ? (
           /* Focus mode: panel toggles */
           <>
-            <div className="activity-bar-divider" />
-            <div className="activity-bar-section">
-              <button
-                className={`activity-btn panel-toggle ${sessionState.folderPanelVisible ? 'panel-active' : ''}`}
-                onClick={toggleFolderPanel}
-                title="Toggle Folder Panel"
-              >
-                <Folder width={14} height={14} />
-              </button>
-              <button
-                className={`activity-btn panel-toggle ${sessionState.editorPanelVisible ? 'panel-active' : ''}`}
-                onClick={toggleEditorPanel}
-                title="Toggle Editor Panel"
-              >
-                <PageEdit width={14} height={14} />
-              </button>
-              <button
-                className={`activity-btn panel-toggle ${sessionState.terminalPanelVisible ? 'panel-active' : ''}`}
-                onClick={toggleTerminalPanel}
-                title="Toggle Terminal Panel"
-              >
-                <TerminalTag width={14} height={14} />
-              </button>
-            </div>
+            {!isTerminalInstance && (
+              <>
+                <div className="activity-bar-divider" />
+                <div className="activity-bar-section">
+                  <button
+                    className={`activity-btn panel-toggle ${sessionState.folderPanelVisible ? 'panel-active' : ''}`}
+                    onClick={toggleFolderPanel}
+                    title="Toggle Folder Panel"
+                  >
+                    <Folder width={14} height={14} />
+                  </button>
+                  <button
+                    className={`activity-btn panel-toggle ${sessionState.editorPanelVisible ? 'panel-active' : ''}`}
+                    onClick={toggleEditorPanel}
+                    title="Toggle Editor Panel"
+                  >
+                    <PageEdit width={14} height={14} />
+                  </button>
+                  <button
+                    className={`activity-btn panel-toggle ${sessionState.terminalPanelVisible ? 'panel-active' : ''}`}
+                    onClick={toggleTerminalPanel}
+                    title="Toggle Terminal Panel"
+                  >
+                    <TerminalTag width={14} height={14} />
+                  </button>
+                </div>
+              </>
+            )}
           </>
         ) : (
           /* Overview mode: instance numbers */
@@ -102,8 +111,9 @@ export function NavSidebar() {
               {[...instances]
                 .sort((a, b) => a.instanceNumber - b.instanceNumber)
                 .map((instance, index) => {
-                  const project = getProject(instance.projectId)
-                  const color = project?.color || '#888'
+                  const color = instance.type === 'terminal'
+                    ? instance.color || '#888'
+                    : (getProject(instance.projectId!)?.color || '#888')
                   const isActive = focusedInstanceId === instance.id
                   const displayNumber = index + 1
 

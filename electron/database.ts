@@ -50,7 +50,7 @@ class DatabaseService {
 
       CREATE TABLE IF NOT EXISTS instances (
         id TEXT PRIMARY KEY,
-        project_id TEXT NOT NULL,
+        project_id TEXT,
         title TEXT,
         status TEXT NOT NULL DEFAULT 'starting',
         instance_number INTEGER,
@@ -59,6 +59,8 @@ class DatabaseService {
         started_at TEXT NOT NULL,
         ended_at TEXT,
         terminal_history TEXT,
+        type TEXT NOT NULL DEFAULT 'project',
+        color TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
       );
 
@@ -95,6 +97,48 @@ class DatabaseService {
       logger.info('Added terminal_history column')
     } catch (e) {
       // Column already exists, ignore
+    }
+
+    // Migration: Add type/color columns and make project_id nullable
+    try {
+      this.db.exec("ALTER TABLE instances ADD COLUMN type TEXT NOT NULL DEFAULT 'project'")
+      logger.info('Added type column to instances')
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      this.db.exec("ALTER TABLE instances ADD COLUMN color TEXT")
+      logger.info('Added color column to instances')
+    } catch (e) {
+      // Column already exists
+    }
+
+    // Migration: Rebuild instances table to make project_id nullable (for existing DBs)
+    const colInfo = this.db.pragma('table_info(instances)') as { name: string; notnull: number }[]
+    const projectIdCol = colInfo.find(c => c.name === 'project_id')
+    if (projectIdCol && projectIdCol.notnull === 1) {
+      logger.info('Rebuilding instances table to make project_id nullable')
+      this.db.exec(`
+        CREATE TABLE instances_new (
+          id TEXT PRIMARY KEY,
+          project_id TEXT,
+          title TEXT,
+          status TEXT NOT NULL DEFAULT 'starting',
+          instance_number INTEGER,
+          tokens_used INTEGER DEFAULT 0,
+          cost_estimate REAL DEFAULT 0,
+          started_at TEXT NOT NULL,
+          ended_at TEXT,
+          terminal_history TEXT,
+          type TEXT NOT NULL DEFAULT 'project',
+          color TEXT,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        INSERT INTO instances_new SELECT id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, ended_at, terminal_history, type, color FROM instances;
+        DROP TABLE instances;
+        ALTER TABLE instances_new RENAME TO instances;
+      `)
+      logger.info('Instances table rebuilt')
     }
 
     logger.info('Database migration complete')
@@ -145,8 +189,8 @@ class DatabaseService {
   insertInstance(instance: any): void {
     if (!this.db) throw new Error('Database not initialized')
     this.db.prepare(`
-      INSERT INTO instances (id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO instances (id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, type, color)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       instance.id,
       instance.project_id,
@@ -155,7 +199,9 @@ class DatabaseService {
       instance.instance_number,
       instance.tokens_used,
       instance.cost_estimate,
-      instance.started_at
+      instance.started_at,
+      instance.type || 'project',
+      instance.color || null
     )
   }
 
@@ -221,7 +267,7 @@ class DatabaseService {
       SELECT q.*, i.title as instance_title, p.display_name as project_name, p.color as project_color
       FROM questions q
       JOIN instances i ON q.instance_id = i.id
-      JOIN projects p ON i.project_id = p.id
+      LEFT JOIN projects p ON i.project_id = p.id
       WHERE q.answered_at IS NULL
       ORDER BY q.asked_at ASC
     `).all()

@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readDirectory: (path: string) => ipcRenderer.invoke('fs:readDirectory', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:writeFile', path, content),
+  getHomePath: () => ipcRenderer.invoke('app:getHomePath'),
 
   // Database - Projects
   dbProjectsGetAll: () => ipcRenderer.invoke('db:projects:getAll'),

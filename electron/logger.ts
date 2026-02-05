@@ -29,6 +29,10 @@ class Logger {
 
   private openStream(): void {
     this.stream = fs.createWriteStream(this.logFile, { flags: 'a' })
+    this.stream.on('error', () => {
+      // Silently ignore write errors (EPIPE during shutdown)
+      this.stream = null
+    })
   }
 
   private rotate(): void {
@@ -73,8 +77,12 @@ class Logger {
 
     // Also log to console in development
     if (!app.isPackaged) {
-      const consoleFn = level === 'ERROR' ? console.error : console.log
-      consoleFn(`[${level}] ${message}`, meta || '')
+      try {
+        const consoleFn = level === 'ERROR' ? console.error : console.log
+        consoleFn(`[${level}] ${message}`, meta || '')
+      } catch {
+        // Ignore EPIPE errors when stdout/stderr is closed
+      }
     }
   }
 

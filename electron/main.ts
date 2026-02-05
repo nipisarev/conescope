@@ -169,6 +169,10 @@ logger.info('Conescope starting', {
   arch: process.arch
 })
 
+ipcMain.handle('app:getHomePath', () => {
+  return app.getPath('home')
+})
+
 app.whenReady().then(() => {
   logger.info('App ready')
 

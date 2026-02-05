@@ -44,12 +44,18 @@ export default function App() {
       appendTerminalOutput(id, data)
     })
 
+    // Also capture shell terminal output (for terminal-only instances)
+    const cleanupShellOutput = window.electronAPI.onShellOutput((id, data) => {
+      appendTerminalOutput(id, data)
+    })
+
     const cleanupStatus = window.electronAPI.onInstanceStatusChange((id, status) => {
       setStatus(id, status as any)
     })
 
     return () => {
       cleanupOutput()
+      cleanupShellOutput()
       cleanupStatus()
     }
   }, [])
@@ -65,12 +71,19 @@ export default function App() {
       initFromSession()
 
       // Restore each instance's PTY process
-      instances.forEach(instance => {
-        const project = getProject(instance.projectId)
-        if (project) {
-          restoreInstance(instance.id, project.path).catch(err => {
-            console.error('Failed to restore instance:', instance.id, err)
-          })
+      instances.forEach(async (instance) => {
+        try {
+          if (instance.type === 'terminal') {
+            const homePath = await window.electronAPI.getHomePath()
+            await window.electronAPI.createShellTerminal(instance.id, homePath)
+          } else {
+            const project = getProject(instance.projectId!)
+            if (project) {
+              await restoreInstance(instance.id, project.path)
+            }
+          }
+        } catch (err) {
+          console.error('Failed to restore instance:', instance.id, err)
         }
       })
     }

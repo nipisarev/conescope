@@ -15,7 +15,7 @@ export function TerminalTabs({ instanceId }: TerminalTabsProps) {
   const removeTab = useTerminalTabStore(state => state.removeTab)
 
   const instance = useInstanceStore(state => state.getInstance(instanceId))
-  const project = useProjectStore(state => instance ? state.getProject(instance.projectId) : undefined)
+  const project = useProjectStore(state => instance?.projectId ? state.getProject(instance.projectId) : undefined)
 
   const tabs = useMemo(() => allTabs.filter(t => t.instanceId === instanceId), [allTabs, instanceId])
   const activeTab = useMemo(() => tabs.find(t => t.id === activeTabId), [tabs, activeTabId])

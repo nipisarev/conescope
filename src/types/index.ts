@@ -9,9 +9,11 @@ export interface Project {
 
 export type InstanceStatus = 'starting' | 'working' | 'waiting' | 'paused' | 'stopped'
 
+export type InstanceType = 'project' | 'terminal'
+
 export interface Instance {
   id: string
-  projectId: string
+  projectId: string | null
   title: string
   instanceNumber: number
   status: InstanceStatus
@@ -19,6 +21,8 @@ export interface Instance {
   costEstimate: number
   startedAt: string
   terminalHistory: string[]
+  type: InstanceType
+  color: string | null
 }
 
 export interface Question {

@@ -54,3 +54,18 @@
 .instance-popup-btn.active .popup-title {
   color: #fff;
 }
+
+.popup-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.popup-path {
+  font-size: 10px;
+  color: #808080;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
