@@ -101,10 +101,11 @@ export function NavSidebar() {
             <div className="activity-bar-section">
               {[...instances]
                 .sort((a, b) => a.instanceNumber - b.instanceNumber)
-                .map(instance => {
+                .map((instance, index) => {
                   const project = getProject(instance.projectId)
                   const color = project?.color || '#888'
                   const isActive = focusedInstanceId === instance.id
+                  const displayNumber = index + 1
 
                   return (
                     <button
@@ -112,9 +113,9 @@ export function NavSidebar() {
                       className={`activity-btn ${isActive ? 'active' : ''}`}
                       style={{ color: isActive ? '#fff' : color }}
                       onClick={() => focusInstance(instance.id)}
-                      title={`#${instance.instanceNumber} ${instance.title}`}
+                      title={`#${displayNumber} ${instance.title}`}
                     >
-                      <span className="activity-btn-num">{instance.instanceNumber}</span>
+                      <span className="activity-btn-num">{displayNumber}</span>
                     </button>
                   )
                 })}

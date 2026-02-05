@@ -15,6 +15,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   resizeInstance: (instanceId: string, cols: number, rows: number) =>
     ipcRenderer.invoke('instance:resize', instanceId, cols, rows),
 
+  // Shell terminal management
+  createShellTerminal: (terminalId: string, projectPath: string) =>
+    ipcRenderer.invoke('shell:create', terminalId, projectPath),
+  killShellTerminal: (terminalId: string) =>
+    ipcRenderer.invoke('shell:kill', terminalId),
+  sendShellInput: (terminalId: string, input: string) =>
+    ipcRenderer.invoke('shell:input', terminalId, input),
+  resizeShellTerminal: (terminalId: string, cols: number, rows: number) =>
+    ipcRenderer.invoke('shell:resize', terminalId, cols, rows),
+
   // Event listeners (return cleanup function)
   onInstanceOutput: (callback: (instanceId: string, data: string) => void) => {
     const handler = (_: any, instanceId: string, data: string) => callback(instanceId, data)
@@ -25,6 +35,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_: any, instanceId: string, status: string) => callback(instanceId, status)
     ipcRenderer.on('instance:status', handler)
     return () => ipcRenderer.removeListener('instance:status', handler)
+  },
+  onShellOutput: (callback: (terminalId: string, data: string) => void) => {
+    const handler = (_: any, terminalId: string, data: string) => callback(terminalId, data)
+    ipcRenderer.on('shell:output', handler)
+    return () => ipcRenderer.removeListener('shell:output', handler)
+  },
+  onShellExit: (callback: (terminalId: string) => void) => {
+    const handler = (_: any, terminalId: string) => callback(terminalId)
+    ipcRenderer.on('shell:exit', handler)
+    return () => ipcRenderer.removeListener('shell:exit', handler)
   },
 
   // File system

@@ -1,24 +1,24 @@
 import { useEffect, useRef } from 'react'
 import { Terminal as XTerm } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { useInstanceStore, useSettingsStore } from '@/stores'
+import { useTerminalTabStore, useSettingsStore } from '@/stores'
 import 'xterm/css/xterm.css'
 import './Terminal.css'
 
-interface TerminalProps {
-  instanceId: string
-  onInput: (data: string) => void
+interface ShellTerminalProps {
+  tabId: string
 }
 
-export function Terminal({ instanceId, onInput }: TerminalProps) {
+export function ShellTerminal({ tabId }: ShellTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const instance = useInstanceStore(state => state.getInstance(instanceId))
+  const tab = useTerminalTabStore(state => state.tabs.find(t => t.id === tabId))
+  const appendOutput = useTerminalTabStore(state => state.appendOutput)
   const terminalFontSize = useSettingsStore(state => state.terminalFontSize)
 
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current || !tab) return
 
     const terminal = new XTerm({
       theme: {
@@ -35,7 +35,6 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
       cursorBlink: true,
       scrollback: 10000,
       allowProposedApi: true,
-      // Mouse support for Claude Code interactive UI
       windowsMode: false,
       convertEol: false,
       scrollOnUserInput: true,
@@ -46,40 +45,39 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
 
     terminal.open(containerRef.current)
 
-    // Delay fit() to allow terminal to fully initialize
     const fitTimeout = setTimeout(() => {
       try {
         fitAddon.fit()
-        // Send initial dimensions to PTY
         const { cols, rows } = terminal
-        window.electronAPI.resizeInstance(instanceId, cols, rows)
+        window.electronAPI.resizeShellTerminal(tabId, cols, rows)
       } catch (e) {
-        // Ignore fit errors during initialization
+        // Ignore fit errors
       }
     }, 100)
 
     terminal.onData((data) => {
-      onInput(data)
+      window.electronAPI.sendShellInput(tabId, data)
     })
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    // Write existing terminal history
-    if (instance?.terminalHistory) {
-      for (const chunk of instance.terminalHistory) {
+    // Write existing history
+    if (tab.history) {
+      for (const chunk of tab.history) {
         terminal.write(chunk)
       }
     }
 
-    // Listen for new output from this instance
-    const cleanupOutput = window.electronAPI.onInstanceOutput((id, data) => {
-      if (id === instanceId && terminalRef.current) {
+    // Listen for shell output
+    const cleanupOutput = window.electronAPI.onShellOutput((id, data) => {
+      if (id === tabId && terminalRef.current) {
         terminalRef.current.write(data)
+        appendOutput(tabId, data)
       }
     })
 
-    // Handle resize with debounce
+    // Handle resize
     let resizeTimeout: NodeJS.Timeout
     const handleResize = () => {
       clearTimeout(resizeTimeout)
@@ -87,20 +85,17 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
         try {
           if (fitAddonRef.current && terminalRef.current) {
             fitAddonRef.current.fit()
-            // Send new dimensions to PTY
             const { cols, rows } = terminalRef.current
-            window.electronAPI.resizeInstance(instanceId, cols, rows)
+            window.electronAPI.resizeShellTerminal(tabId, cols, rows)
           }
         } catch (e) {
-          // Ignore fit errors
+          // Ignore
         }
-      }, 16) // ~60fps for smoother resizing
+      }, 16)
     }
 
     const resizeObserver = new ResizeObserver(handleResize)
     resizeObserver.observe(containerRef.current)
-
-    // Also listen for window resize
     window.addEventListener('resize', handleResize)
 
     return () => {
@@ -111,7 +106,7 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
       cleanupOutput()
       terminal.dispose()
     }
-  }, [instanceId, onInput])
+  }, [tabId])
 
   // React to font size changes
   useEffect(() => {
@@ -119,9 +114,9 @@ export function Terminal({ instanceId, onInput }: TerminalProps) {
       terminalRef.current.options.fontSize = terminalFontSize
       fitAddonRef.current.fit()
       const { cols, rows } = terminalRef.current
-      window.electronAPI.resizeInstance(instanceId, cols, rows)
+      window.electronAPI.resizeShellTerminal(tabId, cols, rows)
     }
-  }, [terminalFontSize, instanceId])
+  }, [terminalFontSize, tabId])
 
   return <div ref={containerRef} className="terminal-container" />
 }

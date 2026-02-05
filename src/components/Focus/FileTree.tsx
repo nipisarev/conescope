@@ -335,6 +335,8 @@ export function FileTree({ projectPath }: FileTreeProps) {
           height={dimensions.height}
           indent={16}
           rowHeight={28}
+          paddingTop={4}
+          paddingBottom={4}
           overscanCount={5}
           disableDrag
           disableDrop

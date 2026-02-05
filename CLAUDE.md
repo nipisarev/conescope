@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Jenklaud - macOS Electron app for managing multiple Claude Code CLI instances.
+Conescope - macOS Electron app for managing multiple Claude Code CLI instances.
 
 ## Behavior
 
@@ -39,7 +39,7 @@ src/                # Renderer process (React)
 ├── hooks/          # useKeyboardShortcuts
 └── types/          # TypeScript definitions
 
-data/jenklaud.db    # SQLite database (WAL mode)
+data/conescope.db   # SQLite database (WAL mode)
 logs/               # Runtime logs
 ```
 

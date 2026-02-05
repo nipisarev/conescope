@@ -18,27 +18,28 @@ export function InstancePopup({ onClose, onMouseEnter, onMouseLeave }: InstanceP
     onClose()
   }
 
+  // Sort by original instance number for consistent ordering, then use index as display number
+  const sortedInstances = [...instances].sort((a, b) => a.instanceNumber - b.instanceNumber)
+
   return (
     <div className="instance-popup" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
-      {[...instances]
-        .sort((a, b) => a.instanceNumber - b.instanceNumber)
-        .map(instance => {
-          const project = getProject(instance.projectId)
-          const color = project?.color || '#888'
-          const isActive = focusedInstanceId === instance.id
+      {sortedInstances.map((instance, index) => {
+        const project = getProject(instance.projectId)
+        const color = project?.color || '#888'
+        const isActive = focusedInstanceId === instance.id
+        const displayNumber = index + 1
 
-          return (
-            <button
-              key={instance.id}
-              className={`instance-popup-btn ${isActive ? 'active' : ''}`}
-              style={{ color: isActive ? '#fff' : color }}
-              onClick={() => handleClick(instance.id)}
-              title={`#${instance.instanceNumber} ${instance.title}`}
-            >
-              {instance.instanceNumber}
-            </button>
-          )
-        })}
+        return (
+          <button
+            key={instance.id}
+            className={`instance-popup-btn ${isActive ? 'active' : ''}`}
+            onClick={() => handleClick(instance.id)}
+          >
+            <span className="popup-number" style={{ color }}>{displayNumber}</span>
+            <span className="popup-title">{instance.title}</span>
+          </button>
+        )
+      })}
     </div>
   )
 }

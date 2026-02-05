@@ -16,7 +16,7 @@ class Logger {
       ? path.join(app.getPath('userData'), 'logs')
       : path.join(process.cwd(), 'logs')
 
-    this.logFile = path.join(this.logDir, 'jenklaud.log')
+    this.logFile = path.join(this.logDir, 'conescope.log')
     this.ensureLogDir()
     this.openStream()
   }

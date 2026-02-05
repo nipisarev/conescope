@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { useProjectStore, useInstanceStore, useAppStore } from '@/stores'
+import { useProjectStore, useInstanceStore, useAppStore, useSettingsStore } from '@/stores'
 import { Instance } from '@/types'
 import { Terminal as XTerm } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { EditPencil } from 'iconoir-react'
 import 'xterm/css/xterm.css'
 import './InstanceTile.css'
 
@@ -19,7 +20,9 @@ export function InstanceTile({ instance }: InstanceTileProps) {
 
   const project = useProjectStore(state => state.getProject(instance.projectId))
   const updateInstanceDb = useInstanceStore(state => state.updateInstanceDb)
+  const getDisplayNumber = useInstanceStore(state => state.getDisplayNumber)
   const focusInstance = useAppStore(state => state.focusInstance)
+  const terminalFontSize = useSettingsStore(state => state.terminalFontSize)
 
   // Initialize xterm.js
   useEffect(() => {
@@ -33,8 +36,8 @@ export function InstanceTile({ instance }: InstanceTileProps) {
         cursorAccent: '#252526',
       },
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-      fontSize: 10,
-      lineHeight: 1.0,
+      fontSize: terminalFontSize,
+      lineHeight: 1.1,
       cursorBlink: false,
       scrollback: 1000,
       disableStdin: true, // Read-only preview
@@ -107,6 +110,16 @@ export function InstanceTile({ instance }: InstanceTileProps) {
     }
   }, [instance.id])
 
+  // React to font size changes
+  useEffect(() => {
+    if (terminalRef.current && fitAddonRef.current) {
+      terminalRef.current.options.fontSize = terminalFontSize
+      fitAddonRef.current.fit()
+      const { cols, rows } = terminalRef.current
+      window.electronAPI.resizeInstance(instance.id, cols, rows)
+    }
+  }, [terminalFontSize, instance.id])
+
   if (!project) return null
 
   const shortenPath = (fullPath: string) => {
@@ -153,7 +166,7 @@ export function InstanceTile({ instance }: InstanceTileProps) {
           ) : (
             <>
               <span className="tile-number" style={{ color: project.color }}>
-                #{instance.instanceNumber}
+                #{getDisplayNumber(instance.id)}
               </span>
               <span className="tile-title" style={{ color: project.color }}>{instance.title}</span>
               <button
@@ -163,24 +176,20 @@ export function InstanceTile({ instance }: InstanceTileProps) {
                   setIsEditing(true)
                 }}
               >
-                ✎
+                <EditPencil width={12} height={12} />
               </button>
+              <span className="tile-status-dot" style={{ backgroundColor: statusColor }} title={instance.status} />
             </>
           )}
         </div>
-        <div className="tile-path">{shortenPath(project.path)}</div>
+        <div className="tile-meta">
+          <span className="tile-path">{shortenPath(project.path)}</span>
+          <span className="tile-tokens">{(instance.tokensUsed / 1000).toFixed(1)}k</span>
+        </div>
       </div>
 
       <div className="tile-preview">
         <div ref={terminalContainerRef} className="tile-terminal-preview" />
-      </div>
-
-      <div className="tile-footer">
-        <span className="tile-status">
-          <span className="tile-status-dot" style={{ backgroundColor: statusColor }} />
-          {instance.status}
-        </span>
-        <span className="tile-tokens">{(instance.tokensUsed / 1000).toFixed(1)}k</span>
       </div>
     </div>
   )

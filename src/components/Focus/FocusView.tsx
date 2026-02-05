@@ -1,9 +1,11 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useInstanceStore, useProjectStore, useAppStore, useEditorStore, useSettingsStore } from '@/stores'
+import { useInstanceStore, useProjectStore, useAppStore, useEditorStore, useSettingsStore, useTerminalTabStore } from '@/stores'
 import { FileTree } from './FileTree'
 import { EditorTabs } from './EditorTabs'
 import { Editor } from './Editor'
 import { Terminal } from './Terminal'
+import { TerminalTabs } from './TerminalTabs'
+import { ShellTerminal } from './ShellTerminal'
 import './FocusView.css'
 
 export function FocusView() {
@@ -29,14 +31,20 @@ export function FocusView() {
   const activeFilePath = useEditorStore(state => state.activeFilePath)
   const switchInstance = useEditorStore(state => state.switchInstance)
 
+  const initializeClaudeTab = useTerminalTabStore(state => state.initializeClaudeTab)
+  const allTabs = useTerminalTabStore(state => state.tabs)
+  const activeTabId = useTerminalTabStore(state => focusedInstanceId ? state.activeTabId[focusedInstanceId] : undefined)
+  const activeTab = allTabs.find(t => t.id === activeTabId)
+
   const activeFile = openFiles.find(f => f.path === activeFilePath) || null
 
-  // Restore files when switching instances
+  // Initialize terminal tabs and restore files when switching instances
   useEffect(() => {
     if (focusedInstanceId) {
+      initializeClaudeTab(focusedInstanceId)
       switchInstance(focusedInstanceId)
     }
-  }, [focusedInstanceId, switchInstance])
+  }, [focusedInstanceId, switchInstance, initializeClaudeTab])
 
   const handleInput = useCallback((data: string) => {
     if (focusedInstanceId) {
@@ -137,7 +145,14 @@ export function FocusView() {
             className="focus-terminal"
             style={{ height: editorPanelVisible ? terminalHeight : '100%' }}
           >
-            <Terminal instanceId={instance.id} onInput={handleInput} />
+            <TerminalTabs instanceId={instance.id} />
+            <div className="focus-terminal-content">
+              {activeTab?.type === 'claude' ? (
+                <Terminal instanceId={instance.id} onInput={handleInput} />
+              ) : activeTab?.type === 'shell' ? (
+                <ShellTerminal tabId={activeTab.id} />
+              ) : null}
+            </div>
           </div>
         )}
 

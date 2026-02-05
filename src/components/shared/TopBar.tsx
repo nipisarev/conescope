@@ -4,8 +4,18 @@ import {
   useSettingsStore,
   useInstanceStore,
   useProjectStore,
+  useTerminalTabStore,
 } from '@/stores'
-import { Settings, MinusCircleSolid, XmarkCircleSolid } from 'iconoir-react'
+import {
+  Settings,
+  MinusCircle,
+  MinusCircleSolid,
+  XmarkCircle,
+  XmarkCircleSolid,
+  ChatBubbleQuestion,
+  ChatBubbleQuestionSolid,
+  Plus,
+} from 'iconoir-react'
 import { CloseConfirmModal } from './CloseConfirmModal'
 import './TopBar.css'
 
@@ -21,7 +31,9 @@ export function TopBar() {
   const instance = useInstanceStore(state =>
     focusedInstanceId ? state.getInstance(focusedInstanceId) : undefined
   )
+  const getDisplayNumber = useInstanceStore(state => state.getDisplayNumber)
   const removeInstance = useInstanceStore(state => state.removeInstance)
+  const cleanupTerminalTabs = useTerminalTabStore(state => state.cleanupInstance)
   const project = useProjectStore(state =>
     instance ? state.getProject(instance.projectId) : undefined
   )
@@ -38,6 +50,7 @@ export function TopBar() {
 
   const handleCloseConfirm = () => {
     if (focusedInstanceId) {
+      cleanupTerminalTabs(focusedInstanceId)
       window.electronAPI.killInstance(focusedInstanceId)
       removeInstance(focusedInstanceId)
       returnToOverview()
@@ -61,10 +74,10 @@ export function TopBar() {
         <div className="top-bar-center">
           {isFocusMode ? (
             <span className="app-title" style={{ color: project.color }}>
-              #{instance.instanceNumber} {instance.title.toUpperCase()}
+              #{getDisplayNumber(instance.id)} {instance.title.toUpperCase()}
             </span>
           ) : (
-            <span className="app-title">JENKLAUD</span>
+            <span className="app-title">CONESCOPE</span>
           )}
         </div>
 
@@ -72,36 +85,41 @@ export function TopBar() {
           {isFocusMode ? (
             <div className="instance-controls">
               <button
-                className="control-btn icon-btn"
+                className="control-btn icon-btn minimize-btn"
                 onClick={handleMinimize}
                 title="Minimize (return to overview)"
               >
-                <MinusCircleSolid width={18} height={18} />
+                <MinusCircle width={18} height={18} className="icon-outline" />
+                <MinusCircleSolid width={18} height={18} className="icon-solid" />
               </button>
               <button
-                className="control-btn icon-btn"
+                className="control-btn icon-btn close-btn"
                 onClick={handleCloseClick}
                 title="Close Instance"
               >
-                <XmarkCircleSolid width={18} height={18} />
+                <XmarkCircle width={18} height={18} className="icon-outline" />
+                <XmarkCircleSolid width={18} height={18} className="icon-solid" />
               </button>
             </div>
           ) : (
             <>
               <button
-                className="top-bar-btn primary"
+                className="new-window-btn"
                 onClick={toggleNewInstanceModal}
               >
-                + New
+                <Plus width={14} height={14} />
+                New Window
               </button>
               <button
-                className={`top-bar-btn ${questionsPanelVisible ? 'active' : ''}`}
+                className={`icon-toggle-btn ${questionsPanelVisible ? 'active' : ''}`}
                 onClick={toggleQuestionsPanel}
+                title="Questions"
               >
-                Questions
+                <ChatBubbleQuestion width={18} height={18} className="icon-outline" />
+                <ChatBubbleQuestionSolid width={18} height={18} className="icon-solid" />
               </button>
               <button
-                className="top-bar-btn icon-btn"
+                className="icon-toggle-btn settings-btn"
                 onClick={toggleSettings}
                 title="Settings"
               >
@@ -114,7 +132,7 @@ export function TopBar() {
 
       {showCloseModal && instance && project && (
         <CloseConfirmModal
-          instanceNumber={instance.instanceNumber}
+          instanceNumber={getDisplayNumber(instance.id)}
           instanceTitle={instance.title}
           projectColor={project.color}
           status={instance.status}

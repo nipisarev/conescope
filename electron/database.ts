@@ -3,7 +3,7 @@ import path from 'path'
 import { app } from 'electron'
 import { logger } from './logger'
 
-const DB_NAME = 'jenklaud.db'
+const DB_NAME = 'conescope.db'
 
 class DatabaseService {
   private db: Database.Database | null = null

@@ -4,6 +4,7 @@ import './QuestionsPanel.css'
 
 export function QuestionsPanel() {
   const instances = useInstanceStore(state => state.instances)
+  const getDisplayNumber = useInstanceStore(state => state.getDisplayNumber)
   const focusInstance = useAppStore(state => state.focusInstance)
 
   const waitingInstances = useMemo(() => {
@@ -34,7 +35,7 @@ export function QuestionsPanel() {
               onClick={() => focusInstance(instance.id)}
             >
               <div className="question-header">
-                <span className="question-instance">#{instance.instanceNumber}</span>
+                <span className="question-instance">#{getDisplayNumber(instance.id)}</span>
                 <span className="question-title">{instance.title}</span>
               </div>
               <div className="question-preview">

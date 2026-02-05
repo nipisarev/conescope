@@ -19,7 +19,15 @@
 .questions-list {
   flex: 1;
   overflow-y: auto;
-  padding-right: 4px;
+}
+
+/* Show scrollbar only on hover */
+.questions-list:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-bg);
+}
+
+.questions-list:hover::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 .questions-empty {

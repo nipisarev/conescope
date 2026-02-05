@@ -74,6 +74,31 @@ ipcMain.handle('instance:resize', (_, instanceId: string, cols: number, rows: nu
   instanceManager.resizeInstance(instanceId, cols, rows)
 })
 
+// Shell terminal IPC handlers
+ipcMain.handle('shell:create', async (_, terminalId: string, projectPath: string) => {
+  logger.info('IPC: shell:create', { terminalId, projectPath })
+  try {
+    instanceManager.createShellTerminal(terminalId, projectPath)
+    return terminalId
+  } catch (error) {
+    logger.error('IPC: shell:create failed', { terminalId, error })
+    throw error
+  }
+})
+
+ipcMain.handle('shell:kill', (_, terminalId: string) => {
+  logger.info('IPC: shell:kill', { terminalId })
+  instanceManager.killInstance(terminalId)
+})
+
+ipcMain.handle('shell:input', (_, terminalId: string, input: string) => {
+  instanceManager.sendInput(terminalId, input)
+})
+
+ipcMain.handle('shell:resize', (_, terminalId: string, cols: number, rows: number) => {
+  instanceManager.resizeInstance(terminalId, cols, rows)
+})
+
 ipcMain.handle('dialog:selectDirectory', async () => {
   logger.info('IPC: dialog:selectDirectory')
   const result = await dialog.showOpenDialog({
@@ -137,7 +162,7 @@ ipcMain.handle('db:questions:getPending', () => database.getPendingQuestions())
 ipcMain.handle('db:questions:insert', (_, question) => database.insertQuestion(question))
 ipcMain.handle('db:questions:answer', (_, id: string, answer: string) => database.answerQuestion(id, answer))
 
-logger.info('Jenklaud starting', {
+logger.info('Conescope starting', {
   nodeVersion: process.version,
   electronVersion: process.versions.electron,
   platform: process.platform,
@@ -146,6 +171,12 @@ logger.info('Jenklaud starting', {
 
 app.whenReady().then(() => {
   logger.info('App ready')
+
+  // Set dock icon on macOS
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(path.join(__dirname, '../build/icon.png'))
+  }
+
   database.initialize()
   createWindow()
 })

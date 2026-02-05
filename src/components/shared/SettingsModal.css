@@ -79,6 +79,13 @@
 .about-info {
   color: #ccc;
   font-size: 13px;
+  text-align: center;
+}
+
+.about-logo {
+  width: 64px;
+  height: 64px;
+  margin-bottom: 12px;
 }
 
 .about-info p {

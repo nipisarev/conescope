@@ -1,25 +1,27 @@
 .instance-tile {
   background: #252526;
-  border-radius: 8px;
-  border: 1px solid #2a2a2a;
+  border-radius: 0;
+  border: none;
+  border-right: 1px solid #3c3c3c;
+  border-bottom: 1px solid #3c3c3c;
   overflow: hidden;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
-  transition: border-color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .instance-tile:hover {
-  border-color: #0e639c;
+  background: #2a2a2a;
 }
 
 .tile-header {
-  padding: 12px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
@@ -27,6 +29,12 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.tile-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .tile-number {
@@ -38,7 +46,6 @@
   font-weight: 500;
   font-size: 14px;
   color: #fff;
-  flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -49,10 +56,14 @@
   border: none;
   color: #666;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 2px;
   border-radius: 4px;
   opacity: 0;
   transition: opacity 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .instance-tile:hover .tile-edit-btn {
@@ -60,7 +71,6 @@
 }
 
 .tile-edit-btn:hover {
-  background: #3c3c3c;
   color: #fff;
 }
 
@@ -90,7 +100,7 @@
   width: 100%;
   height: 100%;
   background: #252526;
-  padding: 4px;
+  padding: 4px 0 4px 4px; /* No right padding - scrollbar goes to edge */
   box-sizing: border-box;
 }
 
@@ -102,6 +112,15 @@
   overflow-y: auto !important;
 }
 
+/* Show scrollbar only on hover */
+.instance-tile:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-bg);
+}
+
+.instance-tile:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
 .tile-terminal-preview .xterm-rows {
   line-height: 1 !important;
 }
@@ -111,29 +130,15 @@
 }
 
 
-.tile-footer {
-  padding: 8px 12px;
-  background: #1e1e1e;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
-.tile-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: #888;
-}
-
 .tile-status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .tile-tokens {
-  color: #888;
+  color: #666;
+  font-size: 11px;
 }

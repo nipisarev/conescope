@@ -9,6 +9,7 @@ interface ManagedInstance {
   projectPath: string
   pty: pty.IPty
   isPaused: boolean
+  type: 'claude' | 'shell'
 }
 
 function getDefaultShell(): string {
@@ -94,7 +95,8 @@ class InstanceManager {
         id,
         projectPath,
         pty: ptyProcess,
-        isPaused: false
+        isPaused: false,
+        type: 'claude'
       }
 
       ptyProcess.onData((data) => {
@@ -128,6 +130,71 @@ class InstanceManager {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined
       })
+      throw error
+    }
+  }
+
+  createShellTerminal(id: string, projectPath: string): void {
+    logger.info('Creating shell terminal', { id, projectPath })
+
+    if (!fs.existsSync(projectPath)) {
+      const error = `Project path does not exist: ${projectPath}`
+      logger.error(error)
+      throw new Error(error)
+    }
+
+    const shell = getDefaultShell()
+    const env = { ...process.env } as { [key: string]: string }
+
+    if (process.platform === 'darwin') {
+      const additionalPaths = [
+        '/usr/local/bin',
+        '/opt/homebrew/bin',
+        '/usr/bin',
+        '/bin',
+        path.join(process.env.HOME || '', '.local/bin'),
+        path.join(process.env.HOME || '', '.nvm/versions/node', process.version, 'bin')
+      ]
+      const currentPath = env.PATH || ''
+      env.PATH = [...new Set([...additionalPaths, ...currentPath.split(':')])].join(':')
+    }
+
+    try {
+      const ptyProcess = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd: projectPath,
+        env
+      })
+
+      logger.info('Shell PTY spawned', { id, pid: ptyProcess.pid })
+
+      const instance: ManagedInstance = {
+        id,
+        projectPath,
+        pty: ptyProcess,
+        isPaused: false,
+        type: 'shell'
+      }
+
+      ptyProcess.onData((data) => {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.webContents.send('shell:output', id, data)
+        }
+      })
+
+      ptyProcess.onExit(({ exitCode, signal }) => {
+        logger.info('Shell PTY exited', { id, exitCode, signal })
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+          this.mainWindow.webContents.send('shell:exit', id)
+        }
+        this.instances.delete(id)
+      })
+
+      this.instances.set(id, instance)
+    } catch (error) {
+      logger.error('Failed to spawn shell PTY', { id, error })
       throw error
     }
   }

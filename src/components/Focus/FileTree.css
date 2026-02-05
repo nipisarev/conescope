@@ -9,50 +9,25 @@
 .file-tree-content {
   flex: 1;
   min-height: 0;
-  padding: 2px 0 2px 10px;
   overflow: hidden;
   position: relative;
 }
 
-/* react-arborist / react-window scrollbar styling */
-.file-tree-content > div {
-  overflow: auto !important;
-}
 
-.file-tree-content > div > div {
-  overflow: auto !important;
-}
-
-/* Ensure scrollbar is visible in the tree */
-.file-tree-content ::-webkit-scrollbar {
-  width: 10px;
-}
-
-.file-tree-content ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.file-tree-content ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 5px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-.file-tree-content ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-
-/* react-arborist tree specific */
+/* react-arborist tree specific - the className goes on FixedSizeList outer element */
 .file-tree-arborist {
   outline: none;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 
-.file-tree-arborist > div {
-  overflow-y: scroll !important;
-  overflow-x: hidden !important;
+/* Show scrollbar only on hover */
+.file-tree-arborist:hover::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-bg);
+}
+
+.file-tree-arborist:hover::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 .file-tree-message {

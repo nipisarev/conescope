@@ -1,8 +1,10 @@
 import { useCallback, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { oneDark } from '@codemirror/theme-one-dark'
+import { EditorView } from '@codemirror/view'
 import { loadLanguage, LanguageName } from '@uiw/codemirror-extensions-langs'
 import { useEditorStore, OpenFile } from '@/stores/editorStore'
+import { useSettingsStore } from '@/stores'
 import './Editor.css'
 
 interface EditorProps {
@@ -12,12 +14,22 @@ interface EditorProps {
 export function Editor({ file }: EditorProps) {
   const updateFileContent = useEditorStore(state => state.updateFileContent)
   const saveFile = useEditorStore(state => state.saveFile)
+  const editorFontSize = useSettingsStore(state => state.editorFontSize)
 
   const extensions = useMemo(() => {
-    if (!file) return []
-    const lang = loadLanguage(file.language as LanguageName)
-    return lang ? [lang] : []
-  }, [file?.language])
+    const exts = [
+      EditorView.theme({
+        '&': { fontSize: `${editorFontSize}px` },
+        '.cm-content': { fontFamily: 'Menlo, "SF Mono", Monaco, "Cascadia Code", monospace' },
+        '.cm-gutters': { fontSize: `${editorFontSize}px` },
+      })
+    ]
+    if (file) {
+      const lang = loadLanguage(file.language as LanguageName)
+      if (lang) exts.push(lang)
+    }
+    return exts
+  }, [file?.language, editorFontSize])
 
   const handleChange = useCallback((value: string) => {
     if (file) {

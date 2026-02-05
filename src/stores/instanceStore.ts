@@ -14,6 +14,7 @@ interface InstanceStore {
   removeInstance: (id: string) => Promise<void>
   getInstance: (id: string) => Instance | undefined
   getInstanceByNumber: (num: number) => Instance | undefined
+  getDisplayNumber: (id: string) => number
 
   appendTerminalOutput: (id: string, output: string) => void
   setStatus: (id: string, status: InstanceStatus) => void
@@ -98,6 +99,12 @@ export const useInstanceStore = create<InstanceStore>((set, get) => ({
   getInstance: (id) => get().instances.find(i => i.id === id),
 
   getInstanceByNumber: (num) => get().instances.find(i => i.instanceNumber === num),
+
+  getDisplayNumber: (id) => {
+    const sorted = [...get().instances].sort((a, b) => a.instanceNumber - b.instanceNumber)
+    const index = sorted.findIndex(i => i.id === id)
+    return index + 1
+  },
 
   appendTerminalOutput: (id, output) => {
     set(state => ({

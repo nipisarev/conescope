@@ -4,10 +4,19 @@
   box-sizing: border-box;
 }
 
+/* Scrollbar CSS variables for consistency */
+:root {
+  --scrollbar-size: 14px;
+  --scrollbar-thumb-bg: rgba(255, 255, 255, 0.15);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.25);
+  --scrollbar-thumb-radius: 6px;
+  --scrollbar-thumb-border: 4px;
+}
+
 /* Global scrollbar styles */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
 }
 
 ::-webkit-scrollbar-track {
@@ -15,16 +24,11 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 5px;
-  border: 2px solid transparent;
+  background-color: transparent;
+  border-radius: var(--scrollbar-thumb-radius);
+  border: var(--scrollbar-thumb-border) solid transparent;
   background-clip: padding-box;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.25);
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  transition: background-color 0.2s ease;
 }
 
 ::-webkit-scrollbar-corner {

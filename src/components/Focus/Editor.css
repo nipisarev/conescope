@@ -9,15 +9,21 @@
 
 .editor .cm-editor {
   height: 100% !important;
-  font-family: 'Menlo', 'SF Mono', Monaco, 'Cascadia Code', monospace;
-  font-size: 13px;
   background: #1e1e1e !important;
 }
 
 .editor .cm-editor .cm-scroller {
   overflow: auto !important;
   font-family: inherit;
-  padding-right: 4px;
+}
+
+/* Show scrollbar only on hover */
+.editor:hover .cm-scroller::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb-bg);
+}
+
+.editor:hover .cm-scroller::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* Override oneDark theme colors to match our dark scheme */

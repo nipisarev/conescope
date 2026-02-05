@@ -73,6 +73,14 @@
   min-height: 100px;
   width: 100%;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.focus-terminal-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .focus-empty-state {

@@ -1,0 +1,80 @@
+.terminal-tabs {
+  display: flex;
+  background: #252526;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  gap: 1px;
+  padding: 0 4px;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.terminal-tab:hover {
+  color: #ccc;
+  background: #2d2d2d;
+}
+
+.terminal-tab.active {
+  color: #fff;
+  background: #1e1e1e;
+}
+
+.terminal-tab-title {
+  white-space: nowrap;
+}
+
+.terminal-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  border-radius: 3px;
+  opacity: 0;
+  transition: all 0.15s ease;
+  margin-left: 2px;
+}
+
+.terminal-tab:hover .terminal-tab-close {
+  opacity: 1;
+}
+
+.terminal-tab-close:hover {
+  background: #4c4c4c;
+  color: #fff;
+}
+
+.terminal-tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  margin: 2px 0;
+}
+
+.terminal-tab-add:hover {
+  color: #fff;
+  background: #3c3c3c;
+}

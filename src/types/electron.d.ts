@@ -42,9 +42,17 @@ export interface ElectronAPI {
   sendInput: (instanceId: string, input: string) => Promise<void>
   resizeInstance: (instanceId: string, cols: number, rows: number) => Promise<void>
 
+  // Shell terminal management
+  createShellTerminal: (terminalId: string, projectPath: string) => Promise<string>
+  killShellTerminal: (terminalId: string) => Promise<void>
+  sendShellInput: (terminalId: string, input: string) => Promise<void>
+  resizeShellTerminal: (terminalId: string, cols: number, rows: number) => Promise<void>
+
   // Event listeners (return cleanup function)
   onInstanceOutput: (callback: (instanceId: string, data: string) => void) => () => void
   onInstanceStatusChange: (callback: (instanceId: string, status: string) => void) => () => void
+  onShellOutput: (callback: (terminalId: string, data: string) => void) => () => void
+  onShellExit: (callback: (terminalId: string) => void) => () => void
 
   // File system
   selectDirectory: () => Promise<string | null>
