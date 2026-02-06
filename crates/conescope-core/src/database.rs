@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, params};
 use rusqlite_migration::{M, Migrations};
 
-use crate::instance::{Instance, InstanceStatus, InstanceType};
+use crate::instance::{Instance, InstanceStatus, InstanceType, InstanceUpdate};
 use crate::project::Project;
 use crate::question::{Question, QuestionWithContext};
 use crate::settings;
@@ -190,6 +190,72 @@ impl Database {
         })?;
         rows.collect::<Result<Vec<_>, _>>()
             .context("Failed to get instances")
+    }
+
+    pub fn get_instance(&self, id: &str) -> Result<Option<Instance>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, ended_at, type, color
+             FROM instances WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            let status_str: String = row.get(3)?;
+            let type_str: String = row.get(9)?;
+            Ok(Instance {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                title: row.get(2)?,
+                status: InstanceStatus::from_str_opt(&status_str)
+                    .unwrap_or(InstanceStatus::Starting),
+                instance_number: row.get(4)?,
+                tokens_used: row.get(5)?,
+                cost_estimate: row.get(6)?,
+                started_at: row.get(7)?,
+                ended_at: row.get(8)?,
+                instance_type: InstanceType::from_str_opt(&type_str)
+                    .unwrap_or(InstanceType::Project),
+                color: row.get(10)?,
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn update_instance(&self, id: &str, updates: &InstanceUpdate) -> Result<()> {
+        let mut set_clauses = Vec::new();
+        let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(ref title) = updates.title {
+            set_clauses.push("title = ?");
+            values.push(Box::new(title.clone()));
+        }
+        if let Some(status) = updates.status {
+            set_clauses.push("status = ?");
+            values.push(Box::new(status.as_str().to_owned()));
+        }
+        if let Some(tokens) = updates.tokens_used {
+            set_clauses.push("tokens_used = ?");
+            values.push(Box::new(tokens));
+        }
+        if let Some(cost) = updates.cost_estimate {
+            set_clauses.push("cost_estimate = ?");
+            values.push(Box::new(cost));
+        }
+
+        if set_clauses.is_empty() {
+            return Ok(());
+        }
+
+        values.push(Box::new(id.to_owned()));
+
+        let sql = format!(
+            "UPDATE instances SET {} WHERE id = ?",
+            set_clauses.join(", ")
+        );
+        let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(AsRef::as_ref).collect();
+        self.conn.execute(&sql, params.as_slice())?;
+        Ok(())
     }
 
     pub fn insert_instance(&self, inst: &Instance) -> Result<()> {
@@ -503,6 +569,160 @@ mod tests {
             .unwrap();
         let pending = db.get_pending_questions().unwrap();
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn get_instance_existing_and_missing() {
+        let db = test_db();
+        let inst = Instance {
+            id: "gi1".into(),
+            project_id: None,
+            title: Some("Get Test".into()),
+            status: InstanceStatus::Working,
+            instance_number: Some(1),
+            tokens_used: 100,
+            cost_estimate: 0.5,
+            started_at: "2025-01-01T00:00:00Z".into(),
+            ended_at: None,
+            instance_type: InstanceType::Terminal,
+            color: None,
+        };
+        db.insert_instance(&inst).unwrap();
+
+        let found = db.get_instance("gi1").unwrap();
+        assert!(found.is_some());
+        let found = found.unwrap();
+        assert_eq!(found.title.as_deref(), Some("Get Test"));
+        assert_eq!(found.status, InstanceStatus::Working);
+
+        assert!(db.get_instance("nonexistent").unwrap().is_none());
+    }
+
+    #[test]
+    fn update_instance_partial_fields() {
+        let db = test_db();
+        let inst = Instance {
+            id: "ui1".into(),
+            project_id: None,
+            title: Some("Original".into()),
+            status: InstanceStatus::Starting,
+            instance_number: Some(1),
+            tokens_used: 0,
+            cost_estimate: 0.0,
+            started_at: "2025-01-01T00:00:00Z".into(),
+            ended_at: None,
+            instance_type: InstanceType::Project,
+            color: None,
+        };
+        db.insert_instance(&inst).unwrap();
+
+        // Update title only
+        db.update_instance(
+            "ui1",
+            &InstanceUpdate {
+                title: Some("Renamed".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let found = db.get_instance("ui1").unwrap().unwrap();
+        assert_eq!(found.title.as_deref(), Some("Renamed"));
+        assert_eq!(found.status, InstanceStatus::Starting);
+
+        // Update status only
+        db.update_instance(
+            "ui1",
+            &InstanceUpdate {
+                status: Some(InstanceStatus::Working),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let found = db.get_instance("ui1").unwrap().unwrap();
+        assert_eq!(found.status, InstanceStatus::Working);
+        assert_eq!(found.title.as_deref(), Some("Renamed"));
+
+        // Update multiple fields
+        db.update_instance(
+            "ui1",
+            &InstanceUpdate {
+                tokens_used: Some(500),
+                cost_estimate: Some(1.23),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let found = db.get_instance("ui1").unwrap().unwrap();
+        assert_eq!(found.tokens_used, 500);
+        assert!((found.cost_estimate - 1.23).abs() < f64::EPSILON);
+
+        // Empty update is a no-op
+        db.update_instance("ui1", &InstanceUpdate::default())
+            .unwrap();
+    }
+
+    #[test]
+    fn full_lifecycle_integration() {
+        let db = test_db();
+
+        // Insert project
+        let project = Project {
+            id: "lifecycle-p".into(),
+            path: "/tmp/lifecycle".into(),
+            display_name: "Lifecycle".into(),
+            color: "#E57373".into(),
+            created_at: "2025-01-01T00:00:00Z".into(),
+            last_used_at: "2025-01-01T00:00:00Z".into(),
+        };
+        db.insert_project(&project).unwrap();
+
+        // Insert instance linked to project
+        let inst = Instance {
+            id: "lifecycle-i".into(),
+            project_id: Some("lifecycle-p".into()),
+            title: Some("Lifecycle Test".into()),
+            status: InstanceStatus::Starting,
+            instance_number: Some(1),
+            tokens_used: 0,
+            cost_estimate: 0.0,
+            started_at: "2025-01-01T00:00:00Z".into(),
+            ended_at: None,
+            instance_type: InstanceType::Project,
+            color: None,
+        };
+        db.insert_instance(&inst).unwrap();
+
+        // Get instance
+        let found = db.get_instance("lifecycle-i").unwrap().unwrap();
+        assert_eq!(found.status, InstanceStatus::Starting);
+
+        // Update instance (status + tokens)
+        db.update_instance(
+            "lifecycle-i",
+            &InstanceUpdate {
+                status: Some(InstanceStatus::Working),
+                tokens_used: Some(1000),
+                cost_estimate: Some(2.5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let found = db.get_instance("lifecycle-i").unwrap().unwrap();
+        assert_eq!(found.status, InstanceStatus::Working);
+        assert_eq!(found.tokens_used, 1000);
+
+        // End instance
+        db.end_instance("lifecycle-i", "2025-01-01T01:00:00Z")
+            .unwrap();
+
+        // Should not appear in active list
+        assert!(db.get_all_instances().unwrap().is_empty());
+
+        // But get_instance still finds it
+        let found = db.get_instance("lifecycle-i").unwrap().unwrap();
+        assert_eq!(found.status, InstanceStatus::Stopped);
+        assert!(found.ended_at.is_some());
     }
 
     #[test]

@@ -1050,13 +1050,17 @@ name = "conescope-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "conescope-core",
  "conescope-pty",
  "flume",
  "gpui",
  "gpui_ghostty_terminal",
  "portable-pty",
+ "serde",
+ "serde_json",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -61,6 +61,15 @@ impl InstanceType {
     }
 }
 
+/// Partial update for an instance. Only non-None fields are written.
+#[derive(Debug, Clone, Default)]
+pub struct InstanceUpdate {
+    pub title: Option<String>,
+    pub status: Option<InstanceStatus>,
+    pub tokens_used: Option<i64>,
+    pub cost_estimate: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub id: String,

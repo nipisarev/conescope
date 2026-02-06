@@ -13,6 +13,7 @@ pub struct TerminalPane {
     pub view: gpui::Entity<TerminalView>,
     pub master: Arc<dyn MasterPty + Send>,
     pub stdout_rx: mpsc::Receiver<Vec<u8>>,
+    pub stdin_tx: mpsc::Sender<Vec<u8>>,
 }
 
 impl std::fmt::Debug for TerminalPane {
@@ -97,6 +98,8 @@ pub fn spawn_terminal_pane(
         }
     });
 
+    let stdin_tx_for_pane = stdin_tx.clone();
+
     let view = cx.new(|cx| {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
@@ -111,6 +114,7 @@ pub fn spawn_terminal_pane(
         view,
         master,
         stdout_rx,
+        stdin_tx: stdin_tx_for_pane,
     }
 }
 
