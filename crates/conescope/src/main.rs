@@ -2,6 +2,10 @@ use gpui::{AppContext, KeyBinding, WindowOptions};
 use gpui_ghostty_terminal::view::{Copy, Paste, SelectAll};
 use tracing::info;
 
+use conescope_ui::actions::{
+    CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
+    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, ReturnToOverview,
+};
 use conescope_ui::state::app_state::AppState;
 use conescope_ui::state::db_worker::DbHandle;
 use conescope_ui::views::app_view::AppView;
@@ -30,6 +34,21 @@ fn main() {
             KeyBinding::new("cmd-a", SelectAll, None),
             KeyBinding::new("cmd-c", Copy, None),
             KeyBinding::new("cmd-v", Paste, None),
+        ]);
+
+        cx.bind_keys([
+            KeyBinding::new("cmd-n", NewInstance, None),
+            KeyBinding::new("cmd-w", CloseInstance, None),
+            KeyBinding::new("cmd-0", ReturnToOverview, None),
+            KeyBinding::new("cmd-1", FocusInstance1, None),
+            KeyBinding::new("cmd-2", FocusInstance2, None),
+            KeyBinding::new("cmd-3", FocusInstance3, None),
+            KeyBinding::new("cmd-4", FocusInstance4, None),
+            KeyBinding::new("cmd-5", FocusInstance5, None),
+            KeyBinding::new("cmd-6", FocusInstance6, None),
+            KeyBinding::new("cmd-7", FocusInstance7, None),
+            KeyBinding::new("cmd-8", FocusInstance8, None),
+            KeyBinding::new("cmd-9", FocusInstance9, None),
         ]);
 
         // Create root state entity
