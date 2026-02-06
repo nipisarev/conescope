@@ -1,0 +1,6 @@
+[env]
+RUST_BACKTRACE = "1"
+
+[build]
+# Warnings as errors in CI: RUSTFLAGS="-D warnings"
+# Locally we rely on clippy -D warnings instead
