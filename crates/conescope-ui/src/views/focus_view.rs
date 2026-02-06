@@ -47,10 +47,16 @@ impl Render for FocusView {
 
         let inst = entry.read(cx);
         if let Some(ref tv) = inst.terminal_view {
+            let click_focus_handle = inst.focus_handle.clone();
             div()
                 .size_full()
                 .flex()
                 .flex_col()
+                .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                    if let Some(ref fh) = click_focus_handle {
+                        fh.focus(window, cx);
+                    }
+                })
                 .child(div().flex_1().child(tv.clone()))
         } else {
             div()

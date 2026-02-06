@@ -11,6 +11,7 @@ use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 /// All state needed for a single terminal pane.
 pub struct TerminalPane {
     pub view: gpui::Entity<TerminalView>,
+    pub focus_handle: gpui::FocusHandle,
     pub master: Arc<dyn MasterPty + Send>,
     pub stdout_rx: mpsc::Receiver<Vec<u8>>,
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
@@ -100,9 +101,11 @@ pub fn spawn_terminal_pane(
 
     let stdin_tx_for_pane = stdin_tx.clone();
 
+    let mut pane_focus_handle: Option<gpui::FocusHandle> = None;
     let view = cx.new(|cx| {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
+        pane_focus_handle = Some(focus_handle.clone());
         let session = TerminalSession::new(config).expect("vt init");
         let input = TerminalInput::new(move |bytes| {
             let _ = stdin_tx.send(bytes.to_vec());
@@ -112,6 +115,7 @@ pub fn spawn_terminal_pane(
 
     TerminalPane {
         view,
+        focus_handle: pane_focus_handle.expect("focus_handle must be set"),
         master,
         stdout_rx,
         stdin_tx: stdin_tx_for_pane,

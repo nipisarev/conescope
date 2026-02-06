@@ -20,6 +20,7 @@ impl gpui::EventEmitter<InstanceEvent> for InstanceEntry {}
 pub struct InstanceEntry {
     pub instance: Instance,
     pub terminal_view: Option<gpui::Entity<TerminalView>>,
+    pub focus_handle: Option<gpui::FocusHandle>,
     pub stdout_rx: Option<mpsc::Receiver<Vec<u8>>>,
     pub stdin_tx: Option<mpsc::Sender<Vec<u8>>>,
     pub master_pty: Option<Arc<dyn MasterPty + Send>>,
@@ -45,6 +46,7 @@ impl InstanceEntry {
         Self {
             instance,
             terminal_view: None,
+            focus_handle: None,
             stdout_rx: None,
             stdin_tx: None,
             master_pty: None,
@@ -56,6 +58,7 @@ impl InstanceEntry {
     /// Attach a spawned terminal pane to this entry.
     pub fn attach_terminal(&mut self, pane: TerminalPane) {
         self.terminal_view = Some(pane.view);
+        self.focus_handle = Some(pane.focus_handle);
         self.stdout_rx = Some(pane.stdout_rx);
         self.stdin_tx = Some(pane.stdin_tx);
         self.master_pty = Some(pane.master);
@@ -101,6 +104,13 @@ impl InstanceEntry {
         self.alive = false;
         cx.emit(InstanceEvent::Exited);
         cx.notify();
+    }
+
+    /// Focus this instance's terminal view so keyboard input goes to the PTY.
+    pub fn focus_terminal(&self, window: &mut gpui::Window, cx: &mut gpui::App) {
+        if let Some(ref fh) = self.focus_handle {
+            fh.focus(window, cx);
+        }
     }
 
     pub fn resize_pty(&self, cols: u16, rows: u16) {

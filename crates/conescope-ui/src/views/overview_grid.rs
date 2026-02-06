@@ -28,6 +28,7 @@ fn grid_cols(total: usize) -> usize {
 fn render_tile(tile: TileData, app_state: Entity<AppState>) -> gpui::AnyElement {
     let tile_id = tile.id.clone();
     let status_rgba = status_color(tile.status);
+    let tile_focus_handle = tile.focus_handle.clone();
 
     let focus_state = app_state.clone();
     div()
@@ -40,8 +41,11 @@ fn render_tile(tile: TileData, app_state: Entity<AppState>) -> gpui::AnyElement 
         .border_color(rgba(0x3c3c_3cff))
         .cursor_pointer()
         .hover(|s| s.bg(rgba(0x2525_26ff)))
-        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             focus_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
+            if let Some(ref fh) = tile_focus_handle {
+                fh.focus(window, cx);
+            }
         })
         .child(render_tile_header(&tile, status_rgba, app_state))
         .child(render_tile_body(tile.terminal_view))
@@ -183,6 +187,7 @@ impl Render for OverviewGrid {
                         .as_deref()
                         .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba),
                     terminal_view: inst.terminal_view.clone(),
+                    focus_handle: inst.focus_handle.clone(),
                 }
             })
             .collect();
@@ -207,4 +212,5 @@ struct TileData {
     status: conescope_core::instance::InstanceStatus,
     color: gpui::Rgba,
     terminal_view: Option<gpui::Entity<gpui_ghostty_terminal::view::TerminalView>>,
+    focus_handle: Option<gpui::FocusHandle>,
 }

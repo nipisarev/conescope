@@ -48,7 +48,12 @@ impl AppView {
     }
 }
 
-fn focus_instance_n(n: i64, app_state: &Entity<AppState>, cx: &mut gpui::App) {
+fn focus_instance_n(
+    n: i64,
+    app_state: &Entity<AppState>,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
     let id = {
         let state = app_state.read(cx);
         let il = state.instance_list.read(cx);
@@ -57,6 +62,16 @@ fn focus_instance_n(n: i64, app_state: &Entity<AppState>, cx: &mut gpui::App) {
     };
     if let Some(id) = id {
         app_state.update(cx, |s, cx| s.focus_instance(&id, cx));
+        // Focus the terminal so keyboard input goes to the PTY
+        let fh = {
+            let state = app_state.read(cx);
+            let il = state.instance_list.read(cx);
+            il.find_by_id(&id, cx)
+                .and_then(|entry| entry.read(cx).focus_handle.clone())
+        };
+        if let Some(fh) = fh {
+            fh.focus(window, cx);
+        }
     }
 }
 
@@ -104,8 +119,8 @@ fn with_action_handlers(
         ($root:expr, $action:ty, $n:expr, $app_state:expr) => {
             $root.on_action({
                 let app_state = $app_state.clone();
-                move |_: &$action, _window, cx| {
-                    focus_instance_n($n, &app_state, cx);
+                move |_: &$action, window, cx| {
+                    focus_instance_n($n, &app_state, window, cx);
                 }
             })
         };
