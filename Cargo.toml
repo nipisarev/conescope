@@ -9,7 +9,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
-gpui = { git = "https://github.com/zed-industries/zed", package = "gpui", rev = "cff3ac6f93f506330034652f0d2389591bfb45a0" }
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui" }
 gpui_ghostty_terminal = { git = "https://github.com/Xuanwo/gpui-ghostty", package = "gpui_ghostty_terminal", rev = "e3025981c6211dd7db2a825dc364ffb5d342f45e" }
 portable-pty = "0.9"
 rusqlite = { version = "0.34", features = ["bundled"] }

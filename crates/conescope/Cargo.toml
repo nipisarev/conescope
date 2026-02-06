@@ -4,10 +4,15 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+default-run = "conescope"
 
 [[bin]]
 name = "conescope"
 path = "src/main.rs"
+
+[[bin]]
+name = "multi-terminal-test"
+path = "src/multi_test.rs"
 
 [dependencies]
 conescope-ui = { path = "../conescope-ui" }
@@ -15,6 +20,8 @@ conescope-core = { path = "../conescope-core" }
 conescope-pty = { path = "../conescope-pty" }
 conescope-platform = { path = "../conescope-platform" }
 gpui.workspace = true
+gpui_ghostty_terminal.workspace = true
+portable-pty.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tracing-log.workspace = true
