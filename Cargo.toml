@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+
+[workspace.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", package = "gpui", rev = "cff3ac6f93f506330034652f0d2389591bfb45a0" }
+gpui_ghostty_terminal = { git = "https://github.com/Xuanwo/gpui-ghostty", package = "gpui_ghostty_terminal", rev = "e3025981c6211dd7db2a825dc364ffb5d342f45e" }
+portable-pty = "0.9"
+rusqlite = { version = "0.34", features = ["bundled"] }
+rusqlite_migration = "2"
+flume = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-log = "0.2"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_possible_truncation = "allow"
+module_name_repetitions = "allow"

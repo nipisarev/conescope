@@ -1,0 +1,19 @@
+[package]
+name = "conescope-ui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+conescope-core = { path = "../conescope-core" }
+conescope-pty = { path = "../conescope-pty" }
+gpui.workspace = true
+gpui_ghostty_terminal.workspace = true
+portable-pty.workspace = true
+flume.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

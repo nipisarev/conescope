@@ -24,3 +24,6 @@ Thumbs.db
 npm-debug.log*
 tsconfig.node.tsbuildinfo
 logs/
+
+# Rust
+target/
