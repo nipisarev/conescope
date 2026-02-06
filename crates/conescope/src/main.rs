@@ -1,4 +1,4 @@
-use gpui::{AppContext, KeyBinding, WindowOptions};
+use gpui::{AnyWindowHandle, AppContext, KeyBinding, WindowOptions};
 use gpui_ghostty_terminal::view::{Copy, Paste, SelectAll};
 use tracing::info;
 
@@ -54,7 +54,37 @@ fn main() {
         // Create root state entity
         let app_state = AppState::new(db.clone(), cx);
 
-        // Async: load settings, projects, instances from DB
+        // Open main window with AppView (before async load so we have the handle)
+        let window_handle: AnyWindowHandle = cx
+            .open_window(
+                WindowOptions {
+                    window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds {
+                        origin: gpui::point(gpui::px(100.), gpui::px(100.)),
+                        size: gpui::size(gpui::px(1400.), gpui::px(900.)),
+                    })),
+                    titlebar: Some(gpui::TitlebarOptions {
+                        title: Some("Conescope".into()),
+                        appears_transparent: true,
+                        traffic_light_position: Some(gpui::point(gpui::px(12.), gpui::px(12.))),
+                    }),
+                    ..Default::default()
+                },
+                |window, cx| {
+                    let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
+
+                    // Register PTY resize observer for Focus mode
+                    let resize_sub = conescope_ui::views::focus_view::register_focus_resize(
+                        &app_state, window, cx,
+                    );
+                    resize_sub.detach();
+
+                    view
+                },
+            )
+            .expect("Failed to open window")
+            .into();
+
+        // Async: load settings, projects, instances from DB, then restore terminals
         let settings_store = app_state.read(cx).settings_store.clone();
         let project_store = app_state.read(cx).project_store.clone();
         let instance_list = app_state.read(cx).instance_list.clone();
@@ -76,39 +106,27 @@ fn main() {
             }
 
             if let Ok(Ok(instances)) = db_for_load.get_all_instances().recv() {
+                // Filter out ended instances — only restore active sessions
+                let instances: Vec<_> = instances
+                    .into_iter()
+                    .filter(|i| i.ended_at.is_none())
+                    .collect();
+
                 cx.update(|cx| {
                     instance_list.update(cx, |list, cx| list.load_from_db(instances, cx));
                 });
                 info!("Instances loaded");
+
+                // Restore PTYs (needs window context for terminal spawning)
+                let project_store_for_restore = project_store.clone();
+                let _ = cx.update_window(window_handle, |_view, window, cx| {
+                    instance_list.update(cx, |list, cx| {
+                        list.restore_terminals(&project_store_for_restore, window, cx);
+                    });
+                });
+                info!("Terminals restored");
             }
         })
         .detach();
-
-        // Open main window with AppView
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds {
-                    origin: gpui::point(gpui::px(100.), gpui::px(100.)),
-                    size: gpui::size(gpui::px(1400.), gpui::px(900.)),
-                })),
-                titlebar: Some(gpui::TitlebarOptions {
-                    title: Some("Conescope".into()),
-                    appears_transparent: true,
-                    traffic_light_position: Some(gpui::point(gpui::px(12.), gpui::px(12.))),
-                }),
-                ..Default::default()
-            },
-            |window, cx| {
-                let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
-
-                // Register PTY resize observer for Focus mode
-                let resize_sub =
-                    conescope_ui::views::focus_view::register_focus_resize(&app_state, window, cx);
-                resize_sub.detach();
-
-                view
-            },
-        )
-        .expect("Failed to open window");
     });
 }
