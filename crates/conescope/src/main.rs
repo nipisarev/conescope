@@ -1,13 +1,10 @@
-use std::time::Duration;
-
-use gpui::{KeyBinding, WindowOptions};
+use gpui::{AppContext, KeyBinding, WindowOptions};
 use gpui_ghostty_terminal::view::{Copy, Paste, SelectAll};
-use portable_pty::PtySize;
 use tracing::info;
 
 use conescope_ui::state::app_state::AppState;
 use conescope_ui::state::db_worker::DbHandle;
-use conescope_ui::terminal::{compute_cell_metrics, spawn_terminal_pane};
+use conescope_ui::views::app_view::AppView;
 
 fn db_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
@@ -16,7 +13,6 @@ fn db_path() -> String {
     format!("{data_dir}/conescope.db")
 }
 
-#[allow(clippy::too_many_lines)] // bootstrap logic, will be split in Phase 5
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -69,7 +65,7 @@ fn main() {
         })
         .detach();
 
-        // Keep existing terminal rendering (Phase 5 replaces with real UI)
+        // Open main window with AppView
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds {
@@ -84,63 +80,12 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
-                let pane = spawn_terminal_pane(None, window, cx);
-                let view = pane.view.clone();
+                let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
 
-                // Resize PTY on window bounds change
-                let master = pane.master.clone();
-                let subscription = view.update(cx, |_, cx| {
-                    cx.observe_window_bounds(window, move |this, window, cx| {
-                        let size = window.viewport_size();
-                        let width = f32::from(size.width);
-                        let height = f32::from(size.height);
-
-                        let Some((cell_width, cell_height)) = compute_cell_metrics(window) else {
-                            return;
-                        };
-
-                        #[allow(clippy::cast_sign_loss)] // max(1.0) ensures positive
-                        let cols = (width / cell_width).floor().max(1.0) as u16;
-                        #[allow(clippy::cast_sign_loss)]
-                        let rows = (height / cell_height).floor().max(1.0) as u16;
-
-                        let _ = master.resize(PtySize {
-                            rows,
-                            cols,
-                            pixel_width: 0,
-                            pixel_height: 0,
-                        });
-
-                        this.resize_terminal(cols, rows, cx);
-                    })
-                });
-                subscription.detach();
-
-                // Async task: batch PTY output every 16ms
-                let stdout_rx = pane.stdout_rx;
-                let view_for_task = view.clone();
-                window
-                    .spawn(cx, async move |cx| {
-                        loop {
-                            cx.background_executor()
-                                .timer(Duration::from_millis(16))
-                                .await;
-                            let mut batch = Vec::new();
-                            while let Ok(chunk) = stdout_rx.try_recv() {
-                                batch.extend_from_slice(&chunk);
-                            }
-                            if batch.is_empty() {
-                                continue;
-                            }
-                            cx.update(|_, cx| {
-                                view_for_task.update(cx, |this, cx| {
-                                    this.queue_output_bytes(&batch, cx);
-                                });
-                            })
-                            .ok();
-                        }
-                    })
-                    .detach();
+                // Register PTY resize observer for Focus mode
+                let resize_sub =
+                    conescope_ui::views::focus_view::register_focus_resize(&app_state, window, cx);
+                resize_sub.detach();
 
                 view
             },

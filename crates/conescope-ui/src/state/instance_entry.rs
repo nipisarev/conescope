@@ -115,49 +115,41 @@ impl InstanceEntry {
 
     /// Start polling `stdout_rx` every 16ms, feed bytes to `terminal_view` and history.
     ///
-    /// Takes ownership of `stdout_rx`. Must be called inside a window context.
-    /// The polling task stops when the entity or window is dropped.
-    pub fn start_output_polling(
-        &mut self,
-        window: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
+    /// Takes ownership of `stdout_rx`. The polling task stops when the entity is dropped.
+    pub fn start_output_polling(&mut self, cx: &mut gpui::Context<Self>) {
         let rx = self.stdout_rx.take();
         let tv = self.terminal_view.clone();
         let weak = cx.weak_entity();
 
         if let (Some(rx), Some(tv)) = (rx, tv) {
-            window
-                .spawn(cx, async move |cx| {
-                    loop {
-                        cx.background_executor()
-                            .timer(Duration::from_millis(16))
-                            .await;
-                        let mut batch = Vec::new();
-                        while let Ok(chunk) = rx.try_recv() {
-                            batch.extend_from_slice(&chunk);
-                        }
-                        if batch.is_empty() {
-                            continue;
-                        }
-
-                        let stop = cx
-                            .update(|_, cx| {
-                                if let Some(entry) = weak.upgrade() {
-                                    entry.update(cx, |e, _| e.history.push(batch.clone()));
-                                }
-                                tv.update(cx, |view, cx| {
-                                    view.queue_output_bytes(&batch, cx);
-                                });
-                            })
-                            .is_err();
-
-                        if stop {
+            cx.spawn(async move |_weak_self, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
+                    let mut batch = Vec::new();
+                    while let Ok(chunk) = rx.try_recv() {
+                        batch.extend_from_slice(&chunk);
+                    }
+                    if batch.is_empty() {
+                        // Stop polling if the entity was dropped.
+                        if weak.upgrade().is_none() {
                             break;
                         }
+                        continue;
                     }
-                })
-                .detach();
+
+                    cx.update(|cx| {
+                        if let Some(entry) = weak.upgrade() {
+                            entry.update(cx, |e, _| e.history.push(batch.clone()));
+                        }
+                        tv.update(cx, |view, cx| {
+                            view.queue_output_bytes(&batch, cx);
+                        });
+                    });
+                }
+            })
+            .detach();
         }
     }
 }

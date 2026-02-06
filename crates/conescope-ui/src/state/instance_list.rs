@@ -112,7 +112,7 @@ impl InstanceList {
 
         // Start output polling for the new entry
         entry.update(cx, |e, cx| {
-            e.start_output_polling(window, cx);
+            e.start_output_polling(cx);
         });
 
         // For project instances, launch claude
@@ -154,13 +154,44 @@ impl InstanceList {
             let pane = crate::terminal::spawn_terminal_pane(Some(&cwd), window, cx);
             entry.update(cx, |e, cx| {
                 e.attach_terminal(pane);
-                e.start_output_polling(window, cx);
+                e.start_output_polling(cx);
             });
 
             if is_project {
                 entry.read(cx).send_input(b"claude\r");
             }
         }
+    }
+
+    /// Add a pre-built entry and subscribe for DB persistence.
+    ///
+    /// Used by action handlers that create entries externally (with Window access).
+    pub fn push_entry(&mut self, entry: Entity<InstanceEntry>, cx: &mut gpui::Context<Self>) {
+        let id = entry.read(cx).id().to_owned();
+
+        let sub = cx.subscribe(&entry, |this, entity, event, cx| {
+            let inst = entity.read(cx);
+            match event {
+                InstanceEvent::StatusChanged(status) => {
+                    this.db.update_instance(
+                        inst.id().to_owned(),
+                        InstanceUpdate {
+                            status: Some(*status),
+                            ..Default::default()
+                        },
+                    );
+                }
+                InstanceEvent::Exited => {
+                    let ended = Utc::now().to_rfc3339();
+                    this.db.end_instance(inst.id().to_owned(), ended);
+                }
+            }
+        });
+        sub.detach();
+
+        self.entries.push(entry);
+        cx.emit(InstanceListEvent::Added(id));
+        cx.notify();
     }
 
     /// Remove an instance and mark it ended in DB.

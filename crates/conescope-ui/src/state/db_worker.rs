@@ -278,11 +278,10 @@ impl DbHandle {
     }
 }
 
-impl Drop for DbHandle {
-    fn drop(&mut self) {
-        self.shutdown();
-    }
-}
+// NOTE: No Drop impl. The flume channel disconnect handles cleanup:
+// when all DbHandle clones are dropped, all Senders drop, rx.recv()
+// returns Err(Disconnected), and the worker loop exits naturally.
+// Use shutdown() explicitly only when you need synchronous cleanup (e.g. tests).
 
 #[cfg(test)]
 mod tests {
