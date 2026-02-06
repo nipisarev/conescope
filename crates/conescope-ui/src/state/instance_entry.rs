@@ -89,6 +89,13 @@ impl InstanceEntry {
         cx.notify();
     }
 
+    /// Kill the PTY process. Drops the master PTY handle which sends SIGHUP.
+    pub fn kill_pty(&mut self) {
+        self.master_pty.take(); // Drop sends SIGHUP to child
+        self.stdin_tx.take(); // Close input channel
+        self.alive = false;
+    }
+
     pub fn mark_exited(&mut self, cx: &mut gpui::Context<Self>) {
         self.instance.status = InstanceStatus::Stopped;
         self.alive = false;

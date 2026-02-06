@@ -202,8 +202,16 @@ impl InstanceList {
         cx.notify();
     }
 
-    /// Remove an instance and mark it ended in DB.
+    /// Remove an instance: kill PTY, mark exited, end in DB, remove from list.
     pub fn remove_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
+        // Kill PTY for the entry being removed
+        if let Some(entry) = self.entries.iter().find(|e| e.read(cx).id() == id) {
+            entry.update(cx, |e, cx| {
+                e.kill_pty();
+                e.mark_exited(cx);
+            });
+        }
+
         let ended = Utc::now().to_rfc3339();
         self.db.end_instance(id.to_owned(), ended);
         self.entries.retain(|e| e.read(cx).id() != id);

@@ -29,6 +29,7 @@ fn render_tile(tile: TileData, app_state: Entity<AppState>) -> gpui::AnyElement 
     let tile_id = tile.id.clone();
     let status_rgba = status_color(tile.status);
 
+    let focus_state = app_state.clone();
     div()
         .flex_1()
         .min_w(px(200.))
@@ -40,14 +41,19 @@ fn render_tile(tile: TileData, app_state: Entity<AppState>) -> gpui::AnyElement 
         .cursor_pointer()
         .hover(|s| s.bg(rgba(0x2525_26ff)))
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-            app_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
+            focus_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
         })
-        .child(render_tile_header(&tile, status_rgba))
+        .child(render_tile_header(&tile, status_rgba, app_state))
         .child(render_tile_body(tile.terminal_view))
         .into_any_element()
 }
 
-fn render_tile_header(tile: &TileData, status_rgba: gpui::Rgba) -> gpui::Div {
+fn render_tile_header(
+    tile: &TileData,
+    status_rgba: gpui::Rgba,
+    app_state: Entity<AppState>,
+) -> gpui::Div {
+    let close_id = tile.id.clone();
     div()
         .h(px(24.))
         .px(px(8.))
@@ -73,6 +79,19 @@ fn render_tile_header(tile: &TileData, status_rgba: gpui::Rgba) -> gpui::Div {
                 .child(tile.title.clone()),
         )
         .child(div().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(status_rgba))
+        .child(
+            div()
+                .ml(px(4.))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(rgba(0x6666_66ff))
+                .hover(|s| s.text_color(rgba(0xcccc_ccff)))
+                .child("\u{00d7}") // x character
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    let il = app_state.read(cx).instance_list.clone();
+                    il.update(cx, |list, cx| list.remove_instance(&close_id, cx));
+                }),
+        )
 }
 
 fn render_tile_body(
