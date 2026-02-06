@@ -1,6 +1,10 @@
 use gpui::prelude::*;
 use gpui::{AppContext, Entity, div, rgba};
 
+use crate::actions::{
+    CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
+    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, ReturnToOverview,
+};
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
 
@@ -44,6 +48,80 @@ impl AppView {
     }
 }
 
+fn focus_instance_n(n: i64, app_state: &Entity<AppState>, cx: &mut gpui::App) {
+    let id = {
+        let state = app_state.read(cx);
+        let il = state.instance_list.read(cx);
+        il.find_by_number(n, cx)
+            .map(|entry| entry.read(cx).id().to_owned())
+    };
+    if let Some(id) = id {
+        app_state.update(cx, |s, cx| s.focus_instance(&id, cx));
+    }
+}
+
+/// Make the root div stateful and chain all keyboard action handlers onto it.
+fn with_action_handlers(
+    root: gpui::Div,
+    app_state: &Entity<AppState>,
+) -> gpui::Stateful<gpui::Div> {
+    let root = root
+        .id("app-root")
+        .key_context("AppView")
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &NewInstance, _window, cx| {
+                app_state.update(cx, AppState::toggle_new_instance_modal);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &ReturnToOverview, _window, cx| {
+                app_state.update(cx, AppState::return_to_overview);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &CloseInstance, _window, cx| {
+                let id = {
+                    let state = app_state.read(cx);
+                    if state.view_mode(cx) != ViewMode::Focus {
+                        return;
+                    }
+                    let Some(id) = state.focused_instance_id(cx) else {
+                        return;
+                    };
+                    id.to_owned()
+                };
+                let il = app_state.read(cx).instance_list.clone();
+                app_state.update(cx, AppState::return_to_overview);
+                il.update(cx, |list, cx| list.remove_instance(&id, cx));
+            }
+        });
+
+    // FocusInstance1..9
+    macro_rules! focus_action {
+        ($root:expr, $action:ty, $n:expr, $app_state:expr) => {
+            $root.on_action({
+                let app_state = $app_state.clone();
+                move |_: &$action, _window, cx| {
+                    focus_instance_n($n, &app_state, cx);
+                }
+            })
+        };
+    }
+
+    let root = focus_action!(root, FocusInstance1, 1, app_state);
+    let root = focus_action!(root, FocusInstance2, 2, app_state);
+    let root = focus_action!(root, FocusInstance3, 3, app_state);
+    let root = focus_action!(root, FocusInstance4, 4, app_state);
+    let root = focus_action!(root, FocusInstance5, 5, app_state);
+    let root = focus_action!(root, FocusInstance6, 6, app_state);
+    let root = focus_action!(root, FocusInstance7, 7, app_state);
+    let root = focus_action!(root, FocusInstance8, 8, app_state);
+    focus_action!(root, FocusInstance9, 9, app_state)
+}
+
 impl Render for AppView {
     fn render(
         &mut self,
@@ -54,12 +132,14 @@ impl Render for AppView {
         let view_mode = state.view_mode(cx);
         let modal_open = state.new_instance_modal_open;
 
-        div()
+        let root = div()
             .size_full()
             .flex()
             .flex_col()
             .bg(rgba(0x1e1e_1eff))
-            .text_color(rgba(0xd4d4_d4ff))
+            .text_color(rgba(0xd4d4_d4ff));
+
+        with_action_handlers(root, &self.app_state)
             // Top bar
             .child(self.top_bar.clone())
             // Main content area

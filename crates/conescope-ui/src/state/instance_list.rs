@@ -53,6 +53,14 @@ impl InstanceList {
         self.entries.iter().find(|e| e.read(cx).id() == id)
     }
 
+    /// Find entry by 1-based instance number.
+    #[must_use]
+    pub fn find_by_number(&self, number: i64, cx: &gpui::App) -> Option<&Entity<InstanceEntry>> {
+        self.entries
+            .iter()
+            .find(|e| e.read(cx).instance.instance_number == Some(number))
+    }
+
     /// Load instances from DB (without PTY — see `restore_terminals` for that).
     pub fn load_from_db(&mut self, instances: Vec<Instance>, cx: &mut gpui::Context<Self>) {
         self.entries.clear();
