@@ -61,6 +61,16 @@ impl InstanceType {
     }
 }
 
+/// Which terminal tab is active in focus mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TerminalTab {
+    /// Claude CLI terminal (default for Project instances) or the primary terminal.
+    #[default]
+    Primary,
+    /// Secondary shell terminal (spawned on demand for Project instances).
+    Shell,
+}
+
 /// Partial update for an instance. Only non-None fields are written.
 #[derive(Debug, Clone, Default)]
 pub struct InstanceUpdate {

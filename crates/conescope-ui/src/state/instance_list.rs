@@ -71,68 +71,6 @@ impl InstanceList {
         cx.notify();
     }
 
-    /// Create a new instance with a live PTY.
-    ///
-    /// Inserts into DB, spawns terminal, subscribes to events for DB persistence.
-    pub fn create_instance(
-        &mut self,
-        instance: Instance,
-        cwd: &str,
-        window: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let id = instance.id.clone();
-
-        // Fire-and-forget DB insert
-        self.db.insert_instance(instance.clone());
-
-        // Spawn PTY
-        let pane = crate::terminal::spawn_terminal_pane(Some(cwd), window, cx);
-
-        // Create entity
-        let entry = cx.new(|_| {
-            let mut e = InstanceEntry::from_instance(instance);
-            e.attach_terminal(pane);
-            e
-        });
-
-        // Subscribe to events for DB persistence.
-        // Context<T>::subscribe gives: FnMut(&mut T, Entity<Emitter>, &Evt, &mut Context<T>)
-        let sub = cx.subscribe(&entry, |this, entity, event, cx| {
-            let inst = entity.read(cx);
-            match event {
-                InstanceEvent::StatusChanged(status) => {
-                    this.db.update_instance(
-                        inst.id().to_owned(),
-                        InstanceUpdate {
-                            status: Some(*status),
-                            ..Default::default()
-                        },
-                    );
-                }
-                InstanceEvent::Exited => {
-                    let ended = Utc::now().to_rfc3339();
-                    this.db.end_instance(inst.id().to_owned(), ended);
-                }
-            }
-        });
-        sub.detach();
-
-        // Start output polling for the new entry
-        entry.update(cx, |e, cx| {
-            e.start_output_polling(cx);
-        });
-
-        // For project instances, launch claude
-        if entry.read(cx).instance_type() == InstanceType::Project {
-            entry.read(cx).send_input(b"claude\r");
-        }
-
-        self.entries.push(entry);
-        cx.emit(InstanceListEvent::Added(id));
-        cx.notify();
-    }
-
     /// Restore terminals for previously loaded DB entries.
     ///
     /// For each entry (loaded via `load_from_db`), spawns a PTY, attaches it,
@@ -140,6 +78,7 @@ impl InstanceList {
     pub fn restore_terminals(
         &mut self,
         project_store: &Entity<ProjectStore>,
+        font_family: Option<&str>,
         window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -159,7 +98,7 @@ impl InstanceList {
                 (cwd, is_project)
             };
 
-            let pane = crate::terminal::spawn_terminal_pane(Some(&cwd), window, cx);
+            let pane = crate::terminal::spawn_terminal_pane(Some(&cwd), font_family, window, cx);
             entry.update(cx, |e, cx| {
                 e.attach_terminal(pane);
                 e.start_output_polling(cx);
@@ -202,6 +141,18 @@ impl InstanceList {
         cx.notify();
     }
 
+    /// Renumber all instances sequentially (1, 2, 3, ...).
+    fn renumber_instances(&mut self, cx: &mut gpui::Context<Self>) {
+        for (i, entry) in self.entries.iter().enumerate() {
+            #[allow(clippy::cast_possible_wrap)]
+            let num = i as i64 + 1;
+            entry.update(cx, |e, cx| {
+                e.instance.instance_number = Some(num);
+                cx.notify();
+            });
+        }
+    }
+
     /// Remove an instance: kill PTY, mark exited, end in DB, remove from list.
     pub fn remove_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
         // Kill PTY for the entry being removed
@@ -215,6 +166,7 @@ impl InstanceList {
         let ended = Utc::now().to_rfc3339();
         self.db.end_instance(id.to_owned(), ended);
         self.entries.retain(|e| e.read(cx).id() != id);
+        self.renumber_instances(cx);
         cx.emit(InstanceListEvent::Removed(id.to_owned()));
         cx.notify();
     }

@@ -18,6 +18,18 @@ pub struct SessionState {
     pub folder_panel_visible: bool,
     pub editor_panel_visible: bool,
     pub terminal_panel_visible: bool,
+    #[serde(default)]
+    pub open_editor_tabs: Vec<String>,
+    #[serde(default)]
+    pub active_editor_tab: Option<String>,
+    #[serde(default)]
+    pub window_x: Option<f32>,
+    #[serde(default)]
+    pub window_y: Option<f32>,
+    #[serde(default)]
+    pub window_width: Option<f32>,
+    #[serde(default)]
+    pub window_height: Option<f32>,
 }
 
 impl Default for SessionState {
@@ -30,6 +42,12 @@ impl Default for SessionState {
             folder_panel_visible: true,
             editor_panel_visible: true,
             terminal_panel_visible: true,
+            open_editor_tabs: Vec::new(),
+            active_editor_tab: None,
+            window_x: None,
+            window_y: None,
+            window_width: None,
+            window_height: None,
         }
     }
 }
@@ -120,12 +138,37 @@ mod tests {
             folder_panel_visible: false,
             editor_panel_visible: true,
             terminal_panel_visible: false,
+            open_editor_tabs: vec!["/foo/bar.rs".into(), "/baz/qux.ts".into()],
+            active_editor_tab: Some("/foo/bar.rs".into()),
+            window_x: Some(200.0),
+            window_y: Some(150.0),
+            window_width: Some(1600.0),
+            window_height: Some(1000.0),
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: SessionState = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.view_mode, ViewMode::Focus);
         assert_eq!(parsed.focused_instance_id.as_deref(), Some("abc-123"));
         assert!(!parsed.folder_panel_visible);
+        assert_eq!(parsed.open_editor_tabs.len(), 2);
+        assert_eq!(parsed.active_editor_tab.as_deref(), Some("/foo/bar.rs"));
+    }
+
+    #[test]
+    fn session_state_backward_compat() {
+        // Old JSON without new fields should still deserialize
+        let old_json = r#"{
+            "view_mode":"focus",
+            "focused_instance_id":"test-id",
+            "terminal_height":300.0,
+            "sidebar_width":240.0,
+            "folder_panel_visible":true,
+            "editor_panel_visible":true,
+            "terminal_panel_visible":true
+        }"#;
+        let parsed: SessionState = serde_json::from_str(old_json).unwrap();
+        assert!(parsed.open_editor_tabs.is_empty());
+        assert!(parsed.active_editor_tab.is_none());
     }
 
     #[test]

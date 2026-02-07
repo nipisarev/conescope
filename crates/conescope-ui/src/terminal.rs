@@ -25,7 +25,17 @@ impl std::fmt::Debug for TerminalPane {
     }
 }
 
+/// Build a `gpui::Font` with the given family name and standard terminal fallbacks.
+#[must_use]
+pub fn terminal_font(family: &str) -> gpui::Font {
+    let mut font = default_terminal_font();
+    font.family = gpui::SharedString::from(family.to_owned());
+    font
+}
+
 /// Spawn a PTY-backed terminal pane. Must be called from GPUI app context.
+///
+/// If `font_family` is provided, overrides the default terminal font.
 ///
 /// # Panics
 ///
@@ -33,10 +43,15 @@ impl std::fmt::Debug for TerminalPane {
 /// or the virtual terminal fails to initialize.
 pub fn spawn_terminal_pane(
     cwd: Option<&str>,
+    font_family: Option<&str>,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> TerminalPane {
-    let config = TerminalConfig::default();
+    let mut config = TerminalConfig::default();
+    // Match the app background (#1E1E1E) so half-block chars (▀▄) blend correctly.
+    config.default_bg.r = 0x1E;
+    config.default_bg.g = 0x1E;
+    config.default_bg.b = 0x1E;
 
     let pty_system = native_pty_system();
     let pty_pair = pty_system
@@ -110,7 +125,11 @@ pub fn spawn_terminal_pane(
         let input = TerminalInput::new(move |bytes| {
             let _ = stdin_tx.send(bytes.to_vec());
         });
-        TerminalView::new_with_input(session, focus_handle, input)
+        let mut tv = TerminalView::new_with_input(session, focus_handle, input);
+        if let Some(family) = font_family {
+            tv.set_font(terminal_font(family));
+        }
+        tv
     });
 
     TerminalPane {
@@ -123,16 +142,29 @@ pub fn spawn_terminal_pane(
 }
 
 /// Compute terminal cell metrics from the current window text system.
-pub fn compute_cell_metrics(window: &mut gpui::Window) -> Option<(f32, f32)> {
+///
+/// If `custom_font_size` is provided, it overrides the window's default text size.
+/// If `custom_font_family` is provided, it overrides the default terminal font family.
+pub fn compute_cell_metrics(
+    window: &mut gpui::Window,
+    custom_font_size: Option<f32>,
+    custom_font_family: Option<&str>,
+) -> Option<(f32, f32)> {
     let mut style = window.text_style();
     let font = default_terminal_font();
-    style.font_family = font.family.clone();
+    if let Some(family) = custom_font_family {
+        style.font_family = SharedString::from(family.to_owned());
+    } else {
+        style.font_family = font.family.clone();
+    }
     style.font_features = gpui_ghostty_terminal::default_terminal_font_features();
     style.font_fallbacks.clone_from(&font.fallbacks);
 
     let rem_size = window.rem_size();
-    let font_size = style.font_size.to_pixels(rem_size);
-    let line_height = style.line_height.to_pixels(style.font_size, rem_size);
+    let font_size = custom_font_size.map_or_else(|| style.font_size.to_pixels(rem_size), gpui::px);
+    style.font_size = font_size.into();
+    // Terminal line_height = 1.0 (no extra leading) so half-block chars tile seamlessly.
+    let line_height = font_size;
 
     let run = style.to_run(1);
     let lines = window

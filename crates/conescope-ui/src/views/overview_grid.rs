@@ -1,8 +1,11 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, rgba};
+use gpui::{Entity, MouseButton, div, px, relative, rgba};
+
+use conescope_core::instance::InstanceType;
 
 use crate::state::app_state::AppState;
 use crate::views::colors::{hex_to_rgba, status_color};
+use crate::views::text_input::TextInput;
 
 #[derive(Debug)]
 pub struct OverviewGrid {
@@ -16,7 +19,7 @@ impl OverviewGrid {
     }
 }
 
-/// Compute grid (columns, rows) from total slot count (instances + empty slot).
+/// Compute grid (columns, rows) from instance count.
 fn grid_dimensions(total: usize) -> (usize, usize) {
     match total {
         0 | 1 => (1, 1),
@@ -34,7 +37,9 @@ fn grid_dimensions(total: usize) -> (usize, usize) {
 fn render_tile(
     tile: &TileData,
     app_state: Entity<AppState>,
-    edit: Option<&EditCtx>,
+    editing_input: Option<&Entity<TextInput>>,
+    terminal_font_size: f32,
+    font_family: &str,
 ) -> gpui::AnyElement {
     let status_rgba = status_color(tile.status);
 
@@ -50,10 +55,15 @@ fn render_tile(
             tile,
             status_rgba,
             app_state.clone(),
-            edit,
+            editing_input,
         ))
         .child(render_tile_meta(tile))
-        .child(render_tile_body(tile, app_state))
+        .child(render_tile_body(
+            tile,
+            app_state,
+            terminal_font_size,
+            font_family,
+        ))
         .into_any_element()
 }
 
@@ -61,16 +71,19 @@ fn render_tile_header(
     tile: &TileData,
     status_rgba: gpui::Rgba,
     app_state: Entity<AppState>,
-    edit: Option<&EditCtx>,
+    editing_input: Option<&Entity<TextInput>>,
 ) -> gpui::AnyElement {
     let close_id = tile.id.clone();
+    let close_title = tile.title.clone();
     let close_state = app_state.clone();
 
-    let title_element: gpui::AnyElement = if let Some(edit) = edit {
-        render_editing_title(tile, &app_state, edit)
+    let title_element: gpui::AnyElement = if let Some(input) = editing_input {
+        div().flex_1().child(input.clone()).into_any_element()
     } else {
         render_static_title(tile, app_state)
     };
+
+    let token_label = format_tokens_compact(tile.tokens_used);
 
     div()
         .h(px(24.))
@@ -90,17 +103,25 @@ fn render_tile_header(
         )
         .child(title_element)
         .child(div().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(status_rgba))
+        // Token count
         .child(
             div()
-                .ml(px(4.))
+                .text_size(px(10.))
+                .text_color(rgba(0x5555_55ff))
+                .child(token_label),
+        )
+        .child(
+            div()
+                .ml(px(2.))
                 .cursor_pointer()
                 .text_size(px(12.))
                 .text_color(rgba(0x6666_66ff))
                 .hover(|s| s.text_color(rgba(0xcccc_ccff)))
                 .child("\u{00d7}") // × character
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    let il = close_state.read(cx).instance_list.clone();
-                    il.update(cx, |list, cx| list.remove_instance(&close_id, cx));
+                    close_state.update(cx, |s, cx| {
+                        s.request_close_instance(&close_id, &close_title, cx);
+                    });
                 }),
         )
         .into_any_element()
@@ -117,76 +138,28 @@ fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::An
         .overflow_x_hidden()
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            let focus = app_state.read(cx).edit_focus.clone();
-            app_state.update(cx, |s, _| {
-                s.start_edit_title(&click_id, &current_title);
+            app_state.update(cx, |s, cx| {
+                s.start_edit_title(&click_id, &current_title, cx);
             });
-            focus.focus(window, cx);
+            // Focus the text input
+            let editing_input = app_state.read(cx).editing_input.clone();
+            if let Some(input) = editing_input {
+                input.read(cx).focus_handle.clone().focus(window, cx);
+            }
         })
         .child(tile.title.clone())
         .into_any_element()
 }
 
-fn render_editing_title(
-    _tile: &TileData,
-    app_state: &Entity<AppState>,
-    edit: &EditCtx,
-) -> gpui::AnyElement {
-    let key_state = app_state.clone();
-
-    div()
-        .id("edit-title")
-        .flex_1()
-        .text_size(px(11.))
-        .text_color(rgba(0xdddd_ddff))
-        .bg(rgba(0x1a1a_1aff))
-        .px(px(4.))
-        .rounded(px(2.))
-        .overflow_x_hidden()
-        .track_focus(&edit.focus)
-        .on_key_down(move |ev, _window, cx| {
-            let key = ev.keystroke.key.as_str();
-            match key {
-                "enter" => {
-                    key_state.update(cx, AppState::save_edit_title);
-                }
-                "escape" => {
-                    key_state.update(cx, AppState::cancel_edit_title);
-                }
-                "backspace" => {
-                    key_state.update(cx, |s, cx| {
-                        s.editing_buffer.pop();
-                        cx.notify();
-                    });
-                }
-                _ => {
-                    if let Some(ch) = ev.keystroke.key_char.as_deref() {
-                        if !ev.keystroke.modifiers.platform && !ev.keystroke.modifiers.control {
-                            let ch = ch.to_owned();
-                            key_state.update(cx, |s, cx| {
-                                s.editing_buffer.push_str(&ch);
-                                cx.notify();
-                            });
-                        }
-                    }
-                }
-            }
-        })
-        .child(format!("{}|", edit.buffer))
-        .into_any_element()
-}
-
 fn render_tile_meta(tile: &TileData) -> gpui::Div {
-    let path_text = tile
-        .project_path
-        .as_deref()
-        .map(shorten_path)
-        .unwrap_or_default();
-    let tokens_text = if tile.tokens_used > 0 {
-        format_tokens(tile.tokens_used)
-    } else {
-        String::new()
-    };
+    let path_text = tile.project_path.as_deref().map_or_else(
+        || match tile.instance_type {
+            InstanceType::Project => "Claude Project".to_owned(),
+            InstanceType::Terminal => "~".to_owned(),
+        },
+        shorten_path,
+    );
+    let stats_text = format_stats(tile.tokens_used, tile.cost_estimate);
 
     div()
         .h(px(18.))
@@ -210,7 +183,7 @@ fn render_tile_meta(tile: &TileData) -> gpui::Div {
             div()
                 .text_size(px(10.))
                 .text_color(rgba(0x5555_55ff))
-                .child(tokens_text),
+                .child(stats_text),
         )
 }
 
@@ -226,20 +199,59 @@ fn shorten_path(path: &str) -> String {
     path.to_owned()
 }
 
+/// Format token count for tile header (always shows, e.g. "0.0k").
+#[allow(clippy::cast_precision_loss)]
+fn format_tokens_compact(tokens: i64) -> String {
+    let k = tokens as f64 / 1_000.0;
+    format!("{k:.1}k")
+}
+
 /// Format token count for compact display.
 #[allow(clippy::cast_precision_loss)]
 fn format_tokens(tokens: i64) -> String {
     if tokens >= 1_000_000 {
-        format!("{:.1}M tokens", tokens as f64 / 1_000_000.0)
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
     } else if tokens >= 1_000 {
-        format!("{:.1}K tokens", tokens as f64 / 1_000.0)
+        format!("{:.1}K", tokens as f64 / 1_000.0)
     } else {
-        format!("{tokens} tokens")
+        format!("{tokens}")
+    }
+}
+
+/// Format cost for compact display.
+fn format_cost(cost: f64) -> String {
+    if cost >= 0.01 {
+        format!("${cost:.2}")
+    } else if cost > 0.0 {
+        format!("${cost:.3}")
+    } else {
+        String::new()
+    }
+}
+
+/// Combined stats string for tile metadata.
+fn format_stats(tokens: i64, cost: f64) -> String {
+    let tokens_str = if tokens > 0 {
+        format_tokens(tokens)
+    } else {
+        String::new()
+    };
+    let cost_str = format_cost(cost);
+    match (tokens_str.is_empty(), cost_str.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => format!("{tokens_str} tok"),
+        (true, false) => cost_str,
+        (false, false) => format!("{tokens_str} tok \u{00b7} {cost_str}"),
     }
 }
 
 /// Tile body: terminal preview + click-to-focus handler.
-fn render_tile_body(tile: &TileData, app_state: Entity<AppState>) -> gpui::Div {
+fn render_tile_body(
+    tile: &TileData,
+    app_state: Entity<AppState>,
+    terminal_font_size: f32,
+    font_family: &str,
+) -> gpui::Div {
     let tile_id = tile.id.clone();
     let tile_focus_handle = tile.focus_handle.clone();
 
@@ -247,6 +259,9 @@ fn render_tile_body(tile: &TileData, app_state: Entity<AppState>) -> gpui::Div {
         .flex_1()
         .overflow_hidden()
         .cursor_pointer()
+        .font_family(gpui::SharedString::from(font_family.to_owned()))
+        .text_size(px(terminal_font_size))
+        .line_height(relative(1.0))
         .hover(|s| s.bg(rgba(0x2525_26ff)))
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             app_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
@@ -261,16 +276,12 @@ fn render_tile_body(tile: &TileData, app_state: Entity<AppState>) -> gpui::Div {
         )
 }
 
-fn render_empty_slot(app_state: Entity<AppState>) -> gpui::AnyElement {
+fn render_empty_state(app_state: Entity<AppState>) -> gpui::AnyElement {
     div()
-        .flex_1()
-        .min_w(px(200.))
+        .size_full()
         .flex()
         .items_center()
         .justify_center()
-        .border_r_1()
-        .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
         .cursor_pointer()
         .bg(rgba(0x1e1e_1eff))
         .hover(|s| s.bg(rgba(0x2525_26ff)))
@@ -299,17 +310,6 @@ fn build_grid(slots: Vec<gpui::AnyElement>, cols: usize) -> gpui::Div {
             let el = std::mem::replace(slot, div().into_any_element());
             row = row.child(el);
         }
-        // Fill incomplete rows with spacers that maintain grid borders
-        for _ in 0..(cols - chunk.len()) {
-            row = row.child(
-                div()
-                    .flex_1()
-                    .min_w(px(200.))
-                    .border_r_1()
-                    .border_b_1()
-                    .border_color(rgba(0x3c3c_3cff)),
-            );
-        }
         rows.push(row);
     }
     let mut grid = div().size_full().flex().flex_col();
@@ -327,11 +327,32 @@ impl Render for OverviewGrid {
     ) -> impl IntoElement {
         let state = self.app_state.read(cx);
         let il = state.instance_list.read(cx);
+
+        // Empty state: show "+ New Window" tile
+        if il.is_empty() {
+            return build_grid(vec![render_empty_state(self.app_state.clone())], 1);
+        }
+
         let ps = state.project_store.read(cx);
 
         let editing_tile_id = state.editing_tile_id.clone();
-        let editing_buffer = state.editing_buffer.clone();
-        let edit_focus = state.edit_focus.clone();
+        let editing_input = state.editing_input.clone();
+
+        #[allow(clippy::cast_precision_loss)]
+        let terminal_font_size = state
+            .settings_store
+            .read(cx)
+            .settings()
+            .get_i64("terminal_font_size")
+            .unwrap_or(13) as f32;
+
+        let font_family = state
+            .settings_store
+            .read(cx)
+            .settings()
+            .get("font_family")
+            .unwrap_or("Menlo")
+            .to_owned();
 
         let tiles: Vec<TileData> = il
             .entries()
@@ -359,41 +380,38 @@ impl Render for OverviewGrid {
                         .color
                         .as_deref()
                         .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba),
+                    instance_type: inst.instance_type(),
                     project_path,
                     tokens_used: inst.instance.tokens_used,
+                    cost_estimate: inst.instance.cost_estimate,
                     terminal_view: inst.terminal_view.clone(),
                     focus_handle: inst.focus_handle.clone(),
                 }
             })
             .collect();
 
-        let (cols, _rows) = grid_dimensions(tiles.len() + 1);
+        let (cols, _rows) = grid_dimensions(tiles.len());
 
-        let mut slots: Vec<gpui::AnyElement> = tiles
+        let slots: Vec<gpui::AnyElement> = tiles
             .iter()
             .map(|tile| {
-                let edit = if editing_tile_id.as_deref() == Some(tile.id.as_str()) {
-                    Some(EditCtx {
-                        buffer: editing_buffer.clone(),
-                        focus: edit_focus.clone(),
-                    })
+                let input = if editing_tile_id.as_deref() == Some(tile.id.as_str()) {
+                    editing_input.as_ref()
                 } else {
                     None
                 };
-                render_tile(tile, self.app_state.clone(), edit.as_ref())
+                render_tile(
+                    tile,
+                    self.app_state.clone(),
+                    input,
+                    terminal_font_size,
+                    &font_family,
+                )
             })
             .collect();
 
-        slots.push(render_empty_slot(self.app_state.clone()));
-
         build_grid(slots, cols)
     }
-}
-
-/// Context for an actively-editing tile title.
-struct EditCtx {
-    buffer: String,
-    focus: gpui::FocusHandle,
 }
 
 struct TileData {
@@ -402,8 +420,10 @@ struct TileData {
     title: String,
     status: conescope_core::instance::InstanceStatus,
     color: gpui::Rgba,
+    instance_type: InstanceType,
     project_path: Option<String>,
     tokens_used: i64,
+    cost_estimate: f64,
     terminal_view: Option<gpui::Entity<gpui_ghostty_terminal::view::TerminalView>>,
     focus_handle: Option<gpui::FocusHandle>,
 }

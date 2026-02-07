@@ -38,7 +38,7 @@ fn main() {
             },
             |window, cx| {
                 let panes: Vec<_> = (0..4)
-                    .map(|_| spawn_terminal_pane(None, window, cx))
+                    .map(|_| spawn_terminal_pane(None, None, window, cx))
                     .collect();
 
                 let views = [
@@ -63,7 +63,9 @@ fn main() {
                         let width = f32::from(size.width);
                         let height = f32::from(size.height);
 
-                        let Some((cell_width, cell_height)) = compute_cell_metrics(window) else {
+                        let Some((cell_width, cell_height)) =
+                            compute_cell_metrics(window, None, None)
+                        else {
                             return;
                         };
 

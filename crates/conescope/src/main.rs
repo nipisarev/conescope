@@ -4,11 +4,37 @@ use tracing::info;
 
 use conescope_ui::actions::{
     CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
-    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, ReturnToOverview,
+    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, OpenSettings,
+    ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
-use conescope_ui::state::app_state::AppState;
+use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
 use conescope_ui::views::app_view::AppView;
+use conescope_ui::views::text_input;
+
+/// Register a window bounds observer that saves position/size to session state.
+fn register_window_bounds_save(
+    app_state: &gpui::Entity<AppState>,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) -> gpui::Subscription {
+    let app_state = app_state.clone();
+    app_state.update(cx, |_, cx| {
+        cx.observe_window_bounds(window, move |this, window, cx| {
+            let size = window.viewport_size();
+            let bounds = window.bounds();
+            this.save_window_bounds(
+                &SavedWindowBounds {
+                    x: f32::from(bounds.origin.x),
+                    y: f32::from(bounds.origin.y),
+                    width: f32::from(size.width),
+                    height: f32::from(size.height),
+                },
+                cx,
+            );
+        })
+    })
+}
 
 fn db_path() -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
@@ -17,7 +43,118 @@ fn db_path() -> String {
     format!("{data_dir}/conescope.db")
 }
 
+fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_owned()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "Unknown panic".to_owned()
+        };
+
+        let location = info.location().map_or_else(
+            || "unknown".to_owned(),
+            |l| format!("{}:{}:{}", l.file(), l.line(), l.column()),
+        );
+
+        let crash_msg = format!("PANIC at {location}: {message}");
+        eprintln!("{crash_msg}");
+
+        if let Ok(home) = std::env::var("HOME") {
+            let path = format!("{home}/.conescope/crash.log");
+            let _ = std::fs::write(&path, &crash_msg);
+        }
+
+        default_hook(info);
+    }));
+}
+
+fn bind_keys(cx: &mut gpui::App) {
+    cx.bind_keys([
+        KeyBinding::new("cmd-a", SelectAll, None),
+        KeyBinding::new("cmd-c", Copy, None),
+        KeyBinding::new("cmd-v", Paste, None),
+    ]);
+
+    text_input::register_key_bindings(cx);
+
+    cx.bind_keys([
+        KeyBinding::new("cmd-n", NewInstance, None),
+        KeyBinding::new("cmd-w", CloseInstance, None),
+        KeyBinding::new("cmd-0", ReturnToOverview, None),
+        KeyBinding::new("cmd-1", FocusInstance1, None),
+        KeyBinding::new("cmd-2", FocusInstance2, None),
+        KeyBinding::new("cmd-3", FocusInstance3, None),
+        KeyBinding::new("cmd-4", FocusInstance4, None),
+        KeyBinding::new("cmd-5", FocusInstance5, None),
+        KeyBinding::new("cmd-6", FocusInstance6, None),
+        KeyBinding::new("cmd-7", FocusInstance7, None),
+        KeyBinding::new("cmd-8", FocusInstance8, None),
+        KeyBinding::new("cmd-9", FocusInstance9, None),
+        KeyBinding::new("cmd-b", ToggleSidebar, None),
+        KeyBinding::new("cmd-e", ToggleEditor, None),
+        KeyBinding::new("cmd-t", ToggleTerminal, None),
+        KeyBinding::new("cmd-,", OpenSettings, None),
+    ]);
+}
+
+fn load_data_async(
+    db: DbHandle,
+    app_state: &gpui::Entity<AppState>,
+    window_handle: AnyWindowHandle,
+    cx: &mut gpui::App,
+) {
+    let project_store = app_state.read(cx).project_store.clone();
+    let instance_list = app_state.read(cx).instance_list.clone();
+    let settings_store = app_state.read(cx).settings_store.clone();
+
+    cx.spawn(async move |cx| {
+        if let Ok(Ok(projects)) = db.get_all_projects().recv() {
+            cx.update(|cx| {
+                project_store.update(cx, |store, _| store.load(projects));
+            });
+            info!("Projects loaded");
+        }
+
+        if let Ok(Ok(instances)) = db.get_all_instances().recv() {
+            let instances: Vec<_> = instances
+                .into_iter()
+                .filter(|i| i.ended_at.is_none())
+                .collect();
+
+            cx.update(|cx| {
+                instance_list.update(cx, |list, cx| list.load_from_db(instances, cx));
+            });
+            info!("Instances loaded");
+
+            let project_store_for_restore = project_store.clone();
+            let settings_for_restore = settings_store.clone();
+            let _ = cx.update_window(window_handle, |_view, window, cx| {
+                let font_family = settings_for_restore
+                    .read(cx)
+                    .settings()
+                    .get("font_family")
+                    .map(str::to_owned);
+                instance_list.update(cx, |list, cx| {
+                    list.restore_terminals(
+                        &project_store_for_restore,
+                        font_family.as_deref(),
+                        window,
+                        cx,
+                    );
+                });
+            });
+            info!("Terminals restored");
+        }
+    })
+    .detach();
+}
+
 fn main() {
+    install_panic_hook();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
@@ -30,38 +167,34 @@ fn main() {
     let db = DbHandle::spawn(&db_path).expect("Failed to open database");
 
     gpui::Application::new().run(move |cx: &mut gpui::App| {
-        cx.bind_keys([
-            KeyBinding::new("cmd-a", SelectAll, None),
-            KeyBinding::new("cmd-c", Copy, None),
-            KeyBinding::new("cmd-v", Paste, None),
-        ]);
+        bind_keys(cx);
 
-        cx.bind_keys([
-            KeyBinding::new("cmd-n", NewInstance, None),
-            KeyBinding::new("cmd-w", CloseInstance, None),
-            KeyBinding::new("cmd-0", ReturnToOverview, None),
-            KeyBinding::new("cmd-1", FocusInstance1, None),
-            KeyBinding::new("cmd-2", FocusInstance2, None),
-            KeyBinding::new("cmd-3", FocusInstance3, None),
-            KeyBinding::new("cmd-4", FocusInstance4, None),
-            KeyBinding::new("cmd-5", FocusInstance5, None),
-            KeyBinding::new("cmd-6", FocusInstance6, None),
-            KeyBinding::new("cmd-7", FocusInstance7, None),
-            KeyBinding::new("cmd-8", FocusInstance8, None),
-            KeyBinding::new("cmd-9", FocusInstance9, None),
-        ]);
-
-        // Create root state entity
         let app_state = AppState::new(db.clone(), cx);
 
-        // Open main window with AppView (before async load so we have the handle)
+        // Synchronously load settings before opening window for saved bounds
+        if let Ok(Ok(settings)) = db.get_all_settings().recv() {
+            let settings_store = app_state.read(cx).settings_store.clone();
+            settings_store.update(cx, |store, _| store.load(settings));
+            info!("Settings loaded (sync)");
+        }
+
+        // Read saved window bounds
+        let session = app_state.read(cx).settings_store.read(cx).session().clone();
+        let window_bounds = gpui::WindowBounds::Windowed(gpui::Bounds {
+            origin: gpui::point(
+                gpui::px(session.window_x.unwrap_or(100.0)),
+                gpui::px(session.window_y.unwrap_or(100.0)),
+            ),
+            size: gpui::size(
+                gpui::px(session.window_width.unwrap_or(1400.0)),
+                gpui::px(session.window_height.unwrap_or(900.0)),
+            ),
+        });
+
         let window_handle: AnyWindowHandle = cx
             .open_window(
                 WindowOptions {
-                    window_bounds: Some(gpui::WindowBounds::Windowed(gpui::Bounds {
-                        origin: gpui::point(gpui::px(100.), gpui::px(100.)),
-                        size: gpui::size(gpui::px(1400.), gpui::px(900.)),
-                    })),
+                    window_bounds: Some(window_bounds),
                     titlebar: Some(gpui::TitlebarOptions {
                         title: Some("Conescope".into()),
                         appears_transparent: true,
@@ -71,62 +204,15 @@ fn main() {
                 },
                 |window, cx| {
                     let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
-
-                    // Register PTY resize observer for Focus mode
-                    let resize_sub = conescope_ui::views::focus_view::register_focus_resize(
-                        &app_state, window, cx,
-                    );
-                    resize_sub.detach();
-
+                    conescope_ui::views::focus_view::register_focus_resize(&app_state, window, cx)
+                        .detach();
+                    register_window_bounds_save(&app_state, window, cx).detach();
                     view
                 },
             )
             .expect("Failed to open window")
             .into();
 
-        // Async: load settings, projects, instances from DB, then restore terminals
-        let settings_store = app_state.read(cx).settings_store.clone();
-        let project_store = app_state.read(cx).project_store.clone();
-        let instance_list = app_state.read(cx).instance_list.clone();
-        let db_for_load = db.clone();
-
-        cx.spawn(async move |cx| {
-            if let Ok(Ok(settings)) = db_for_load.get_all_settings().recv() {
-                cx.update(|cx| {
-                    settings_store.update(cx, |store, _| store.load(settings));
-                });
-                info!("Settings loaded");
-            }
-
-            if let Ok(Ok(projects)) = db_for_load.get_all_projects().recv() {
-                cx.update(|cx| {
-                    project_store.update(cx, |store, _| store.load(projects));
-                });
-                info!("Projects loaded");
-            }
-
-            if let Ok(Ok(instances)) = db_for_load.get_all_instances().recv() {
-                // Filter out ended instances — only restore active sessions
-                let instances: Vec<_> = instances
-                    .into_iter()
-                    .filter(|i| i.ended_at.is_none())
-                    .collect();
-
-                cx.update(|cx| {
-                    instance_list.update(cx, |list, cx| list.load_from_db(instances, cx));
-                });
-                info!("Instances loaded");
-
-                // Restore PTYs (needs window context for terminal spawning)
-                let project_store_for_restore = project_store.clone();
-                let _ = cx.update_window(window_handle, |_view, window, cx| {
-                    instance_list.update(cx, |list, cx| {
-                        list.restore_terminals(&project_store_for_restore, window, cx);
-                    });
-                });
-                info!("Terminals restored");
-            }
-        })
-        .detach();
+        load_data_async(db, &app_state, window_handle, cx);
     });
 }

@@ -1,7 +1,17 @@
 pub mod activity_bar;
 pub mod app_view;
+pub mod code_viewer;
 pub mod colors;
+pub mod confirm_modal;
+pub mod editor_tabs;
+pub mod error_modal;
+pub mod file_tree;
 pub mod focus_view;
 pub mod new_instance_modal;
 pub mod overview_grid;
+pub mod questions_panel;
+pub mod resizable_divider;
+pub mod settings_modal;
+pub mod terminal_tabs;
+pub mod text_input;
 pub mod top_bar;

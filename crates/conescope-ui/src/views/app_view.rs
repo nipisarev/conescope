@@ -3,15 +3,20 @@ use gpui::{AppContext, Entity, div, rgba};
 
 use crate::actions::{
     CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
-    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, ReturnToOverview,
+    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, OpenSettings,
+    ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
 
 use super::activity_bar::ActivityBar;
+use super::confirm_modal::ConfirmModal;
+use super::error_modal::ErrorModal;
 use super::focus_view::FocusView;
 use super::new_instance_modal::NewInstanceModal;
 use super::overview_grid::OverviewGrid;
+use super::questions_panel::QuestionsPanel;
+use super::settings_modal::SettingsModal;
 use super::top_bar::TopBar;
 
 pub struct AppView {
@@ -21,6 +26,10 @@ pub struct AppView {
     pub overview_grid: Entity<OverviewGrid>,
     pub focus_view: Entity<FocusView>,
     pub new_instance_modal: Entity<NewInstanceModal>,
+    pub settings_modal: Entity<SettingsModal>,
+    pub confirm_modal: Entity<ConfirmModal>,
+    pub questions_panel: Entity<QuestionsPanel>,
+    pub error_modal: Entity<ErrorModal>,
 }
 
 impl std::fmt::Debug for AppView {
@@ -35,8 +44,35 @@ impl AppView {
         let top_bar = cx.new(|_| TopBar::new(app_state.clone()));
         let activity_bar = cx.new(|_| ActivityBar::new(app_state.clone()));
         let overview_grid = cx.new(|_| OverviewGrid::new(app_state.clone()));
-        let focus_view = cx.new(|_| FocusView::new(app_state.clone()));
+        let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
+        let settings_modal = cx.new(|_| SettingsModal::new(app_state.clone()));
+        let confirm_modal = cx.new(|_| ConfirmModal::new(app_state.clone()));
+        let questions_panel = cx.new(|_| QuestionsPanel::new(app_state.clone()));
+        let error_modal = cx.new(|_| ErrorModal::new(app_state.clone()));
+
+        // Observe settings store: propagate font_family changes to all terminal views.
+        let settings_store = app_state.read(cx).settings_store.clone();
+        let app_state_for_font = app_state.clone();
+        cx.observe(&settings_store, move |_this, store, cx| {
+            let font_family = store
+                .read(cx)
+                .settings()
+                .get("font_family")
+                .unwrap_or("Menlo")
+                .to_owned();
+            let entries: Vec<_> = app_state_for_font
+                .read(cx)
+                .instance_list
+                .read(cx)
+                .entries()
+                .to_vec();
+            for entry in entries {
+                entry.update(cx, |e, cx| e.update_font(&font_family, cx));
+            }
+        })
+        .detach();
+
         Self {
             app_state,
             top_bar,
@@ -44,6 +80,10 @@ impl AppView {
             overview_grid,
             focus_view,
             new_instance_modal,
+            settings_modal,
+            confirm_modal,
+            questions_panel,
+            error_modal,
         }
     }
 }
@@ -98,7 +138,7 @@ fn with_action_handlers(
         .on_action({
             let app_state = app_state.clone();
             move |_: &CloseInstance, _window, cx| {
-                let id = {
+                let (id, title) = {
                     let state = app_state.read(cx);
                     if state.view_mode(cx) != ViewMode::Focus {
                         return;
@@ -106,11 +146,47 @@ fn with_action_handlers(
                     let Some(id) = state.focused_instance_id(cx) else {
                         return;
                     };
-                    id.to_owned()
+                    let id = id.to_owned();
+                    let il = state.instance_list.read(cx);
+                    let title = il
+                        .find_by_id(&id, cx)
+                        .map(|e| {
+                            e.read(cx)
+                                .instance
+                                .title
+                                .clone()
+                                .unwrap_or_else(|| format!("Instance {id}"))
+                        })
+                        .unwrap_or_default();
+                    (id, title)
                 };
-                let il = app_state.read(cx).instance_list.clone();
-                app_state.update(cx, AppState::return_to_overview);
-                il.update(cx, |list, cx| list.remove_instance(&id, cx));
+                app_state.update(cx, |s, cx| s.request_close_instance(&id, &title, cx));
+            }
+        });
+
+    let root = root
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &ToggleSidebar, _window, cx| {
+                app_state.update(cx, AppState::toggle_sidebar);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &ToggleEditor, _window, cx| {
+                app_state.update(cx, AppState::toggle_editor);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &ToggleTerminal, _window, cx| {
+                app_state.update(cx, AppState::toggle_terminal);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &OpenSettings, _window, cx| {
+                app_state.update(cx, AppState::toggle_settings_modal);
             }
         });
 
@@ -145,7 +221,11 @@ impl Render for AppView {
     ) -> impl IntoElement {
         let state = self.app_state.read(cx);
         let view_mode = state.view_mode(cx);
-        let modal_open = state.new_instance_modal_open;
+        let new_instance_modal_open = state.new_instance_modal_open;
+        let settings_modal_open = state.settings_modal_open;
+        let confirm_open = state.confirm_action.is_some();
+        let questions_open = state.questions_queue_open;
+        let error_open = state.error_message.is_some();
 
         let root = div()
             .size_full()
@@ -161,18 +241,32 @@ impl Render for AppView {
             .child(match view_mode {
                 ViewMode::Overview => div()
                     .flex_1()
+                    .min_h_0()
                     .child(self.overview_grid.clone())
                     .into_any_element(),
                 ViewMode::Focus => div()
                     .flex_1()
+                    .min_h_0()
                     .child(self.focus_view.clone())
                     .into_any_element(),
             })
             // Activity bar (bottom)
             .child(self.activity_bar.clone())
-            // Modal overlay (conditionally rendered)
-            .when(modal_open, |el| {
+            // Modal overlays (conditionally rendered)
+            .when(new_instance_modal_open, |el| {
                 el.child(self.new_instance_modal.clone())
+            })
+            .when(settings_modal_open, |el| {
+                el.child(self.settings_modal.clone())
+            })
+            .when(confirm_open, |el| {
+                el.child(self.confirm_modal.clone())
+            })
+            .when(questions_open, |el| {
+                el.child(self.questions_panel.clone())
+            })
+            .when(error_open, |el| {
+                el.child(self.error_modal.clone())
             })
     }
 }

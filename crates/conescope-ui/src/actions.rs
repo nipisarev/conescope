@@ -15,5 +15,9 @@ actions!(
         FocusInstance7,
         FocusInstance8,
         FocusInstance9,
+        ToggleSidebar,
+        ToggleEditor,
+        ToggleTerminal,
+        OpenSettings,
     ]
 );

@@ -3,6 +3,7 @@ use gpui::{Entity, MouseButton, div, px, rgba};
 
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
+use crate::views::colors::hex_to_rgba;
 
 #[derive(Debug)]
 pub struct TopBar {
@@ -16,6 +17,27 @@ impl TopBar {
     }
 }
 
+/// Resolve the focused instance title, number, and project color.
+fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(i64, String, gpui::Rgba)> {
+    let id = state.focused_instance_id(cx)?;
+    let il = state.instance_list.read(cx);
+    let entry = il.find_by_id(id, cx)?;
+    let inst = entry.read(cx);
+    let num = inst.instance.instance_number.unwrap_or(0);
+    let title = inst
+        .instance
+        .title
+        .as_deref()
+        .unwrap_or("Untitled")
+        .to_uppercase();
+    let color = inst
+        .instance
+        .color
+        .as_deref()
+        .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba);
+    Some((num, title, color))
+}
+
 impl Render for TopBar {
     fn render(
         &mut self,
@@ -25,27 +47,24 @@ impl Render for TopBar {
         let state = self.app_state.read(cx);
         let view_mode = state.view_mode(cx);
 
-        let center_text = match view_mode {
-            ViewMode::Overview => "CONESCOPE".to_string(),
+        let (center_text, title_color) = match view_mode {
+            ViewMode::Overview => ("CONESCOPE".to_string(), rgba(0x8888_88ff)),
             ViewMode::Focus => {
-                if let Some(id) = state.focused_instance_id(cx) {
-                    let il = state.instance_list.read(cx);
-                    if let Some(e) = il.find_by_id(id, cx) {
-                        let inst = e.read(cx);
-                        let num = inst.instance.instance_number.unwrap_or(0);
-                        let title = inst.instance.title.as_deref().unwrap_or("Untitled");
-                        format!("#{num} {title}")
-                    } else {
-                        "CONESCOPE".into()
-                    }
+                if let Some((num, title, color)) = focused_info(state, cx) {
+                    (format!("#{num} {title}"), color)
                 } else {
-                    "CONESCOPE".into()
+                    ("CONESCOPE".into(), rgba(0x8888_88ff))
                 }
             }
         };
 
-        let app_state_for_add = self.app_state.clone();
+        let app_state_for_close = self.app_state.clone();
         let app_state_for_back = self.app_state.clone();
+
+        let right_section = match view_mode {
+            ViewMode::Focus => render_focus_buttons(app_state_for_back, app_state_for_close),
+            ViewMode::Overview => render_overview_buttons(&self.app_state),
+        };
 
         div()
             .h(px(36.))
@@ -64,48 +83,138 @@ impl Render for TopBar {
                     .flex_1()
                     .flex()
                     .justify_center()
-                    .text_color(rgba(0x8888_88ff))
+                    .text_color(title_color)
                     .child(center_text),
             )
-            // Right section
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(8.))
-                    .pr(px(12.))
-                    // Back button (Focus mode only)
-                    .when(view_mode == ViewMode::Focus, |el| {
-                        el.child(
-                            div()
-                                .px(px(8.))
-                                .py(px(4.))
-                                .rounded(px(4.))
-                                .cursor_pointer()
-                                .text_color(rgba(0xcccc_ccff))
-                                .hover(|s| s.bg(rgba(0x4444_44ff)))
-                                .child("\u{2190}")
-                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                    app_state_for_back
-                                        .update(cx, AppState::return_to_overview);
-                                }),
-                        )
-                    })
-                    // Add button
-                    .child(
-                        div()
-                            .px(px(8.))
-                            .py(px(4.))
-                            .rounded(px(4.))
-                            .cursor_pointer()
-                            .text_color(rgba(0xcccc_ccff))
-                            .hover(|s| s.bg(rgba(0x4444_44ff)))
-                            .child("+")
-                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                app_state_for_add
-                                    .update(cx, AppState::toggle_new_instance_modal);
-                            }),
-                    ),
-            )
+            .child(right_section)
     }
+}
+
+fn render_overview_buttons(app_state: &Entity<AppState>) -> gpui::Div {
+    let app_state_new = app_state.clone();
+    let app_state_q = app_state.clone();
+    let app_state_s = app_state.clone();
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.))
+        .pr(px(12.))
+        // "+ New Window" pill button
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .px(px(10.))
+                .py(px(3.))
+                .rounded(px(16.))
+                .border_1()
+                .border_color(rgba(0x5555_55ff))
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(rgba(0xaaaa_aaff))
+                .hover(|s| {
+                    s.bg(rgba(0x3c3c_3cff))
+                        .border_color(rgba(0x6666_66ff))
+                        .text_color(rgba(0xffff_ffff))
+                })
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_new.update(cx, AppState::toggle_new_instance_modal);
+                })
+                .child("+")
+                .child("New Window"),
+        )
+        // Questions button
+        .child(
+            div()
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_size(px(14.))
+                .text_color(rgba(0x8888_88ff))
+                .hover(|s| s.text_color(rgba(0xffff_ffff)))
+                .child("\u{003F}") // ?
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_q.update(cx, AppState::toggle_questions_queue);
+                }),
+        )
+        // Settings button
+        .child(
+            div()
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_size(px(14.))
+                .text_color(rgba(0x8888_88ff))
+                .hover(|s| s.text_color(rgba(0xffff_ffff)))
+                .child("\u{2699}") // ⚙
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_s.update(cx, AppState::toggle_settings_modal);
+                }),
+        )
+}
+
+fn render_focus_buttons(
+    app_state_for_back: Entity<AppState>,
+    app_state_for_close: Entity<AppState>,
+) -> gpui::Div {
+    div()
+        .flex()
+        .flex_row()
+        .gap(px(8.))
+        .pr(px(12.))
+        // Minimize button (return to overview)
+        .child(
+            div()
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_color(rgba(0x8888_88ff))
+                .hover(|s| s.text_color(rgba(0xffff_ffff)))
+                .child("\u{229D}") // ⊝ circled minus
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_for_back.update(cx, AppState::return_to_overview);
+                }),
+        )
+        // Close button (red on hover)
+        .child(
+            div()
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_color(rgba(0x8888_88ff))
+                .hover(|s| s.text_color(rgba(0xe539_35ff)))
+                .child("\u{2297}") // ⊗ circled X
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    let (id, title) = {
+                        let s = app_state_for_close.read(cx);
+                        let fid = s
+                            .focused_instance_id(cx)
+                            .unwrap_or_default()
+                            .to_owned();
+                        let il = s.instance_list.read(cx);
+                        let t = il
+                            .find_by_id(&fid, cx)
+                            .map(|e| {
+                                e.read(cx)
+                                    .instance
+                                    .title
+                                    .clone()
+                                    .unwrap_or_else(|| "Untitled".into())
+                            })
+                            .unwrap_or_default();
+                        (fid, t)
+                    };
+                    app_state_for_close.update(cx, |s, cx| {
+                        s.request_close_instance(&id, &title, cx);
+                    });
+                }),
+        )
 }

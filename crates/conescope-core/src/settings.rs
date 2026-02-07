@@ -5,6 +5,7 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("questions_panel_visible", "true"),
     ("editor_font_size", "13"),
     ("terminal_font_size", "13"),
+    ("font_family", "Menlo"),
 ];
 
 #[derive(Debug, Clone, Default)]

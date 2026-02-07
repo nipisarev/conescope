@@ -4,6 +4,7 @@ use anyhow::Result;
 use conescope_core::database::Database;
 use conescope_core::instance::{Instance, InstanceUpdate};
 use conescope_core::project::Project;
+use conescope_core::question::QuestionWithContext;
 use tracing::{error, info};
 
 pub enum DbCommand {
@@ -54,6 +55,16 @@ pub enum DbCommand {
         value: String,
         reply: flume::Sender<Result<()>>,
     },
+    // Question ops
+    GetPendingQuestions {
+        reply: flume::Sender<Result<Vec<QuestionWithContext>>>,
+    },
+    AnswerQuestion {
+        id: String,
+        answer: String,
+        answered_at: String,
+        reply: flume::Sender<Result<()>>,
+    },
     // Lifecycle
     Shutdown,
 }
@@ -74,6 +85,8 @@ impl std::fmt::Debug for DbCommand {
             Self::DeleteProject { id, .. } => write!(f, "DeleteProject({id})"),
             Self::GetAllSettings { .. } => write!(f, "GetAllSettings"),
             Self::SetSetting { key, .. } => write!(f, "SetSetting({key})"),
+            Self::GetPendingQuestions { .. } => write!(f, "GetPendingQuestions"),
+            Self::AnswerQuestion { id, .. } => write!(f, "AnswerQuestion({id})"),
             Self::Shutdown => write!(f, "Shutdown"),
         }
     }
@@ -157,6 +170,18 @@ impl DbHandle {
                 }
                 DbCommand::SetSetting { key, value, reply } => {
                     let _ = reply.send(db.set_setting(&key, &value));
+                }
+
+                DbCommand::GetPendingQuestions { reply } => {
+                    let _ = reply.send(db.get_pending_questions());
+                }
+                DbCommand::AnswerQuestion {
+                    id,
+                    answer,
+                    answered_at,
+                    reply,
+                } => {
+                    let _ = reply.send(db.answer_question(&id, &answer, &answered_at));
                 }
             }
         }
@@ -269,6 +294,29 @@ impl DbHandle {
         let _ = self.tx.send(DbCommand::SetSetting {
             key,
             value,
+            reply: tx,
+        });
+    }
+
+    #[must_use]
+    pub fn get_pending_questions(&self) -> flume::Receiver<Result<Vec<QuestionWithContext>>> {
+        let (tx, rx) = flume::bounded(1);
+        if self
+            .tx
+            .send(DbCommand::GetPendingQuestions { reply: tx })
+            .is_err()
+        {
+            error!("DB worker channel closed");
+        }
+        rx
+    }
+
+    pub fn answer_question(&self, id: String, answer: String, answered_at: String) {
+        let (tx, _rx) = flume::bounded(1);
+        let _ = self.tx.send(DbCommand::AnswerQuestion {
+            id,
+            answer,
+            answered_at,
             reply: tx,
         });
     }
