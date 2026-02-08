@@ -130,10 +130,7 @@ impl Render for EditorTabs {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         if self.tabs.is_empty() {
-            return div()
-                .h(px(28.))
-                .border_b_1()
-                .border_color(rgba(0x3c3c_3cff));
+            return div().h(px(28.));
         }
 
         let mut bar = div()
@@ -141,9 +138,7 @@ impl Render for EditorTabs {
             .flex()
             .flex_row()
             .items_center()
-            .overflow_hidden()
-            .border_b_1()
-            .border_color(rgba(0x3c3c_3cff));
+            .overflow_hidden();
 
         for (i, tab) in self.tabs.iter().enumerate() {
             let active = self.active_index == Some(i);

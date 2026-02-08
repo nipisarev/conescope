@@ -5,11 +5,13 @@ use gpui::{div, px, rgba};
 /// Terminal icon prefix for tab labels.
 const TERMINAL_ICON: &str = "\u{25B8}"; // ▸ small right-pointing triangle
 
-/// Render a terminal tab bar.
+/// Border color shared across tab bar elements.
+const BORDER_COLOR: u32 = 0x3c3c_3cff;
+
+/// Render a terminal tab bar with raised-tab pattern: `_|‾|__`
 ///
-/// Project instances: "Claude" + "Shell" tabs.
-/// Terminal instances: "Terminal" tab + "Shell" tab (when shell exists).
-/// Both types get a "+" button to spawn additional shell terminals.
+/// Active tab has top+left+right borders, no bottom border (connects to content).
+/// Inactive tabs and spacers carry a bottom border (the baseline).
 #[allow(clippy::too_many_arguments)]
 pub fn render_tab_bar(
     instance_type: InstanceType,
@@ -23,11 +25,7 @@ pub fn render_tab_bar(
         .h(px(28.))
         .flex()
         .flex_row()
-        .items_center()
-        .gap(px(1.))
-        .px(px(8.))
-        .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .items_end()
         .bg(rgba(0x1e1e_1eff));
 
     let primary_label = match instance_type {
@@ -35,7 +33,10 @@ pub fn render_tab_bar(
         InstanceType::Terminal => "Terminal",
     };
 
-    let mut tabs = bar.child(render_tab(
+    // Left padding spacer with bottom border
+    let mut tabs = bar.child(border_b_spacer().w(px(8.)));
+
+    tabs = tabs.child(render_tab(
         primary_label,
         active_tab == TerminalTab::Primary,
         on_click_primary,
@@ -51,20 +52,36 @@ pub fn render_tab_bar(
         ));
     }
 
-    // "+" button on the right
-    tabs.child(div().flex_1()) // spacer
+    // Flex spacer with bottom border (continues the baseline)
+    tabs.child(border_b_spacer().flex_1())
+        // "+" button wrapped with bottom border
         .child(
             div()
-                .px(px(6.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .text_size(px(14.))
-                .text_color(rgba(0x6666_66ff))
-                .hover(|s| s.text_color(rgba(0xffff_ffff)).bg(rgba(0x3c3c_3cff)))
-                .on_mouse_down(gpui::MouseButton::Left, on_click_add)
-                .child("+"),
+                .h_full()
+                .flex()
+                .items_center()
+                .border_b_1()
+                .border_color(rgba(BORDER_COLOR))
+                .child(
+                    div()
+                        .px(px(6.))
+                        .py(px(2.))
+                        .cursor_pointer()
+                        .text_size(px(14.))
+                        .text_color(rgba(0x6666_66ff))
+                        .hover(|s| s.text_color(rgba(0xffff_ffff)).bg(rgba(0x3c3c_3cff)))
+                        .on_mouse_down(gpui::MouseButton::Left, on_click_add)
+                        .child("+"),
+                ),
         )
+}
+
+/// Small spacer div with only a bottom border (the baseline).
+fn border_b_spacer() -> gpui::Div {
+    div()
+        .h_full()
+        .border_b_1()
+        .border_color(rgba(BORDER_COLOR))
 }
 
 fn render_tab(
@@ -72,11 +89,6 @@ fn render_tab(
     active: bool,
     on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> gpui::Div {
-    let bg = if active {
-        rgba(0x2d2d_2dff)
-    } else {
-        rgba(0x1e1e_1eff)
-    };
     let fg = if active {
         rgba(0xd4d4_d4ff)
     } else {
@@ -85,15 +97,28 @@ fn render_tab(
 
     let text = format!("{TERMINAL_ICON} {label}");
 
-    div()
+    let base = div()
+        .h_full()
+        .flex()
+        .items_center()
         .px(px(12.))
-        .py(px(4.))
         .text_size(px(12.))
         .text_color(fg)
-        .bg(bg)
-        .rounded(px(4.))
+        .bg(rgba(0x1e1e_1eff))
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0x3333_33ff)))
         .on_mouse_down(gpui::MouseButton::Left, on_click)
-        .child(text)
+        .child(text);
+
+    if active {
+        // Active: left + right borders, NO bottom — connects to content below.
+        // No border_t: the resize divider above provides the top separation.
+        base.border_l_1()
+            .border_r_1()
+            .border_color(rgba(BORDER_COLOR))
+    } else {
+        // Inactive: bottom border continues the baseline
+        base.border_b_1()
+            .border_color(rgba(BORDER_COLOR))
+            .hover(|s| s.bg(rgba(0x3333_33ff)))
+    }
 }

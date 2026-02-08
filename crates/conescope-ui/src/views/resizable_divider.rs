@@ -76,8 +76,8 @@ pub fn render_divider(
         .on_mouse_down(MouseButton::Left, on_drag_start);
 
     match axis {
-        Axis::Horizontal => base.w(px(4.)).h_full(),
-        Axis::Vertical => base.h(px(4.)).w_full(),
+        Axis::Horizontal => base.w(px(1.)).h_full(),
+        Axis::Vertical => base.h(px(1.)).w_full(),
     }
 }
 
