@@ -86,7 +86,6 @@ pub struct Instance {
     pub project_id: Option<String>,
     pub title: Option<String>,
     pub status: InstanceStatus,
-    pub instance_number: Option<i64>,
     pub tokens_used: i64,
     pub cost_estimate: f64,
     pub started_at: String,
@@ -133,5 +132,26 @@ mod tests {
     #[test]
     fn unknown_type_returns_none() {
         assert!(InstanceType::from_str_opt("invalid").is_none());
+    }
+
+    /// Guard: Instance has no `instance_number` field.
+    /// Numbering is purely positional (in-memory Vec index).
+    #[test]
+    fn instance_has_no_number_field() {
+        let inst = Instance {
+            id: "i1".into(),
+            project_id: None,
+            title: None,
+            status: InstanceStatus::Starting,
+            tokens_used: 0,
+            cost_estimate: 0.0,
+            started_at: "2025-01-01T00:00:00Z".into(),
+            ended_at: None,
+            instance_type: InstanceType::Project,
+            color: None,
+        };
+        // If someone re-adds instance_number, this test won't compile
+        // due to missing field (struct literal without `..` requires all fields).
+        assert_eq!(inst.id, "i1");
     }
 }

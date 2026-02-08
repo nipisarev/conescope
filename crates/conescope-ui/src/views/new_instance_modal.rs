@@ -49,23 +49,14 @@ fn create_instance_at(
         project_id,
         title_prefix,
     } = params;
-    let instance_number = {
-        let state = app_state.read(cx);
-        let il = state.instance_list.read(cx);
-        #[allow(clippy::cast_possible_wrap)]
-        let n = il.len() as i64 + 1;
-        n
-    };
-
     let id = uuid::Uuid::new_v4().to_string();
     let started_at = chrono::Utc::now().to_rfc3339();
 
     let instance = Instance {
         id: id.clone(),
         project_id,
-        title: Some(format!("{title_prefix} #{instance_number}")),
+        title: Some(title_prefix.to_string()),
         status: InstanceStatus::Starting,
-        instance_number: Some(instance_number),
         tokens_used: 0,
         cost_estimate: 0.0,
         started_at,

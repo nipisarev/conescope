@@ -323,7 +323,6 @@ mod tests {
             project_id: None,
             title: Some("Test".into()),
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),

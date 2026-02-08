@@ -26,9 +26,6 @@ pub enum DbCommand {
         ended_at: String,
         reply: flume::Sender<Result<()>>,
     },
-    GetNextInstanceNumber {
-        reply: flume::Sender<Result<i64>>,
-    },
     // Project ops
     GetAllProjects {
         reply: flume::Sender<Result<Vec<Project>>>,
@@ -76,7 +73,6 @@ impl std::fmt::Debug for DbCommand {
             Self::InsertInstance { .. } => write!(f, "InsertInstance"),
             Self::UpdateInstance { id, .. } => write!(f, "UpdateInstance({id})"),
             Self::EndInstance { id, .. } => write!(f, "EndInstance({id})"),
-            Self::GetNextInstanceNumber { .. } => write!(f, "GetNextInstanceNumber"),
             Self::GetAllProjects { .. } => write!(f, "GetAllProjects"),
             Self::InsertProject { .. } => write!(f, "InsertProject"),
             Self::UpdateProjectLastUsed { id, .. } => {
@@ -144,10 +140,6 @@ impl DbHandle {
                 } => {
                     let _ = reply.send(db.end_instance(&id, &ended_at));
                 }
-                DbCommand::GetNextInstanceNumber { reply } => {
-                    let _ = reply.send(db.get_next_instance_number());
-                }
-
                 DbCommand::GetAllProjects { reply } => {
                     let _ = reply.send(db.get_all_projects());
                 }
@@ -227,19 +219,6 @@ impl DbHandle {
             ended_at,
             reply: tx,
         });
-    }
-
-    #[must_use]
-    pub fn get_next_instance_number(&self) -> flume::Receiver<Result<i64>> {
-        let (tx, rx) = flume::bounded(1);
-        if self
-            .tx
-            .send(DbCommand::GetNextInstanceNumber { reply: tx })
-            .is_err()
-        {
-            error!("DB worker channel closed");
-        }
-        rx
     }
 
     #[must_use]
@@ -358,7 +337,7 @@ mod tests {
             project_id: None,
             title: Some("Worker Test".into()),
             status: conescope_core::instance::InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),

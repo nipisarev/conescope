@@ -88,7 +88,7 @@ impl AppView {
 }
 
 fn focus_instance_n(
-    n: i64,
+    n: usize,
     app_state: &Entity<AppState>,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
@@ -96,7 +96,7 @@ fn focus_instance_n(
     let id = {
         let state = app_state.read(cx);
         let il = state.instance_list.read(cx);
-        il.find_by_number(n, cx)
+        il.find_by_index(n.wrapping_sub(1))
             .map(|entry| entry.read(cx).id().to_owned())
     };
     if let Some(id) = id {

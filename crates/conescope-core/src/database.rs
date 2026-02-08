@@ -166,26 +166,25 @@ impl Database {
 
     pub fn get_all_instances(&self) -> Result<Vec<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, ended_at, type, color
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color
              FROM instances WHERE ended_at IS NULL ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map([], |row| {
             let status_str: String = row.get(3)?;
-            let type_str: String = row.get(9)?;
+            let type_str: String = row.get(8)?;
             Ok(Instance {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 title: row.get(2)?,
                 status: InstanceStatus::from_str_opt(&status_str)
                     .unwrap_or(InstanceStatus::Starting),
-                instance_number: row.get(4)?,
-                tokens_used: row.get(5)?,
-                cost_estimate: row.get(6)?,
-                started_at: row.get(7)?,
-                ended_at: row.get(8)?,
+                tokens_used: row.get(4)?,
+                cost_estimate: row.get(5)?,
+                started_at: row.get(6)?,
+                ended_at: row.get(7)?,
                 instance_type: InstanceType::from_str_opt(&type_str)
                     .unwrap_or(InstanceType::Project),
-                color: row.get(10)?,
+                color: row.get(9)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -194,26 +193,25 @@ impl Database {
 
     pub fn get_instance(&self, id: &str) -> Result<Option<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, ended_at, type, color
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color
              FROM instances WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             let status_str: String = row.get(3)?;
-            let type_str: String = row.get(9)?;
+            let type_str: String = row.get(8)?;
             Ok(Instance {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
                 title: row.get(2)?,
                 status: InstanceStatus::from_str_opt(&status_str)
                     .unwrap_or(InstanceStatus::Starting),
-                instance_number: row.get(4)?,
-                tokens_used: row.get(5)?,
-                cost_estimate: row.get(6)?,
-                started_at: row.get(7)?,
-                ended_at: row.get(8)?,
+                tokens_used: row.get(4)?,
+                cost_estimate: row.get(5)?,
+                started_at: row.get(6)?,
+                ended_at: row.get(7)?,
                 instance_type: InstanceType::from_str_opt(&type_str)
                     .unwrap_or(InstanceType::Project),
-                color: row.get(10)?,
+                color: row.get(9)?,
             })
         })?;
         match rows.next() {
@@ -260,14 +258,13 @@ impl Database {
 
     pub fn insert_instance(&self, inst: &Instance) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO instances (id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, type, color)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO instances (id, project_id, title, status, tokens_used, cost_estimate, started_at, type, color)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 inst.id,
                 inst.project_id,
                 inst.title,
                 inst.status.as_str(),
-                inst.instance_number,
                 inst.tokens_used,
                 inst.cost_estimate,
                 inst.started_at,
@@ -298,15 +295,6 @@ impl Database {
         self.conn
             .execute("DELETE FROM instances WHERE id = ?1", params![id])?;
         Ok(())
-    }
-
-    pub fn get_next_instance_number(&self) -> Result<i64> {
-        let n: i64 = self.conn.query_row(
-            "SELECT COALESCE(MAX(instance_number), 0) + 1 FROM instances WHERE ended_at IS NULL",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(n)
     }
 
     pub fn save_terminal_history(&self, id: &str, history_json: &str) -> Result<()> {
@@ -465,7 +453,7 @@ mod tests {
             project_id: None,
             title: Some("Test Instance".into()),
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -477,9 +465,6 @@ mod tests {
 
         let all = db.get_all_instances().unwrap();
         assert_eq!(all.len(), 1);
-
-        let next = db.get_next_instance_number().unwrap();
-        assert_eq!(next, 2);
 
         db.update_instance_status("i1", InstanceStatus::Working)
             .unwrap();
@@ -502,7 +487,7 @@ mod tests {
             project_id: None,
             title: None,
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -538,7 +523,7 @@ mod tests {
             project_id: None,
             title: Some("Claude".into()),
             status: InstanceStatus::Waiting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -579,7 +564,7 @@ mod tests {
             project_id: None,
             title: Some("Get Test".into()),
             status: InstanceStatus::Working,
-            instance_number: Some(1),
+
             tokens_used: 100,
             cost_estimate: 0.5,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -606,7 +591,7 @@ mod tests {
             project_id: None,
             title: Some("Original".into()),
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -682,7 +667,7 @@ mod tests {
             project_id: Some("lifecycle-p".into()),
             title: Some("Lifecycle Test".into()),
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),
@@ -743,7 +728,7 @@ mod tests {
             project_id: Some("p2".into()),
             title: Some("Will be cascaded".into()),
             status: InstanceStatus::Starting,
-            instance_number: Some(1),
+
             tokens_used: 0,
             cost_estimate: 0.0,
             started_at: "2025-01-01T00:00:00Z".into(),

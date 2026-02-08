@@ -53,12 +53,10 @@ impl InstanceList {
         self.entries.iter().find(|e| e.read(cx).id() == id)
     }
 
-    /// Find entry by 1-based instance number.
+    /// Find entry by 0-based position in the in-memory list.
     #[must_use]
-    pub fn find_by_number(&self, number: i64, cx: &gpui::App) -> Option<&Entity<InstanceEntry>> {
-        self.entries
-            .iter()
-            .find(|e| e.read(cx).instance.instance_number == Some(number))
+    pub fn find_by_index(&self, index: usize) -> Option<&Entity<InstanceEntry>> {
+        self.entries.get(index)
     }
 
     /// Load instances from DB (without PTY — see `restore_terminals` for that).
@@ -141,18 +139,6 @@ impl InstanceList {
         cx.notify();
     }
 
-    /// Renumber all instances sequentially (1, 2, 3, ...).
-    fn renumber_instances(&mut self, cx: &mut gpui::Context<Self>) {
-        for (i, entry) in self.entries.iter().enumerate() {
-            #[allow(clippy::cast_possible_wrap)]
-            let num = i as i64 + 1;
-            entry.update(cx, |e, cx| {
-                e.instance.instance_number = Some(num);
-                cx.notify();
-            });
-        }
-    }
-
     /// Remove an instance: kill PTY, mark exited, end in DB, remove from list.
     pub fn remove_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
         // Kill PTY for the entry being removed
@@ -166,7 +152,6 @@ impl InstanceList {
         let ended = Utc::now().to_rfc3339();
         self.db.end_instance(id.to_owned(), ended);
         self.entries.retain(|e| e.read(cx).id() != id);
-        self.renumber_instances(cx);
         cx.emit(InstanceListEvent::Removed(id.to_owned()));
         cx.notify();
     }
