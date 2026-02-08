@@ -22,7 +22,7 @@ const TERMINAL_MAX: f32 = 800.0;
 const TOP_BAR_HEIGHT: f32 = 36.0;
 const ACTIVITY_BAR_HEIGHT: f32 = 28.0;
 const TERMINAL_TABS_HEIGHT: f32 = 28.0;
-const DIVIDER_SIZE: f32 = 4.0;
+const DIVIDER_SIZE: f32 = 1.0;
 
 pub struct FocusView {
     app_state: Entity<AppState>,
@@ -500,8 +500,6 @@ impl Render for FocusView {
                         .h_full()
                         .flex()
                         .flex_col()
-                        .border_r_1()
-                        .border_color(theme.border)
                         .bg(theme.panel)
                         .child(self.file_tree.clone()),
                 )
