@@ -201,8 +201,12 @@ impl Render for CodeEditor {
 
         div()
             .size_full()
-            .bg(rgba(0x1e1e_1eff))
-            .child(Input::new(&state).h_full())
+            .child(
+                Input::new(&state)
+                    .h_full()
+                    .appearance(false)
+                    .focus_bordered(false),
+            )
             .into_any_element()
     }
 }

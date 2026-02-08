@@ -31,6 +31,8 @@ pub struct TerminalView {
     focus_handle: FocusHandle,
     font_family: SharedString,
     font_size: f32,
+    /// Terminal background color (painted by `TerminalElement`).
+    bg_color: gpui::Rgba,
     /// Buffered PTY output waiting to be fed.
     _pending_output: Vec<u8>,
     /// Track mouse drag state for selection.
@@ -58,11 +60,20 @@ impl TerminalView {
         font_family: SharedString,
         font_size: f32,
     ) -> Self {
+        // Default terminal bg: #292828 (matches Gruvbox theme.panel).
+        // Constructed to exactly match DEFAULT_BG in terminal.rs.
+        let bg_color = gpui::Rgba {
+            r: 41.0 / 255.0,
+            g: 40.0 / 255.0,
+            b: 40.0 / 255.0,
+            a: 1.0,
+        };
         Self {
             terminal,
             focus_handle,
             font_family,
             font_size,
+            bg_color,
             _pending_output: Vec::new(),
             selecting: false,
             cached_cell_width: 8.0,
@@ -83,6 +94,11 @@ impl TerminalView {
             term.resize(cols as usize, rows as usize);
         });
         cx.notify();
+    }
+
+    /// Update the terminal background color.
+    pub fn set_bg_color(&mut self, color: gpui::Rgba) {
+        self.bg_color = color;
     }
 
     /// Update the terminal font.
@@ -283,6 +299,7 @@ impl Render for TerminalView {
                 font_family,
                 font_size,
                 pending_resize,
+                self.bg_color,
             ))
     }
 }

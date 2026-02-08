@@ -458,10 +458,12 @@ const DEFAULT_FG: Rgba = Rgba {
     b: 0.80,
     a: 1.0,
 };
+/// Must match the terminal `bg_color` default in `TerminalView::new`.
+/// Sourced from Gruvbox `terminal.background` = `#292828`.
 const DEFAULT_BG: Rgba = Rgba {
-    r: 0.118,
-    g: 0.118,
-    b: 0.118,
+    r: 41.0 / 255.0,
+    g: 40.0 / 255.0,
+    b: 40.0 / 255.0,
     a: 1.0,
 };
 

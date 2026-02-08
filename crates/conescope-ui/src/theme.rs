@@ -75,6 +75,9 @@ pub struct Theme {
     // Overlay
     pub backdrop: Rgba,
 
+    // Terminal
+    pub terminal_bg: Rgba,
+
     // Tab-specific
     pub tab_active_bg: Rgba,
     pub tab_inactive_bg: Rgba,
@@ -128,8 +131,10 @@ fn dark_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>)
         name,
         mode,
         background: get("background").unwrap_or(rgba(0x1e1e_1eff)),
-        editor_bg: get("editor.background").unwrap_or(rgba(0x1a1a_1aff)),
-        panel: get("title_bar.background").unwrap_or(rgba(0x2525_26ff)),
+        editor_bg: get("editor.background").unwrap_or(rgba(0x2525_26ff)),
+        panel: get("panel.background")
+            .or_else(|| get("title_bar.background"))
+            .unwrap_or(rgba(0x2525_26ff)),
         surface: get("elevated_surface.background").unwrap_or(rgba(0x2d2d_2dff)),
         element_hover: get("element.hover").unwrap_or(rgba(0x3333_33ff)),
         element_selected: get("element.selected").unwrap_or(rgba(0x0944_61ff)),
@@ -146,6 +151,7 @@ fn dark_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>)
         destructive_hover: rgba(0xdd55_55ff),
         warning: rgba(0xccaa_33ff),
         backdrop: rgba(0x0000_0080),
+        terminal_bg: get("terminal.background").unwrap_or(rgba(0x2525_26ff)),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0x2d2d_2dff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0x1e1e_1eff)),
     }
@@ -157,7 +163,9 @@ fn light_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>
         mode,
         background: get("background").unwrap_or(rgba(0xffff_ffff)),
         editor_bg: get("editor.background").unwrap_or(rgba(0xffff_ffff)),
-        panel: get("title_bar.background").unwrap_or(rgba(0xf3f3_f3ff)),
+        panel: get("panel.background")
+            .or_else(|| get("title_bar.background"))
+            .unwrap_or(rgba(0xf3f3_f3ff)),
         surface: get("elevated_surface.background").unwrap_or(rgba(0xffff_ffff)),
         element_hover: rgba(0xe8e8_e8ff),
         element_selected: rgba(0xcce5_ffff),
@@ -174,6 +182,7 @@ fn light_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>
         destructive_hover: rgba(0xe53e_3eff),
         warning: rgba(0xf9a8_25ff),
         backdrop: rgba(0x0000_0060),
+        terminal_bg: get("terminal.background").unwrap_or(rgba(0xffff_ffff)),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0xffff_ffff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0xecec_ecff)),
     }

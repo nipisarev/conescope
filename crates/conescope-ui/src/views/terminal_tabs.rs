@@ -2,6 +2,8 @@ use conescope_core::instance::{InstanceType, TerminalTab};
 use gpui::prelude::*;
 use gpui::{div, px, rgba};
 
+use crate::theme::Theme;
+
 /// Terminal icon prefix for tab labels.
 const TERMINAL_ICON: &str = "\u{25B8}"; // ▸ small right-pointing triangle
 
@@ -20,15 +22,17 @@ pub fn render_tab_bar(
     on_click_primary: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     on_click_shell: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     on_click_add: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    theme: &Theme,
 ) -> gpui::Div {
-    // Terminal tabs don't have direct access to theme; use simple hardcoded values
-    // that work for both dark/light (these are fairly neutral).
+    let active_bg = theme.terminal_bg;
+    let inactive_bg = theme.background;
+
     let bar = div()
         .h(px(28.))
         .flex()
         .flex_row()
         .items_end()
-        .bg(rgba(0x1e1e_1eff));
+        .bg(inactive_bg);
 
     let primary_label = match instance_type {
         InstanceType::Project => "Claude",
@@ -42,6 +46,8 @@ pub fn render_tab_bar(
         primary_label,
         active_tab == TerminalTab::Primary,
         on_click_primary,
+        active_bg,
+        inactive_bg,
     ));
 
     // Show Shell tab for Project instances always, for Terminal instances only when spawned
@@ -51,6 +57,8 @@ pub fn render_tab_bar(
             "Shell",
             active_tab == TerminalTab::Shell,
             on_click_shell,
+            active_bg,
+            inactive_bg,
         ));
     }
 
@@ -80,16 +88,15 @@ pub fn render_tab_bar(
 
 /// Small spacer div with only a bottom border (the baseline).
 fn border_b_spacer() -> gpui::Div {
-    div()
-        .h_full()
-        .border_b_1()
-        .border_color(rgba(BORDER_COLOR))
+    div().h_full().border_b_1().border_color(rgba(BORDER_COLOR))
 }
 
 fn render_tab(
     label: &str,
     active: bool,
     on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    active_bg: gpui::Rgba,
+    inactive_bg: gpui::Rgba,
 ) -> gpui::Div {
     let fg = if active {
         rgba(0xd4d4_d4ff)
@@ -99,6 +106,8 @@ fn render_tab(
 
     let text = format!("{TERMINAL_ICON} {label}");
 
+    let bg = if active { active_bg } else { inactive_bg };
+
     let base = div()
         .h_full()
         .flex()
@@ -106,19 +115,16 @@ fn render_tab(
         .px(px(12.))
         .text_size(px(12.))
         .text_color(fg)
-        .bg(rgba(0x1e1e_1eff))
+        .bg(bg)
         .cursor_pointer()
         .on_mouse_down(gpui::MouseButton::Left, on_click)
         .child(text);
 
     if active {
-        // Active: left + right borders, NO bottom — connects to content below.
-        // No border_t: the resize divider above provides the top separation.
         base.border_l_1()
             .border_r_1()
             .border_color(rgba(BORDER_COLOR))
     } else {
-        // Inactive: bottom border continues the baseline
         base.border_b_1()
             .border_color(rgba(BORDER_COLOR))
             .hover(|s| s.bg(rgba(0x3333_33ff)))

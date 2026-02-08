@@ -210,6 +210,10 @@ fn main() {
                 if mode != app_state.read(cx).theme().mode {
                     app_state.update(cx, |s, cx| s.set_theme(mode, cx));
                 }
+                // Sync our theme colors into gpui-component's global theme
+                // (set_theme does this internally, but we need it for the default case too)
+                let theme = app_state.read(cx).theme().clone();
+                conescope_ui::state::app_state::sync_gpui_component_theme(&theme, cx);
             }
 
             // Read saved window bounds

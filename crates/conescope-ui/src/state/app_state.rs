@@ -75,6 +75,7 @@ impl AppState {
 
     pub fn set_theme(&mut self, mode: ThemeMode, cx: &mut gpui::Context<Self>) {
         self.theme = Theme::load_builtin(mode);
+        sync_gpui_component_theme(&self.theme, cx);
         self.settings_store.update(cx, |store, _| {
             mode.as_str().clone_into(&mut store.settings_mut().theme);
         });
@@ -350,6 +351,37 @@ impl AppState {
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
     }
+}
+
+/// Sync our custom theme colors into gpui-component's global theme.
+///
+/// This ensures the code editor Input widget (line numbers, gutter bg)
+/// matches our app's color scheme instead of using gpui-component defaults.
+pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
+    use std::sync::Arc;
+
+    use gpui::Hsla;
+
+    let editor_bg = Hsla::from(theme.editor_bg);
+    let text_muted = Hsla::from(theme.text_muted);
+
+    let gc_theme = gpui_component::theme::Theme::global_mut(cx);
+    gc_theme.colors.background = editor_bg;
+    gc_theme.colors.foreground = Hsla::from(theme.text);
+    gc_theme.colors.muted_foreground = Hsla::from(theme.text_faint);
+    gc_theme.colors.border = Hsla::from(theme.border);
+
+    // Update highlight theme: gutter bg + line number colors
+    let old_ht = &gc_theme.highlight_theme;
+    let mut new_style = old_ht.style.clone();
+    new_style.editor_background = Some(editor_bg);
+    new_style.editor_line_number = Some(text_muted);
+    new_style.editor_active_line_number = Some(Hsla::from(theme.text));
+    gc_theme.highlight_theme = Arc::new(gpui_component::highlighter::HighlightTheme {
+        name: old_ht.name.clone(),
+        appearance: old_ht.appearance,
+        style: new_style,
+    });
 }
 
 /// Window position and size for persistence.

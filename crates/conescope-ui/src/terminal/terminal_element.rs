@@ -52,6 +52,7 @@ pub struct TerminalElement {
     font_family: SharedString,
     font_size: Pixels,
     pending_resize: PendingResize,
+    bg_color: Rgba,
 }
 
 impl TerminalElement {
@@ -64,6 +65,7 @@ impl TerminalElement {
         font_family: SharedString,
         font_size: Pixels,
         pending_resize: PendingResize,
+        bg_color: Rgba,
     ) -> Self {
         Self {
             terminal,
@@ -72,6 +74,7 @@ impl TerminalElement {
             font_family,
             font_size,
             pending_resize,
+            bg_color,
         }
     }
 }
@@ -199,14 +202,8 @@ impl Element for TerminalElement {
                 #[allow(clippy::cast_precision_loss)]
                 let cell_x = px(f32::from(cell_width) * col as f32);
 
-                // Paint cell background.
-                let bg_default = Rgba {
-                    r: 0.118,
-                    g: 0.118,
-                    b: 0.118,
-                    a: 1.0,
-                };
-                if bg != bg_default {
+                // Paint cell background (skip cells matching terminal bg).
+                if bg != self.bg_color {
                     bg_rects.push((
                         Bounds::new(
                             bounds.origin + Point::new(cell_x, y),
@@ -323,8 +320,7 @@ impl Element for TerminalElement {
         cx: &mut gpui::App,
     ) {
         // Paint full terminal background.
-        let bg = gpui::rgba(0x1E1E_1EFF);
-        window.paint_quad(gpui::fill(bounds, bg));
+        window.paint_quad(gpui::fill(bounds, self.bg_color));
 
         // Paint cell backgrounds.
         for (rect, color) in &prepaint.bg_rects {

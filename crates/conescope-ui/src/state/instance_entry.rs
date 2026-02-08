@@ -155,6 +155,16 @@ impl InstanceEntry {
         }
     }
 
+    /// Update background color on all terminal views.
+    pub fn update_bg_color(&mut self, color: gpui::Rgba, cx: &mut gpui::Context<Self>) {
+        if let Some(ref tv) = self.terminal_view {
+            tv.update(cx, |v, _| v.set_bg_color(color));
+        }
+        if let Some(ref tv) = self.shell_terminal_view {
+            tv.update(cx, |v, _| v.set_bg_color(color));
+        }
+    }
+
     pub fn resize_pty(&self, cols: u16, rows: u16) {
         if let Some(ref master) = self.master_pty {
             let _ = master.resize(PtySize {

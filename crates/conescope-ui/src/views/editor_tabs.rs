@@ -1,7 +1,13 @@
 use std::path::Path;
 
 use gpui::prelude::*;
-use gpui::{EventEmitter, MouseButton, div, px, rgba};
+use gpui::{Entity, EventEmitter, MouseButton, div, px, rgba};
+
+use crate::state::app_state::AppState;
+use crate::theme::Theme;
+
+/// Border color shared across tab bar elements (matches terminal tabs).
+const BORDER_COLOR: u32 = 0x3c3c_3cff;
 
 #[derive(Debug, Clone)]
 pub enum EditorTabsEvent {
@@ -18,16 +24,29 @@ pub struct EditorTab {
     pub modified: bool,
 }
 
-#[derive(Debug, Default)]
 pub struct EditorTabs {
+    app_state: Entity<AppState>,
     tabs: Vec<EditorTab>,
     active_index: Option<usize>,
 }
 
+impl std::fmt::Debug for EditorTabs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EditorTabs")
+            .field("tabs", &self.tabs)
+            .field("active_index", &self.active_index)
+            .finish_non_exhaustive()
+    }
+}
+
 impl EditorTabs {
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(app_state: Entity<AppState>) -> Self {
+        Self {
+            app_state,
+            tabs: Vec::new(),
+            active_index: None,
+        }
     }
 
     /// Open a file tab. If already open, just focus it.
@@ -129,42 +148,64 @@ impl Render for EditorTabs {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let theme = self.app_state.read(cx).theme().clone();
+
         if self.tabs.is_empty() {
-            return div().h(px(28.));
+            // Empty bar: full bottom border baseline
+            return div()
+                .h(px(28.))
+                .border_b_1()
+                .border_color(rgba(BORDER_COLOR))
+                .bg(theme.background);
         }
+
+        let active_bg = theme.editor_bg;
+        let inactive_bg = theme.background;
 
         let mut bar = div()
             .h(px(28.))
             .flex()
             .flex_row()
-            .items_center()
-            .overflow_hidden();
+            .items_end()
+            .bg(inactive_bg);
+
+        // Left padding spacer with bottom border
+        bar = bar.child(border_b_spacer().w(px(8.)));
 
         for (i, tab) in self.tabs.iter().enumerate() {
             let active = self.active_index == Some(i);
-            bar = bar.child(render_tab(tab, i, active, cx));
+            bar = bar.child(render_tab(
+                tab,
+                i,
+                active,
+                active_bg,
+                inactive_bg,
+                &theme,
+                cx,
+            ));
         }
 
-        bar
+        // Flex spacer with bottom border (continues the baseline)
+        bar.child(border_b_spacer().flex_1())
     }
 }
 
+/// Small spacer div with only a bottom border (the baseline).
+fn border_b_spacer() -> gpui::Div {
+    div().h_full().border_b_1().border_color(rgba(BORDER_COLOR))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn render_tab(
     tab: &EditorTab,
     index: usize,
     active: bool,
+    active_bg: gpui::Rgba,
+    inactive_bg: gpui::Rgba,
+    theme: &Theme,
     cx: &mut gpui::Context<EditorTabs>,
 ) -> gpui::Div {
-    let bg = if active {
-        rgba(0x1e1e_1eff)
-    } else {
-        rgba(0x2d2d_2dff)
-    };
-    let fg = if active {
-        rgba(0xd4d4_d4ff)
-    } else {
-        rgba(0x8888_88ff)
-    };
+    let fg = if active { theme.text } else { theme.text_muted };
 
     let label = if tab.modified {
         format!("{} \u{25CF}", tab.name) // ● modified indicator
@@ -172,22 +213,21 @@ fn render_tab(
         tab.name.clone()
     };
 
+    let bg = if active { active_bg } else { inactive_bg };
+
     let close_index = index;
 
-    div()
+    let base = div()
         .flex()
         .flex_row()
         .items_center()
         .gap(px(4.))
-        .px(px(12.))
         .h_full()
-        .bg(bg)
-        .text_color(fg)
+        .px(px(12.))
         .text_size(px(12.))
-        .border_r_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .text_color(fg)
+        .bg(bg)
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0x2525_26ff)))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _event: &gpui::MouseDownEvent, _window, cx| {
@@ -200,7 +240,7 @@ fn render_tab(
         .child(
             div()
                 .text_size(px(10.))
-                .text_color(rgba(0x6666_66ff))
+                .text_color(theme.text_faint)
                 .cursor_pointer()
                 .hover(|s| s.text_color(rgba(0xcccc_ccff)))
                 .on_mouse_down(
@@ -210,5 +250,17 @@ fn render_tab(
                     }),
                 )
                 .child("\u{00D7}"), // × close button
-        )
+        );
+
+    if active {
+        // Active tab: left+right borders, no bottom border (connects to editor content)
+        base.border_l_1()
+            .border_r_1()
+            .border_color(rgba(BORDER_COLOR))
+    } else {
+        // Inactive tab: bottom border (the baseline), hover effect
+        base.border_b_1()
+            .border_color(rgba(BORDER_COLOR))
+            .hover(|s| s.bg(rgba(0x3333_33ff)))
+    }
 }

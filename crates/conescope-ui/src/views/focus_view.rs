@@ -45,7 +45,7 @@ impl FocusView {
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
         let file_tree = cx.new(|_| FileTree::new(app_state.clone()));
         let code_editor = cx.new(|_| CodeEditor::new());
-        let editor_tabs = cx.new(|_| EditorTabs::new());
+        let editor_tabs = cx.new(|_| EditorTabs::new(app_state.clone()));
 
         // FileTree → open file in editor
         let cv = code_editor.clone();
@@ -147,6 +147,7 @@ impl FocusView {
     fn build_tab_bar(
         &self,
         entry: &gpui::Entity<crate::state::instance_entry::InstanceEntry>,
+        theme: &Theme,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let inst = entry.read(cx);
@@ -252,6 +253,7 @@ impl FocusView {
                     fh.focus(window, cx);
                 }
             }),
+            theme,
         )
     }
 }
@@ -285,6 +287,7 @@ fn render_terminal_pane(
             .child(
                 div()
                     .flex_1()
+                    .px(px(2.))
                     .font_family(SharedString::from(font_family.to_owned()))
                     .text_size(px(font_size))
                     .line_height(relative(1.0))
@@ -321,12 +324,14 @@ fn render_terminal_pane(
 fn render_editor_area(
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
+    theme: &Theme,
 ) -> gpui::Div {
     div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
+        .bg(theme.editor_bg)
         .child(editor_tabs.clone())
         .child(
             div()
@@ -356,7 +361,7 @@ fn render_main_area(
     let mut col = div().flex_1().min_h_0().flex().flex_col().overflow_hidden();
 
     if editor_visible {
-        col = col.child(render_editor_area(editor_tabs, code_editor));
+        col = col.child(render_editor_area(editor_tabs, code_editor, theme));
     }
 
     if editor_visible && terminal_visible {
@@ -458,7 +463,7 @@ impl Render for FocusView {
             .as_ref()
             .is_some_and(|d| d.target == DragTarget::Terminal);
 
-        let tab_bar = self.build_tab_bar(&entry, cx);
+        let tab_bar = self.build_tab_bar(&entry, &theme, cx);
 
         let main_area = render_main_area(
             editor_visible,

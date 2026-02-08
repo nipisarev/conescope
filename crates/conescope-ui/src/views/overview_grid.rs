@@ -51,6 +51,7 @@ fn render_tile(
         .min_w(px(200.))
         .flex()
         .flex_col()
+        .bg(theme.panel)
         .border_r_1()
         .border_b_1()
         .border_color(theme.border)
@@ -94,27 +95,33 @@ fn render_tile_header(
     let text = theme.text;
 
     div()
-        .h(px(24.))
-        .px(px(8.))
+        .px(px(4.))
+        .pt(px(2.))
+        .pb(px(2.))
         .flex()
         .flex_row()
         .items_center()
         .gap(px(6.))
-        .bg(theme.panel)
-        .border_b_1()
-        .border_color(theme.border)
         .child(
             div()
-                .text_size(px(11.))
+                .text_size(px(14.))
+                .font_weight(gpui::FontWeight::BOLD)
                 .text_color(tile.color)
                 .child(format!("#{}", tile.num)),
         )
         .child(title_element)
-        .child(div().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(status_rgba))
+        .child(
+            div()
+                .w(px(8.))
+                .h(px(8.))
+                .rounded(px(4.))
+                .bg(status_rgba)
+                .flex_shrink_0(),
+        )
         // Token count
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(px(11.))
                 .text_color(theme.text_disabled)
                 .child(token_label),
         )
@@ -145,8 +152,9 @@ fn render_static_title(
 
     div()
         .flex_1()
-        .text_size(px(11.))
-        .text_color(theme.text_muted)
+        .text_size(px(14.))
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(theme.text)
         .overflow_x_hidden()
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
@@ -173,26 +181,23 @@ fn render_tile_meta(tile: &TileData, theme: &Theme) -> gpui::Div {
     let stats_text = format_stats(tile.tokens_used, tile.cost_estimate);
 
     div()
-        .h(px(18.))
-        .px(px(8.))
+        .px(px(4.))
+        .pb(px(2.))
         .flex()
         .flex_row()
         .items_center()
         .gap(px(6.))
-        .bg(theme.background)
-        .border_b_1()
-        .border_color(theme.border)
         .child(
             div()
                 .flex_1()
-                .text_size(px(10.))
-                .text_color(theme.text_disabled)
+                .text_size(px(11.))
+                .text_color(theme.text_muted)
                 .overflow_x_hidden()
                 .child(path_text),
         )
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(px(11.))
                 .text_color(theme.text_disabled)
                 .child(stats_text),
         )
@@ -275,6 +280,7 @@ fn render_tile_body(
         div()
             .size_full()
             .relative()
+            .px(px(4.))
             .child(tv.clone())
             .child(
                 div()

@@ -51,11 +51,12 @@ impl AppView {
         let questions_panel = cx.new(|_| QuestionsPanel::new(app_state.clone()));
         let error_modal = cx.new(|_| ErrorModal::new(app_state.clone()));
 
-        // Observe settings store: propagate font_family changes to all terminal views.
+        // Observe settings store: propagate font/theme changes to all terminal views.
         let settings_store = app_state.read(cx).settings_store.clone();
         let app_state_for_font = app_state.clone();
         cx.observe(&settings_store, move |_this, store, cx| {
             let font_family = store.read(cx).settings().font_family.clone();
+            let bg_color = app_state_for_font.read(cx).theme().terminal_bg;
             let entries: Vec<_> = app_state_for_font
                 .read(cx)
                 .instance_list
@@ -63,7 +64,10 @@ impl AppView {
                 .entries()
                 .to_vec();
             for entry in entries {
-                entry.update(cx, |e, cx| e.update_font(&font_family, cx));
+                entry.update(cx, |e, cx| {
+                    e.update_font(&font_family, cx);
+                    e.update_bg_color(bg_color, cx);
+                });
             }
         })
         .detach();
