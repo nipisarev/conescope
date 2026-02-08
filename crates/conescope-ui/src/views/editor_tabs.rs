@@ -94,6 +94,13 @@ impl EditorTabs {
         cx.notify();
     }
 
+    /// Close the currently active tab (if any).
+    pub fn close_active_tab(&mut self, cx: &mut gpui::Context<Self>) {
+        if let Some(idx) = self.active_index {
+            self.close_tab(idx, cx);
+        }
+    }
+
     /// Toggle the modified indicator for a file.
     pub fn set_modified(&mut self, path: &str, modified: bool, cx: &mut gpui::Context<Self>) {
         if let Some(tab) = self.tabs.iter_mut().find(|t| t.path == path) {

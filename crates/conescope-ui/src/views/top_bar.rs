@@ -1,7 +1,7 @@
 use gpui::prelude::*;
 use gpui::{Entity, Hsla, MouseButton, div, px, rgba, svg};
 
-use crate::actions::{CloseSettings, OpenSettings};
+use crate::actions::OpenSettings;
 use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -71,10 +71,11 @@ impl Render for TopBar {
                 render_focus_buttons(app_state_for_back, app_state_for_close, &theme)
             }
             ViewMode::Overview => render_overview_buttons(&self.app_state, &theme),
-            ViewMode::Settings => render_settings_buttons(&theme),
+            ViewMode::Settings => render_settings_buttons(&self.app_state, &theme),
         };
 
         div()
+            .id("top-bar")
             .h(px(36.))
             .w_full()
             .flex()
@@ -83,6 +84,11 @@ impl Render for TopBar {
             .bg(theme.panel)
             .border_b_1()
             .border_color(theme.border)
+            .on_click(|event, window, _cx| {
+                if event.click_count() == 2 {
+                    window.titlebar_double_click();
+                }
+            })
             // Left padding for macOS traffic lights
             .child(div().w(px(76.)))
             // Center title
@@ -182,11 +188,12 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
         )
 }
 
-fn render_settings_buttons(theme: &Theme) -> gpui::Div {
+fn render_settings_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui::Div {
     let text_muted: Hsla = theme.text_muted.into();
     let text: Hsla = theme.text.into();
     let border = theme.border;
     let border_variant = theme.border_variant;
+    let app_state = app_state.clone();
 
     div()
         .flex()
@@ -196,6 +203,7 @@ fn render_settings_buttons(theme: &Theme) -> gpui::Div {
         .pr(px(12.))
         .child(
             div()
+                .id("settings-save-btn")
                 .flex()
                 .flex_row()
                 .items_center()
@@ -205,13 +213,13 @@ fn render_settings_buttons(theme: &Theme) -> gpui::Div {
                 .border_1()
                 .border_color(theme.text_disabled)
                 .cursor_pointer()
-                .text_size(px(12.))
+                .text_size(px(11.))
                 .text_color(text_muted)
                 .hover(move |s| s.bg(border).border_color(border_variant).text_color(text))
-                .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                    window.dispatch_action(Box::new(CloseSettings), cx);
+                .on_click(move |_, _, cx| {
+                    app_state.update(cx, AppState::close_settings);
                 })
-                .child("Done"),
+                .child("Save"),
         )
 }
 

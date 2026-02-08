@@ -4,9 +4,9 @@ use tracing::info;
 
 use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
-    CloseInstance, CloseSettings, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
+    CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
+    OpenSettings, Quit, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -73,6 +73,9 @@ fn install_panic_hook() {
 }
 
 fn bind_keys(cx: &mut gpui::App) {
+    cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+    cx.on_action(|_: &Quit, cx| cx.quit());
+
     cx.bind_keys([
         KeyBinding::new("cmd-a", SelectAll, None),
         KeyBinding::new("cmd-c", Copy, None),
@@ -83,7 +86,7 @@ fn bind_keys(cx: &mut gpui::App) {
 
     cx.bind_keys([
         KeyBinding::new("cmd-n", NewInstance, None),
-        KeyBinding::new("cmd-w", CloseInstance, None),
+        KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-0", ReturnToOverview, None),
         KeyBinding::new("cmd-1", FocusInstance1, None),
         KeyBinding::new("cmd-2", FocusInstance2, None),
@@ -108,6 +111,7 @@ fn load_data_async(
     window_handle: AnyWindowHandle,
     cx: &mut gpui::App,
 ) {
+    let app_state = app_state.clone();
     let project_store = app_state.read(cx).project_store.clone();
     let instance_list = app_state.read(cx).instance_list.clone();
     let settings_store = app_state.read(cx).settings_store.clone();
@@ -133,13 +137,16 @@ fn load_data_async(
 
             let project_store_for_restore = project_store.clone();
             let settings_for_restore = settings_store.clone();
+            let app_state_for_restore = app_state.clone();
             let _ = cx.update_window(window_handle, |_view, window, cx| {
                 let font_family =
                     Some(settings_for_restore.read(cx).settings().font_family.clone());
+                let colors = app_state_for_restore.read(cx).theme().terminal_colors();
                 instance_list.update(cx, |list, cx| {
                     list.restore_terminals(
                         &project_store_for_restore,
                         font_family.as_deref(),
+                        &colors,
                         window,
                         cx,
                     );
@@ -254,5 +261,6 @@ fn main() {
                 .into();
 
             load_data_async(db, &app_state, window_handle, cx);
+            cx.activate(true);
         });
 }

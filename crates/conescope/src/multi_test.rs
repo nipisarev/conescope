@@ -37,8 +37,9 @@ fn main() {
                 ..Default::default()
             },
             |window, cx| {
+                let tc = conescope_ui::terminal::TerminalColors::default();
                 let panes: Vec<_> = (0..4)
-                    .map(|_| spawn_terminal_pane(None, None, window, cx))
+                    .map(|_| spawn_terminal_pane(None, None, &tc, window, cx))
                     .collect();
 
                 let views = [

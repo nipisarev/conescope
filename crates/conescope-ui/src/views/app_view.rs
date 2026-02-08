@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::{AppContext, Entity, div};
 
 use crate::actions::{
-    CloseInstance, CloseSettings, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
+    CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
     OpenSettings, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
@@ -56,7 +56,7 @@ impl AppView {
         let app_state_for_font = app_state.clone();
         cx.observe(&settings_store, move |_this, store, cx| {
             let font_family = store.read(cx).settings().font_family.clone();
-            let bg_color = app_state_for_font.read(cx).theme().terminal_bg;
+            let colors = app_state_for_font.read(cx).theme().terminal_colors();
             let entries: Vec<_> = app_state_for_font
                 .read(cx)
                 .instance_list
@@ -66,7 +66,7 @@ impl AppView {
             for entry in entries {
                 entry.update(cx, |e, cx| {
                     e.update_font(&font_family, cx);
-                    e.update_bg_color(bg_color, cx);
+                    e.update_colors(&colors, cx);
                 });
             }
         })
@@ -119,6 +119,7 @@ fn focus_instance_n(
 fn with_action_handlers(
     root: gpui::Div,
     app_state: &Entity<AppState>,
+    focus_view: &Entity<FocusView>,
     settings_view: &Entity<SettingsView>,
 ) -> gpui::Stateful<gpui::Div> {
     let root = root
@@ -138,30 +139,12 @@ fn with_action_handlers(
         })
         .on_action({
             let app_state = app_state.clone();
-            move |_: &CloseInstance, _window, cx| {
-                let (id, title) = {
-                    let state = app_state.read(cx);
-                    if state.view_mode(cx) != ViewMode::Focus {
-                        return;
-                    }
-                    let Some(id) = state.focused_instance_id(cx) else {
-                        return;
-                    };
-                    let id = id.to_owned();
-                    let il = state.instance_list.read(cx);
-                    let title = il
-                        .find_by_id(&id, cx)
-                        .map(|e| {
-                            e.read(cx)
-                                .instance
-                                .title
-                                .clone()
-                                .unwrap_or_else(|| format!("Instance {id}"))
-                        })
-                        .unwrap_or_default();
-                    (id, title)
-                };
-                app_state.update(cx, |s, cx| s.request_close_instance(&id, &title, cx));
+            let focus_view = focus_view.clone();
+            move |_: &CloseTab, window, cx| {
+                if app_state.read(cx).view_mode(cx) != ViewMode::Focus {
+                    return;
+                }
+                focus_view.update(cx, |fv, cx| fv.close_active_tab(window, cx));
             }
         });
 
@@ -190,10 +173,7 @@ fn with_action_handlers(
             move |_: &OpenSettings, _window, cx| {
                 let view_mode = app_state.read(cx).view_mode(cx);
                 if view_mode == ViewMode::Settings {
-                    // Toggle: if already in settings, save and close
-                    settings_view.update(cx, |sv, cx| {
-                        sv.save_and_close(cx);
-                    });
+                    app_state.update(cx, AppState::close_settings);
                 } else {
                     app_state.update(cx, AppState::open_settings);
                     settings_view.update(cx, SettingsView::reload_settings);
@@ -202,14 +182,11 @@ fn with_action_handlers(
         })
         .on_action({
             let app_state = app_state.clone();
-            let settings_view = settings_view.clone();
             move |_: &CloseSettings, _window, cx| {
                 if app_state.read(cx).view_mode(cx) != ViewMode::Settings {
                     return;
                 }
-                settings_view.update(cx, |sv, cx| {
-                    sv.save_and_close(cx);
-                });
+                app_state.update(cx, AppState::close_settings);
             }
         });
 
@@ -257,7 +234,7 @@ impl Render for AppView {
             .bg(theme.background)
             .text_color(theme.text);
 
-        with_action_handlers(root, &self.app_state, &self.settings_view)
+        with_action_handlers(root, &self.app_state, &self.focus_view, &self.settings_view)
             // Top bar
             .child(self.top_bar.clone())
             // Main content area

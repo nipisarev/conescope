@@ -11,7 +11,7 @@ use gpui::{
     MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, SharedString, actions, div, px,
 };
 
-use super::terminal::Terminal;
+use super::terminal::{Terminal, TerminalColors};
 use super::terminal_element::{PendingResize, TerminalElement};
 
 actions!(terminal, [Copy, Paste, SelectAll]);
@@ -33,6 +33,8 @@ pub struct TerminalView {
     font_size: f32,
     /// Terminal background color (painted by `TerminalElement`).
     bg_color: gpui::Rgba,
+    /// Terminal color palette (from theme).
+    colors: TerminalColors,
     /// Buffered PTY output waiting to be fed.
     _pending_output: Vec<u8>,
     /// Track mouse drag state for selection.
@@ -59,21 +61,16 @@ impl TerminalView {
         focus_handle: FocusHandle,
         font_family: SharedString,
         font_size: f32,
+        colors: TerminalColors,
     ) -> Self {
-        // Default terminal bg: #292828 (matches Gruvbox theme.panel).
-        // Constructed to exactly match DEFAULT_BG in terminal.rs.
-        let bg_color = gpui::Rgba {
-            r: 41.0 / 255.0,
-            g: 40.0 / 255.0,
-            b: 40.0 / 255.0,
-            a: 1.0,
-        };
+        let bg_color = colors.bg;
         Self {
             terminal,
             focus_handle,
             font_family,
             font_size,
             bg_color,
+            colors,
             _pending_output: Vec::new(),
             selecting: false,
             cached_cell_width: 8.0,
@@ -96,9 +93,10 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Update the terminal background color.
-    pub fn set_bg_color(&mut self, color: gpui::Rgba) {
-        self.bg_color = color;
+    /// Update the terminal background color and palette.
+    pub fn set_colors(&mut self, colors: TerminalColors) {
+        self.bg_color = colors.bg;
+        self.colors = colors;
     }
 
     /// Update the terminal font.
@@ -113,6 +111,11 @@ impl TerminalView {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // Let Cmd+ shortcuts propagate to global action handlers
+        // (Cmd+C/V/A are handled via on_action, not on_key_down).
+        if event.keystroke.modifiers.platform {
+            return;
+        }
         let mode = self.terminal.read(cx).mode();
         if let Some(bytes) = encode_keystroke(&event.keystroke, mode) {
             self.terminal.read(cx).input(bytes.as_ref());
@@ -300,6 +303,7 @@ impl Render for TerminalView {
                 font_size,
                 pending_resize,
                 self.bg_color,
+                self.colors.clone(),
             ))
     }
 }

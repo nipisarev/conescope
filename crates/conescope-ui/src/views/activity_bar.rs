@@ -3,7 +3,6 @@ use gpui::{Entity, Hsla, MouseButton, SharedString, div, px, rgba, svg};
 
 use conescope_core::instance::InstanceType;
 
-use crate::actions::CloseSettings;
 use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -246,11 +245,11 @@ fn build_left_section(
                         .text_color(icon_color)
                         .flex_shrink_0(),
                 )
-                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     if view_mode == ViewMode::Focus {
                         app_state_grid.update(cx, AppState::return_to_overview);
                     } else if view_mode == ViewMode::Settings {
-                        window.dispatch_action(Box::new(CloseSettings), cx);
+                        app_state_grid.update(cx, AppState::close_settings);
                     }
                 }),
         );

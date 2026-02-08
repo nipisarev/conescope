@@ -1,8 +1,13 @@
+use std::rc::Rc;
+
 use conescope_core::instance::{InstanceType, TerminalTab};
 use gpui::prelude::*;
-use gpui::{div, px, rgba};
+use gpui::{SharedString, div, px, rgba};
 
 use crate::theme::Theme;
+
+/// Callback type for shell tab events (click/close) taking a shell tab ID.
+pub type ShellTabCb = Rc<dyn Fn(usize, &gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App)>;
 
 /// Terminal icon prefix for tab labels.
 const TERMINAL_ICON: &str = "\u{25B8}"; // ▸ small right-pointing triangle
@@ -12,15 +17,16 @@ const BORDER_COLOR: u32 = 0x3c3c_3cff;
 
 /// Render a terminal tab bar with raised-tab pattern: `_|‾|__`
 ///
-/// Active tab has top+left+right borders, no bottom border (connects to content).
-/// Inactive tabs and spacers carry a bottom border (the baseline).
+/// Supports N shell tabs. Each shell tab has a close button.
+/// Primary tab is pinned (no close button).
 #[allow(clippy::too_many_arguments)]
 pub fn render_tab_bar(
     instance_type: InstanceType,
     active_tab: TerminalTab,
-    has_shell: bool,
+    shell_tabs: &[(usize, bool)],
     on_click_primary: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-    on_click_shell: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    on_click_shell: &ShellTabCb,
+    on_close_shell: &ShellTabCb,
     on_click_add: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     theme: &Theme,
 ) -> gpui::Div {
@@ -45,45 +51,78 @@ pub fn render_tab_bar(
     tabs = tabs.child(render_tab(
         primary_label,
         active_tab == TerminalTab::Primary,
+        false, // no close on primary
         on_click_primary,
+        None::<Box<dyn Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App)>>,
         active_bg,
         inactive_bg,
     ));
 
-    // Show Shell tab for Project instances always, for Terminal instances only when spawned
-    let show_shell = instance_type == InstanceType::Project || has_shell;
-    if show_shell {
+    // Render N shell tabs
+    for (i, &(id, _alive)) in shell_tabs.iter().enumerate() {
+        let label = if i == 0 {
+            "Shell".to_owned()
+        } else {
+            format!("Shell {}", i + 1)
+        };
+        let is_active = active_tab == TerminalTab::Shell(id);
+
+        let on_click = on_click_shell.clone();
+        let on_close = on_close_shell.clone();
+
         tabs = tabs.child(render_tab(
-            "Shell",
-            active_tab == TerminalTab::Shell,
-            on_click_shell,
+            &label,
+            is_active,
+            true, // closeable
+            move |ev, window, cx| on_click(id, ev, window, cx),
+            Some(
+                move |ev: &gpui::MouseDownEvent, window: &mut gpui::Window, cx: &mut gpui::App| {
+                    on_close(id, ev, window, cx);
+                },
+            ),
             active_bg,
             inactive_bg,
         ));
     }
 
-    // Flex spacer with bottom border (continues the baseline)
-    tabs.child(border_b_spacer().flex_1())
-        // "+" button wrapped with bottom border
-        .child(
-            div()
-                .h_full()
-                .flex()
-                .items_center()
-                .border_b_1()
-                .border_color(rgba(BORDER_COLOR))
-                .child(
-                    div()
-                        .px(px(6.))
-                        .py(px(2.))
-                        .cursor_pointer()
-                        .text_size(px(14.))
-                        .text_color(rgba(0x6666_66ff))
-                        .hover(|s| s.text_color(rgba(0xffff_ffff)).bg(rgba(0x3c3c_3cff)))
-                        .on_mouse_down(gpui::MouseButton::Left, on_click_add)
-                        .child("+"),
-                ),
-        )
+    // Share the add callback between the spacer area and the "+" button
+    let on_click_add = Rc::new(on_click_add);
+    let on_click_add_spacer = on_click_add.clone();
+
+    // Flex spacer — clicking empty area creates a new shell tab
+    tabs.child(
+        div()
+            .id("tab-bar-spacer")
+            .h_full()
+            .flex_1()
+            .border_b_1()
+            .border_color(rgba(BORDER_COLOR))
+            .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
+                on_click_add_spacer(ev, window, cx);
+            }),
+    )
+    // "+" button wrapped with bottom border
+    .child(
+        div()
+            .h_full()
+            .flex()
+            .items_center()
+            .border_b_1()
+            .border_color(rgba(BORDER_COLOR))
+            .child(
+                div()
+                    .px(px(6.))
+                    .py(px(2.))
+                    .cursor_pointer()
+                    .text_size(px(14.))
+                    .text_color(rgba(0x6666_66ff))
+                    .hover(|s| s.text_color(rgba(0xffff_ffff)).bg(rgba(0x3c3c_3cff)))
+                    .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
+                        on_click_add(ev, window, cx);
+                    })
+                    .child("+"),
+            ),
+    )
 }
 
 /// Small spacer div with only a bottom border (the baseline).
@@ -91,10 +130,13 @@ fn border_b_spacer() -> gpui::Div {
     div().h_full().border_b_1().border_color(rgba(BORDER_COLOR))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tab(
     label: &str,
     active: bool,
+    closeable: bool,
     on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    on_close: Option<impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static>,
     active_bg: gpui::Rgba,
     inactive_bg: gpui::Rgba,
 ) -> gpui::Div {
@@ -119,6 +161,30 @@ fn render_tab(
         .cursor_pointer()
         .on_mouse_down(gpui::MouseButton::Left, on_click)
         .child(text);
+
+    // Add close button for closeable tabs
+    let base = if closeable {
+        if let Some(on_close) = on_close {
+            base.child(
+                div()
+                    .id(SharedString::from(format!("close-tab-{label}")))
+                    .ml(px(6.))
+                    .text_size(px(10.))
+                    .text_color(rgba(0x6666_66ff))
+                    .hover(|s| s.text_color(rgba(0xffff_ffff)))
+                    .cursor_pointer()
+                    .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
+                        cx.stop_propagation();
+                        on_close(ev, window, cx);
+                    })
+                    .child("\u{00D7}"), // × multiplication sign
+            )
+        } else {
+            base
+        }
+    } else {
+        base
+    };
 
     if active {
         base.border_l_1()

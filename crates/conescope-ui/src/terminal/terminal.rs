@@ -350,173 +350,6 @@ impl Terminal {
     }
 }
 
-/// Default ANSI color palette (dark theme).
-pub static ANSI_COLORS: [Rgba; 16] = [
-    // Normal colors
-    Rgba {
-        r: 0.12,
-        g: 0.12,
-        b: 0.12,
-        a: 1.0,
-    }, // Black
-    Rgba {
-        r: 0.80,
-        g: 0.22,
-        b: 0.22,
-        a: 1.0,
-    }, // Red
-    Rgba {
-        r: 0.30,
-        g: 0.69,
-        b: 0.31,
-        a: 1.0,
-    }, // Green
-    Rgba {
-        r: 0.93,
-        g: 0.86,
-        b: 0.51,
-        a: 1.0,
-    }, // Yellow
-    Rgba {
-        r: 0.36,
-        g: 0.59,
-        b: 0.83,
-        a: 1.0,
-    }, // Blue
-    Rgba {
-        r: 0.69,
-        g: 0.38,
-        b: 0.76,
-        a: 1.0,
-    }, // Magenta
-    Rgba {
-        r: 0.30,
-        g: 0.73,
-        b: 0.75,
-        a: 1.0,
-    }, // Cyan
-    Rgba {
-        r: 0.80,
-        g: 0.80,
-        b: 0.80,
-        a: 1.0,
-    }, // White
-    // Bright colors
-    Rgba {
-        r: 0.40,
-        g: 0.40,
-        b: 0.40,
-        a: 1.0,
-    }, // Bright Black
-    Rgba {
-        r: 0.96,
-        g: 0.36,
-        b: 0.36,
-        a: 1.0,
-    }, // Bright Red
-    Rgba {
-        r: 0.45,
-        g: 0.82,
-        b: 0.46,
-        a: 1.0,
-    }, // Bright Green
-    Rgba {
-        r: 1.00,
-        g: 0.93,
-        b: 0.55,
-        a: 1.0,
-    }, // Bright Yellow
-    Rgba {
-        r: 0.45,
-        g: 0.68,
-        b: 0.90,
-        a: 1.0,
-    }, // Bright Blue
-    Rgba {
-        r: 0.81,
-        g: 0.55,
-        b: 0.89,
-        a: 1.0,
-    }, // Bright Magenta
-    Rgba {
-        r: 0.45,
-        g: 0.86,
-        b: 0.88,
-        a: 1.0,
-    }, // Bright Cyan
-    Rgba {
-        r: 0.93,
-        g: 0.93,
-        b: 0.93,
-        a: 1.0,
-    }, // Bright White
-];
-
-const DEFAULT_FG: Rgba = Rgba {
-    r: 0.80,
-    g: 0.80,
-    b: 0.80,
-    a: 1.0,
-};
-/// Must match the terminal `bg_color` default in `TerminalView::new`.
-/// Sourced from Gruvbox `terminal.background` = `#292828`.
-const DEFAULT_BG: Rgba = Rgba {
-    r: 41.0 / 255.0,
-    g: 40.0 / 255.0,
-    b: 40.0 / 255.0,
-    a: 1.0,
-};
-
-/// Convert an alacritty Color to a GPUI Rgba.
-#[must_use]
-pub fn convert_color(color: &alacritty_terminal::vte::ansi::Color, is_fg: bool) -> Rgba {
-    use alacritty_terminal::vte::ansi::{Color, NamedColor};
-    match color {
-        Color::Named(named) => match named {
-            NamedColor::Black => ANSI_COLORS[0],
-            NamedColor::Red => ANSI_COLORS[1],
-            NamedColor::Green => ANSI_COLORS[2],
-            NamedColor::Yellow => ANSI_COLORS[3],
-            NamedColor::Blue => ANSI_COLORS[4],
-            NamedColor::Magenta => ANSI_COLORS[5],
-            NamedColor::Cyan => ANSI_COLORS[6],
-            NamedColor::White => ANSI_COLORS[7],
-            NamedColor::BrightBlack => ANSI_COLORS[8],
-            NamedColor::BrightRed => ANSI_COLORS[9],
-            NamedColor::BrightGreen => ANSI_COLORS[10],
-            NamedColor::BrightYellow => ANSI_COLORS[11],
-            NamedColor::BrightBlue => ANSI_COLORS[12],
-            NamedColor::BrightMagenta => ANSI_COLORS[13],
-            NamedColor::BrightCyan => ANSI_COLORS[14],
-            NamedColor::BrightWhite => ANSI_COLORS[15],
-            NamedColor::Foreground | NamedColor::BrightForeground => DEFAULT_FG,
-            NamedColor::Background => DEFAULT_BG,
-            NamedColor::Cursor => Rgba {
-                r: 0.80,
-                g: 0.80,
-                b: 0.80,
-                a: 1.0,
-            },
-            NamedColor::DimBlack => dim_color(ANSI_COLORS[0]),
-            NamedColor::DimRed => dim_color(ANSI_COLORS[1]),
-            NamedColor::DimGreen => dim_color(ANSI_COLORS[2]),
-            NamedColor::DimYellow => dim_color(ANSI_COLORS[3]),
-            NamedColor::DimBlue => dim_color(ANSI_COLORS[4]),
-            NamedColor::DimMagenta => dim_color(ANSI_COLORS[5]),
-            NamedColor::DimCyan => dim_color(ANSI_COLORS[6]),
-            NamedColor::DimWhite => dim_color(ANSI_COLORS[7]),
-            NamedColor::DimForeground => dim_color(DEFAULT_FG),
-        },
-        Color::Spec(rgb) => Rgba {
-            r: f32::from(rgb.r) / 255.0,
-            g: f32::from(rgb.g) / 255.0,
-            b: f32::from(rgb.b) / 255.0,
-            a: 1.0,
-        },
-        Color::Indexed(idx) => indexed_color(*idx, is_fg),
-    }
-}
-
 fn dim_color(c: Rgba) -> Rgba {
     Rgba {
         r: c.r * 0.66,
@@ -526,38 +359,130 @@ fn dim_color(c: Rgba) -> Rgba {
     }
 }
 
-/// 256-color palette lookup.
-fn indexed_color(idx: u8, _is_fg: bool) -> Rgba {
-    match idx {
-        0..=15 => ANSI_COLORS[idx as usize],
-        // 6x6x6 color cube (indices 16-231)
-        16..=231 => {
-            let idx = idx - 16;
-            let r = idx / 36;
-            let g = (idx % 36) / 6;
-            let b = idx % 6;
-            let to_f = |v: u8| {
-                if v == 0 {
-                    0.0
-                } else {
-                    (55.0 + 40.0 * f32::from(v)) / 255.0
-                }
-            };
+/// Terminal color palette — derived from the active theme.
+#[derive(Debug, Clone)]
+pub struct TerminalColors {
+    pub fg: Rgba,
+    pub bg: Rgba,
+    pub ansi: [Rgba; 16],
+}
+
+impl Default for TerminalColors {
+    fn default() -> Self {
+        let c = |hex: u32| {
+            let [r, g, b, a] = hex.to_be_bytes();
             Rgba {
-                r: to_f(r),
-                g: to_f(g),
-                b: to_f(b),
-                a: 1.0,
+                r: f32::from(r) / 255.0,
+                g: f32::from(g) / 255.0,
+                b: f32::from(b) / 255.0,
+                a: f32::from(a) / 255.0,
             }
+        };
+        Self {
+            fg: c(0xd4d4_d4ff),
+            bg: c(0x2929_28ff),
+            ansi: [
+                c(0x1e1e_1eff),
+                c(0xcc44_44ff),
+                c(0x4db0_4fff),
+                c(0xeddb_82ff),
+                c(0x5c97_d4ff),
+                c(0xb061_c2ff),
+                c(0x4dba_bfff),
+                c(0xcccc_ccff),
+                c(0x6666_66ff),
+                c(0xf55c_5cff),
+                c(0x73d2_75ff),
+                c(0xffee_8cff),
+                c(0x73ae_e6ff),
+                c(0xcf8c_e3ff),
+                c(0x73dc_e0ff),
+                c(0xeded_edff),
+            ],
         }
-        // Grayscale ramp (indices 232-255)
-        232..=255 => {
-            let v = (8.0 + 10.0 * f32::from(idx - 232)) / 255.0;
-            Rgba {
-                r: v,
-                g: v,
-                b: v,
+    }
+}
+
+impl TerminalColors {
+    /// Convert an alacritty Color to a GPUI Rgba using this palette.
+    #[must_use]
+    pub fn convert(&self, color: &alacritty_terminal::vte::ansi::Color, _is_fg: bool) -> Rgba {
+        use alacritty_terminal::vte::ansi::{Color, NamedColor};
+        match color {
+            Color::Named(named) => match named {
+                NamedColor::Black => self.ansi[0],
+                NamedColor::Red => self.ansi[1],
+                NamedColor::Green => self.ansi[2],
+                NamedColor::Yellow => self.ansi[3],
+                NamedColor::Blue => self.ansi[4],
+                NamedColor::Magenta => self.ansi[5],
+                NamedColor::Cyan => self.ansi[6],
+                NamedColor::White => self.ansi[7],
+                NamedColor::BrightBlack => self.ansi[8],
+                NamedColor::BrightRed => self.ansi[9],
+                NamedColor::BrightGreen => self.ansi[10],
+                NamedColor::BrightYellow => self.ansi[11],
+                NamedColor::BrightBlue => self.ansi[12],
+                NamedColor::BrightMagenta => self.ansi[13],
+                NamedColor::BrightCyan => self.ansi[14],
+                NamedColor::BrightWhite => self.ansi[15],
+                NamedColor::Foreground | NamedColor::BrightForeground | NamedColor::Cursor => {
+                    self.fg
+                }
+                NamedColor::Background => self.bg,
+                NamedColor::DimBlack => dim_color(self.ansi[0]),
+                NamedColor::DimRed => dim_color(self.ansi[1]),
+                NamedColor::DimGreen => dim_color(self.ansi[2]),
+                NamedColor::DimYellow => dim_color(self.ansi[3]),
+                NamedColor::DimBlue => dim_color(self.ansi[4]),
+                NamedColor::DimMagenta => dim_color(self.ansi[5]),
+                NamedColor::DimCyan => dim_color(self.ansi[6]),
+                NamedColor::DimWhite => dim_color(self.ansi[7]),
+                NamedColor::DimForeground => dim_color(self.fg),
+            },
+            Color::Spec(rgb) => Rgba {
+                r: f32::from(rgb.r) / 255.0,
+                g: f32::from(rgb.g) / 255.0,
+                b: f32::from(rgb.b) / 255.0,
                 a: 1.0,
+            },
+            Color::Indexed(idx) => self.indexed(*idx),
+        }
+    }
+
+    /// 256-color palette lookup.
+    fn indexed(&self, idx: u8) -> Rgba {
+        match idx {
+            0..=15 => self.ansi[idx as usize],
+            // 6x6x6 color cube (indices 16-231)
+            16..=231 => {
+                let idx = idx - 16;
+                let r = idx / 36;
+                let g = (idx % 36) / 6;
+                let b = idx % 6;
+                let to_f = |v: u8| {
+                    if v == 0 {
+                        0.0
+                    } else {
+                        (55.0 + 40.0 * f32::from(v)) / 255.0
+                    }
+                };
+                Rgba {
+                    r: to_f(r),
+                    g: to_f(g),
+                    b: to_f(b),
+                    a: 1.0,
+                }
+            }
+            // Grayscale ramp (indices 232-255)
+            232..=255 => {
+                let v = (8.0 + 10.0 * f32::from(idx - 232)) / 255.0;
+                Rgba {
+                    r: v,
+                    g: v,
+                    b: v,
+                    a: 1.0,
+                }
             }
         }
     }

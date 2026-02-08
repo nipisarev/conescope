@@ -1,5 +1,7 @@
 use gpui::Rgba;
 
+pub use serde_json::Value as JsonValue;
+
 /// Active theme mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeMode {
@@ -77,13 +79,28 @@ pub struct Theme {
 
     // Terminal
     pub terminal_bg: Rgba,
+    pub terminal_fg: Rgba,
+    pub terminal_ansi: [Rgba; 16],
 
     // Tab-specific
     pub tab_active_bg: Rgba,
     pub tab_inactive_bg: Rgba,
+
+    // Syntax highlighting (raw JSON for gpui-component SyntaxColors deserialization)
+    pub syntax_json: JsonValue,
 }
 
 impl Theme {
+    /// Build a `TerminalColors` palette from this theme.
+    #[must_use]
+    pub fn terminal_colors(&self) -> crate::terminal::TerminalColors {
+        crate::terminal::TerminalColors {
+            fg: self.terminal_fg,
+            bg: self.terminal_bg,
+            ansi: self.terminal_ansi,
+        }
+    }
+
     /// Load a built-in theme.
     #[must_use]
     pub fn load_builtin(mode: ThemeMode) -> Self {
@@ -118,15 +135,21 @@ pub fn parse_zed_theme(json: &str, fallback_dark: bool) -> Theme {
     };
 
     let get = |key: &str| -> Option<Rgba> { style[key].as_str().and_then(hex_color) };
+    let syntax_json = style["syntax"].clone();
 
     if fallback_dark {
-        dark_theme(theme_name, mode, &get)
+        dark_theme(theme_name, mode, &get, syntax_json)
     } else {
-        light_theme(theme_name, mode, &get)
+        light_theme(theme_name, mode, &get, syntax_json)
     }
 }
 
-fn dark_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>) -> Theme {
+fn dark_theme(
+    name: String,
+    mode: ThemeMode,
+    get: &dyn Fn(&str) -> Option<Rgba>,
+    syntax_json: JsonValue,
+) -> Theme {
     Theme {
         name,
         mode,
@@ -152,12 +175,20 @@ fn dark_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>)
         warning: rgba(0xccaa_33ff),
         backdrop: rgba(0x0000_0080),
         terminal_bg: get("terminal.background").unwrap_or(rgba(0x2525_26ff)),
+        terminal_fg: get("terminal.foreground").unwrap_or(rgba(0xd4d4_d4ff)),
+        terminal_ansi: parse_ansi_colors(get, true),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0x2d2d_2dff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0x1e1e_1eff)),
+        syntax_json,
     }
 }
 
-fn light_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>) -> Theme {
+fn light_theme(
+    name: String,
+    mode: ThemeMode,
+    get: &dyn Fn(&str) -> Option<Rgba>,
+    syntax_json: JsonValue,
+) -> Theme {
     Theme {
         name,
         mode,
@@ -183,9 +214,80 @@ fn light_theme(name: String, mode: ThemeMode, get: &dyn Fn(&str) -> Option<Rgba>
         warning: rgba(0xf9a8_25ff),
         backdrop: rgba(0x0000_0060),
         terminal_bg: get("terminal.background").unwrap_or(rgba(0xffff_ffff)),
+        terminal_fg: get("terminal.foreground").unwrap_or(rgba(0x3333_33ff)),
+        terminal_ansi: parse_ansi_colors(get, false),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0xffff_ffff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0xecec_ecff)),
+        syntax_json,
     }
+}
+
+/// Parse 16 ANSI terminal colors from theme JSON.
+fn parse_ansi_colors(get: &dyn Fn(&str) -> Option<Rgba>, dark: bool) -> [Rgba; 16] {
+    let keys = [
+        "terminal.ansi.black",
+        "terminal.ansi.red",
+        "terminal.ansi.green",
+        "terminal.ansi.yellow",
+        "terminal.ansi.blue",
+        "terminal.ansi.magenta",
+        "terminal.ansi.cyan",
+        "terminal.ansi.white",
+        "terminal.ansi.bright_black",
+        "terminal.ansi.bright_red",
+        "terminal.ansi.bright_green",
+        "terminal.ansi.bright_yellow",
+        "terminal.ansi.bright_blue",
+        "terminal.ansi.bright_magenta",
+        "terminal.ansi.bright_cyan",
+        "terminal.ansi.bright_white",
+    ];
+    let defaults_dark: [Rgba; 16] = [
+        rgba(0x1e1e_1eff),
+        rgba(0xcc44_44ff),
+        rgba(0x4db0_4fff),
+        rgba(0xeddb_82ff),
+        rgba(0x5c97_d4ff),
+        rgba(0xb061_c2ff),
+        rgba(0x4dba_bfff),
+        rgba(0xcccc_ccff),
+        rgba(0x6666_66ff),
+        rgba(0xf55c_5cff),
+        rgba(0x73d2_75ff),
+        rgba(0xffee_8cff),
+        rgba(0x73ae_e6ff),
+        rgba(0xcf8c_e3ff),
+        rgba(0x73dc_e0ff),
+        rgba(0xeded_edff),
+    ];
+    let defaults_light: [Rgba; 16] = [
+        rgba(0x0000_00ff),
+        rgba(0xcd31_31ff),
+        rgba(0x107c_10ff),
+        rgba(0x9498_00ff),
+        rgba(0x0451_a5ff),
+        rgba(0xbc05_bcff),
+        rgba(0x0598_bcff),
+        rgba(0x5555_55ff),
+        rgba(0x6666_66ff),
+        rgba(0xcd31_31ff),
+        rgba(0x14ce_14ff),
+        rgba(0xb5ba_00ff),
+        rgba(0x0451_a5ff),
+        rgba(0xbc05_bcff),
+        rgba(0x0598_bcff),
+        rgba(0xa5a5_a5ff),
+    ];
+    let defaults = if dark {
+        &defaults_dark
+    } else {
+        &defaults_light
+    };
+    let mut colors = [rgba(0x0000_00ff); 16];
+    for (i, key) in keys.iter().enumerate() {
+        colors[i] = get(key).unwrap_or(defaults[i]);
+    }
+    colors
 }
 
 /// Parse a hex color string like "#rrggbb" or "#rrggbbaa" into `Rgba`.

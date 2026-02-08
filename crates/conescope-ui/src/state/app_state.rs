@@ -355,8 +355,8 @@ impl AppState {
 
 /// Sync our custom theme colors into gpui-component's global theme.
 ///
-/// This ensures the code editor Input widget (line numbers, gutter bg)
-/// matches our app's color scheme instead of using gpui-component defaults.
+/// This ensures the code editor Input widget (line numbers, gutter bg,
+/// syntax highlighting colors) matches our app's color scheme.
 pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
     use std::sync::Arc;
 
@@ -371,12 +371,20 @@ pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
     gc_theme.colors.muted_foreground = Hsla::from(theme.text_faint);
     gc_theme.colors.border = Hsla::from(theme.border);
 
-    // Update highlight theme: gutter bg + line number colors
+    // Update highlight theme: gutter bg + line number + syntax colors
     let old_ht = &gc_theme.highlight_theme;
     let mut new_style = old_ht.style.clone();
     new_style.editor_background = Some(editor_bg);
     new_style.editor_line_number = Some(text_muted);
     new_style.editor_active_line_number = Some(Hsla::from(theme.text));
+
+    // Parse syntax colors from the Zed theme JSON into gpui-component's SyntaxColors.
+    if let Ok(syntax) = serde_json::from_value::<gpui_component::highlighter::SyntaxColors>(
+        theme.syntax_json.clone(),
+    ) {
+        new_style.syntax = syntax;
+    }
+
     gc_theme.highlight_theme = Arc::new(gpui_component::highlighter::HighlightTheme {
         name: old_ht.name.clone(),
         appearance: old_ht.appearance,

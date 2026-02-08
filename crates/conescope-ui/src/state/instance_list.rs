@@ -73,10 +73,12 @@ impl InstanceList {
     ///
     /// For each entry (loaded via `load_from_db`), spawns a PTY, attaches it,
     /// and starts output polling.
+    #[allow(clippy::too_many_arguments)]
     pub fn restore_terminals(
         &mut self,
         project_store: &Entity<ProjectStore>,
         font_family: Option<&str>,
+        colors: &crate::terminal::TerminalColors,
         window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -96,7 +98,8 @@ impl InstanceList {
                 (cwd, is_project)
             };
 
-            let pane = crate::terminal::spawn_terminal_pane(Some(&cwd), font_family, window, cx);
+            let pane =
+                crate::terminal::spawn_terminal_pane(Some(&cwd), font_family, colors, window, cx);
             entry.update(cx, |e, cx| {
                 e.attach_terminal(pane, cx);
                 e.start_output_polling(cx);

@@ -8,7 +8,7 @@ use gpui::{
     LayoutId, Pixels, Point, Rgba, SharedString, Style, TextStyle, WrappedLine, px, relative, size,
 };
 
-use super::terminal::{IndexedCell, Terminal, TerminalContent, convert_color};
+use super::terminal::{IndexedCell, Terminal, TerminalColors, TerminalContent};
 
 /// Styling info for a contiguous run of same-styled cells.
 #[derive(Clone, PartialEq)]
@@ -53,6 +53,7 @@ pub struct TerminalElement {
     font_size: Pixels,
     pending_resize: PendingResize,
     bg_color: Rgba,
+    colors: TerminalColors,
 }
 
 impl TerminalElement {
@@ -66,6 +67,7 @@ impl TerminalElement {
         font_size: Pixels,
         pending_resize: PendingResize,
         bg_color: Rgba,
+        colors: TerminalColors,
     ) -> Self {
         Self {
             terminal,
@@ -75,6 +77,7 @@ impl TerminalElement {
             font_size,
             pending_resize,
             bg_color,
+            colors,
         }
     }
 }
@@ -188,7 +191,7 @@ impl Element for TerminalElement {
             let y = px(f32::from(font_size) * row as f32);
 
             for cell in line {
-                let (fg, bg) = resolve_cell_colors(cell, &content);
+                let (fg, bg) = resolve_cell_colors(cell, &content, &self.colors);
                 let style = RunStyle {
                     fg,
                     bg,
@@ -397,9 +400,13 @@ fn compute_cell_width(
     px(8.0)
 }
 
-fn resolve_cell_colors(cell: &IndexedCell, _content: &TerminalContent) -> (Rgba, Rgba) {
-    let mut fg = convert_color(&cell.fg, true);
-    let mut bg = convert_color(&cell.bg, false);
+fn resolve_cell_colors(
+    cell: &IndexedCell,
+    _content: &TerminalContent,
+    colors: &TerminalColors,
+) -> (Rgba, Rgba) {
+    let mut fg = colors.convert(&cell.fg, true);
+    let mut bg = colors.convert(&cell.bg, false);
 
     // Handle inverse/reverse video.
     if cell.flags.contains(CellFlags::INVERSE) {

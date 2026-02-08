@@ -3,6 +3,7 @@ use gpui::prelude::*;
 use gpui::{Entity, MouseButton, div, px};
 
 use crate::state::app_state::AppState;
+use crate::state::settings_store::ViewMode;
 use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::TextInput;
 
@@ -46,6 +47,15 @@ impl SettingsView {
         .detach();
         cx.subscribe(&terminal_font_size_input, |this: &mut Self, _, _, cx| {
             this.save_all(cx);
+        })
+        .detach();
+
+        // Auto-save when leaving settings mode (view mode changes away from Settings).
+        cx.observe(&app_state, |this, app_state, cx| {
+            let mode = app_state.read(cx).view_mode(cx);
+            if mode != ViewMode::Settings {
+                this.save_all(cx);
+            }
         })
         .detach();
 
@@ -131,13 +141,6 @@ impl SettingsView {
 
         let store = self.app_state.read(cx).settings_store.clone();
         store.update(cx, |s, _| s.load_settings(new_settings));
-    }
-
-    /// Save all values and close settings view.
-    pub fn save_and_close(&mut self, cx: &mut gpui::Context<Self>) -> bool {
-        self.save_all(cx);
-        self.app_state.update(cx, AppState::close_settings);
-        true
     }
 }
 

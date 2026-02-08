@@ -67,8 +67,8 @@ pub enum TerminalTab {
     /// Claude CLI terminal (default for Project instances) or the primary terminal.
     #[default]
     Primary,
-    /// Secondary shell terminal (spawned on demand for Project instances).
-    Shell,
+    /// Shell terminal identified by stable monotonic ID (not index).
+    Shell(usize),
 }
 
 /// Partial update for an instance. Only non-None fields are written.

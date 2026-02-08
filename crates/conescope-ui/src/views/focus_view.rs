@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use gpui::prelude::*;
 use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative};
 
@@ -11,7 +13,7 @@ use crate::views::code_viewer::CodeEditor;
 use crate::views::editor_tabs::{EditorTabs, EditorTabsEvent};
 use crate::views::file_tree::{FileTree, FileTreeEvent};
 use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size, render_divider};
-use crate::views::terminal_tabs::render_tab_bar;
+use crate::views::terminal_tabs::{ShellTabCb, render_tab_bar};
 
 const SIDEBAR_MIN: f32 = 120.0;
 const SIDEBAR_MAX: f32 = 600.0;
@@ -143,6 +145,54 @@ impl FocusView {
         self.drag = None;
     }
 
+    /// Close the active tab based on what's focused.
+    ///
+    /// - Terminal focused + shell tab → close that shell tab
+    /// - Terminal focused + primary tab → request close instance
+    /// - Editor focused → close active editor tab
+    pub fn close_active_tab(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        let state = self.app_state.read(cx);
+        let Some(id) = state.focused_instance_id(cx) else {
+            return;
+        };
+        let il = state.instance_list.read(cx);
+        let Some(entry) = il.find_by_id(id, cx).cloned() else {
+            return;
+        };
+
+        let (terminal_focused, active_tab, id_owned, title) = {
+            let inst = entry.read(cx);
+            let term_focused = inst
+                .active_focus_handle()
+                .is_some_and(|fh| fh.is_focused(window));
+            let title = inst
+                .instance
+                .title
+                .clone()
+                .unwrap_or_else(|| format!("Instance {id}"));
+            (term_focused, inst.active_tab, id.to_owned(), title)
+        };
+
+        if terminal_focused {
+            if let TerminalTab::Shell(shell_id) = active_tab {
+                entry.update(cx, |e, cx| e.close_shell_tab(shell_id, cx));
+                // Focus whatever tab is now active
+                let fh = entry.read(cx).active_focus_handle().cloned();
+                if let Some(fh) = fh {
+                    fh.focus(window, cx);
+                }
+            } else {
+                // Primary tab → close the instance
+                self.app_state.update(cx, |s, cx| {
+                    s.request_close_instance(&id_owned, &title, cx);
+                });
+            }
+        } else {
+            // Editor focused → close active editor tab
+            self.editor_tabs.update(cx, EditorTabs::close_active_tab);
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn build_tab_bar(
         &self,
@@ -153,18 +203,38 @@ impl FocusView {
         let inst = entry.read(cx);
         let instance_type = inst.instance_type();
         let active_tab = inst.active_tab;
-        let has_shell = inst.shell_terminal_view.is_some();
+        let shell_tabs = inst.shell_tab_info();
 
         let entry_for_primary = entry.clone();
-        let entry_for_shell = entry.clone();
         let entry_for_add = entry.clone();
-        let app_state_for_shell = self.app_state.clone();
         let app_state_for_add = self.app_state.clone();
+
+        // Click shell tab → switch to it
+        let entry_click = entry.clone();
+        let on_click_shell: ShellTabCb = Rc::new(move |shell_id, _ev, window, cx| {
+            entry_click.update(cx, |e, cx| {
+                e.set_active_tab(TerminalTab::Shell(shell_id), cx);
+            });
+            let fh = entry_click.read(cx).shell_focus_handle(shell_id).cloned();
+            if let Some(fh) = fh {
+                fh.focus(window, cx);
+            }
+        });
+
+        // Close shell tab
+        let entry_close = entry.clone();
+        let on_close_shell: ShellTabCb = Rc::new(move |shell_id, _ev, window, cx| {
+            entry_close.update(cx, |e, cx| e.close_shell_tab(shell_id, cx));
+            let fh = entry_close.read(cx).active_focus_handle().cloned();
+            if let Some(fh) = fh {
+                fh.focus(window, cx);
+            }
+        });
 
         render_tab_bar(
             instance_type,
             active_tab,
-            has_shell,
+            &shell_tabs,
             cx.listener(move |_this, _event: &gpui::MouseDownEvent, window, cx| {
                 entry_for_primary.update(cx, |e, cx| {
                     e.set_active_tab(TerminalTab::Primary, cx);
@@ -174,81 +244,38 @@ impl FocusView {
                     fh.focus(window, cx);
                 }
             }),
+            &on_click_shell,
+            &on_close_shell,
+            // "+" button: always spawn a new shell tab
             cx.listener(move |_this, _event: &gpui::MouseDownEvent, window, cx| {
-                let needs_spawn = entry_for_shell.read(cx).shell_terminal_view.is_none();
-                if needs_spawn {
-                    let cwd = {
-                        let state = app_state_for_shell.read(cx);
-                        let inst = entry_for_shell.read(cx);
-                        inst.instance.project_id.as_ref().and_then(|pid| {
-                            state
-                                .project_store
-                                .read(cx)
-                                .get(pid)
-                                .map(|p| p.path.clone())
-                        })
-                    };
-                    let ff = Some(
-                        app_state_for_shell
+                let cwd = {
+                    let state = app_state_for_add.read(cx);
+                    let inst = entry_for_add.read(cx);
+                    inst.instance.project_id.as_ref().and_then(|pid| {
+                        state
+                            .project_store
                             .read(cx)
-                            .settings_store
-                            .read(cx)
-                            .settings()
-                            .font_family
-                            .clone(),
-                    );
-                    let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), window, cx);
-                    entry_for_shell.update(cx, |e, cx| {
-                        e.attach_shell_terminal(pane, cx);
-                        e.start_shell_output_polling(cx);
-                        e.set_active_tab(TerminalTab::Shell, cx);
-                    });
-                } else {
-                    entry_for_shell.update(cx, |e, cx| {
-                        e.set_active_tab(TerminalTab::Shell, cx);
-                    });
-                }
-                let fh = entry_for_shell.read(cx).shell_focus_handle.clone();
-                if let Some(fh) = fh {
-                    fh.focus(window, cx);
-                }
-            }),
-            // "+" button: spawn a new shell tab and switch to it
-            cx.listener(move |_this, _event: &gpui::MouseDownEvent, window, cx| {
-                let needs_spawn = entry_for_add.read(cx).shell_terminal_view.is_none();
-                if needs_spawn {
-                    let cwd = {
-                        let state = app_state_for_add.read(cx);
-                        let inst = entry_for_add.read(cx);
-                        inst.instance.project_id.as_ref().and_then(|pid| {
-                            state
-                                .project_store
-                                .read(cx)
-                                .get(pid)
-                                .map(|p| p.path.clone())
-                        })
-                    };
-                    let ff = Some(
-                        app_state_for_add
-                            .read(cx)
-                            .settings_store
-                            .read(cx)
-                            .settings()
-                            .font_family
-                            .clone(),
-                    );
-                    let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), window, cx);
-                    entry_for_add.update(cx, |e, cx| {
-                        e.attach_shell_terminal(pane, cx);
-                        e.start_shell_output_polling(cx);
-                        e.set_active_tab(TerminalTab::Shell, cx);
-                    });
-                } else {
-                    entry_for_add.update(cx, |e, cx| {
-                        e.set_active_tab(TerminalTab::Shell, cx);
-                    });
-                }
-                let fh = entry_for_add.read(cx).shell_focus_handle.clone();
+                            .get(pid)
+                            .map(|p| p.path.clone())
+                    })
+                };
+                let ff = Some(
+                    app_state_for_add
+                        .read(cx)
+                        .settings_store
+                        .read(cx)
+                        .settings()
+                        .font_family
+                        .clone(),
+                );
+                let tc = app_state_for_add.read(cx).theme().terminal_colors();
+                let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), &tc, window, cx);
+                entry_for_add.update(cx, |e, cx| {
+                    let (id, rx) = e.add_shell_tab(pane, cx);
+                    e.start_shell_output_polling(id, rx, cx);
+                    e.set_active_tab(TerminalTab::Shell(id), cx);
+                });
+                let fh = entry_for_add.read(cx).active_focus_handle().cloned();
                 if let Some(fh) = fh {
                     fh.focus(window, cx);
                 }
@@ -585,14 +612,18 @@ fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut 
 
     let inst = entry.read(cx);
     let tv = inst.terminal_view.clone();
-    let shell_tv = inst.shell_terminal_view.clone();
+    let shell_tvs: Vec<_> = inst
+        .shell_tabs
+        .iter()
+        .map(|t| t.terminal_view.clone())
+        .collect();
     inst.resize_pty(cols, rows);
-    inst.resize_shell_pty(cols, rows);
+    inst.resize_all_shell_ptys(cols, rows);
     if let Some(tv) = tv {
         tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
     }
-    if let Some(tv) = shell_tv {
-        tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
+    for stv in shell_tvs {
+        stv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
     }
 }
 

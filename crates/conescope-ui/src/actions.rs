@@ -3,8 +3,10 @@ use gpui::actions;
 actions!(
     conescope,
     [
+        Quit,
         NewInstance,
         CloseInstance,
+        CloseTab,
         ReturnToOverview,
         FocusInstance1,
         FocusInstance2,

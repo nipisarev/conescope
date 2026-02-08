@@ -12,6 +12,7 @@ use gpui::{AppContext, SharedString};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use terminal::Terminal;
+pub use terminal::TerminalColors;
 use terminal_view::TerminalView;
 
 /// All state needed for a single terminal pane.
@@ -76,6 +77,7 @@ pub fn default_terminal_font_features() -> gpui::FontFeatures {
 pub fn spawn_terminal_pane(
     cwd: Option<&str>,
     font_family: Option<&str>,
+    colors: &TerminalColors,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> TerminalPane {
@@ -146,6 +148,7 @@ pub fn spawn_terminal_pane(
     let stdin_tx_for_pane = stdin_tx.clone();
     let font = font_family.map_or_else(default_terminal_font, terminal_font);
     let font_family_str = font.family.clone();
+    let colors = colors.clone();
 
     let mut pane_focus_handle: Option<gpui::FocusHandle> = None;
     let view = cx.new(|cx| {
@@ -156,7 +159,7 @@ pub fn spawn_terminal_pane(
         let term =
             cx.new(|_cx| Terminal::new(initial_cols as usize, initial_rows as usize, stdin_tx));
 
-        TerminalView::new(term, focus_handle, font_family_str, 13.0)
+        TerminalView::new(term, focus_handle, font_family_str, 13.0, colors)
     });
 
     TerminalPane {
