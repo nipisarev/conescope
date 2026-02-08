@@ -167,7 +167,7 @@ impl Database {
     pub fn get_all_instances(&self) -> Result<Vec<Instance>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, project_id, title, status, instance_number, tokens_used, cost_estimate, started_at, ended_at, type, color
-             FROM instances WHERE ended_at IS NULL ORDER BY started_at DESC",
+             FROM instances WHERE ended_at IS NULL ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map([], |row| {
             let status_str: String = row.get(3)?;

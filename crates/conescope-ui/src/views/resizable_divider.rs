@@ -63,6 +63,7 @@ pub fn render_divider(
         Axis::Horizontal => CursorStyle::ResizeLeftRight,
         Axis::Vertical => CursorStyle::ResizeUpDown,
     };
+    // Divider doesn't have theme access; keep neutral colors
     let color = if active {
         rgba(0x007a_ccff)
     } else {

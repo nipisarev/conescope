@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, MouseButton, PathPromptOptions, div, px, rgba};
+use gpui::{AppContext, Entity, MouseButton, PathPromptOptions, ScrollHandle, div, px};
 
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType};
 use conescope_core::project::Project;
@@ -7,18 +7,26 @@ use conescope_core::project::Project;
 use crate::state::app_state::AppState;
 use crate::state::instance_entry::InstanceEntry;
 use crate::terminal::spawn_terminal_pane;
+use crate::theme::Theme;
+use crate::views::scrollbar::{self, ScrollbarCallbacks, ScrollbarState};
 
 const MAX_RECENT_PROJECTS: usize = 5;
 
 #[derive(Debug)]
 pub struct NewInstanceModal {
     app_state: Entity<AppState>,
+    scroll_handle: ScrollHandle,
+    scrollbar_state: ScrollbarState,
 }
 
 impl NewInstanceModal {
     #[must_use]
     pub fn new(app_state: Entity<AppState>) -> Self {
-        Self { app_state }
+        Self {
+            app_state,
+            scroll_handle: ScrollHandle::new(),
+            scrollbar_state: ScrollbarState::default(),
+        }
     }
 }
 
@@ -68,19 +76,21 @@ fn create_instance_at(
 
     app_state.read(cx).db.insert_instance(instance.clone());
 
-    let font_family = app_state
-        .read(cx)
-        .settings_store
-        .read(cx)
-        .settings()
-        .get("font_family")
-        .map(str::to_owned);
+    let font_family = Some(
+        app_state
+            .read(cx)
+            .settings_store
+            .read(cx)
+            .settings()
+            .font_family
+            .clone(),
+    );
     let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), window, cx);
     let is_project = instance_type == InstanceType::Project;
 
-    let entry = cx.new(|_| {
+    let entry = cx.new(|cx| {
         let mut e = InstanceEntry::from_instance(instance);
-        e.attach_terminal(pane);
+        e.attach_terminal(pane, cx);
         e
     });
 
@@ -173,49 +183,62 @@ fn shorten_path(path: &str) -> String {
 
 fn render_modal_body(
     app_state: &Entity<AppState>,
-    recent_projects: &[Project],
+    recent_projects_section: Option<gpui::Stateful<gpui::Div>>,
+    theme: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
     let app_state_close = app_state.clone();
     let app_state_terminal = app_state.clone();
     let app_state_project = app_state.clone();
     let app_state_browse = app_state.clone();
-    let recent = recent_projects.to_vec();
-    let app_state_for_recent = app_state.clone();
 
     div()
         .id("new-instance-modal")
         .w(px(360.))
         .max_h(px(500.))
-        .bg(rgba(0x2d2d_2dff))
+        .bg(theme.surface)
         .rounded(px(8.))
         .border_1()
-        .border_color(rgba(0x4c4c_4cff))
+        .border_color(theme.border_variant)
         .flex()
         .flex_col()
         .overflow_hidden()
         .on_mouse_down(MouseButton::Left, |_, _, cx| {
             cx.stop_propagation();
         })
-        // Header
-        .child(modal_header(app_state_close))
-        // Quick actions
+        .child(modal_header(app_state_close, theme))
         .child(
             div()
                 .p(px(16.))
                 .flex()
                 .flex_col()
                 .gap(px(8.))
-                .child(modal_button("New Terminal", "Open a shell terminal", app_state_terminal, ActionKind::Terminal))
-                .child(modal_button("New Project (~/)", "Launch Claude Code in home directory", app_state_project, ActionKind::ProjectHome))
-                .child(modal_button("Browse...", "Choose a project directory", app_state_browse, ActionKind::Browse)),
+                .child(modal_button(
+                    "New Terminal",
+                    "Open a shell terminal",
+                    app_state_terminal,
+                    ActionKind::Terminal,
+                    theme,
+                ))
+                .child(modal_button(
+                    "New Project (~/)",
+                    "Launch Claude Code in home directory",
+                    app_state_project,
+                    ActionKind::ProjectHome,
+                    theme,
+                ))
+                .child(modal_button(
+                    "Browse...",
+                    "Choose a project directory",
+                    app_state_browse,
+                    ActionKind::Browse,
+                    theme,
+                )),
         )
-        // Recent projects
-        .when(!recent.is_empty(), move |el| {
-            el.child(recent_projects_section(&recent, &app_state_for_recent))
-        })
+        .children(recent_projects_section)
 }
 
-fn modal_header(app_state: Entity<AppState>) -> gpui::Div {
+fn modal_header(app_state: Entity<AppState>, theme: &Theme) -> gpui::Div {
+    let text = theme.text;
     div()
         .px(px(16.))
         .py(px(12.))
@@ -223,18 +246,13 @@ fn modal_header(app_state: Entity<AppState>) -> gpui::Div {
         .flex_row()
         .items_center()
         .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
-        .child(
-            div()
-                .flex_1()
-                .text_color(rgba(0xdddd_ddff))
-                .child("New Instance"),
-        )
+        .border_color(theme.border)
+        .child(div().flex_1().text_color(theme.text).child("New Instance"))
         .child(
             div()
                 .cursor_pointer()
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xcccc_ccff)))
+                .text_color(theme.text_muted)
+                .hover(move |s| s.text_color(text))
                 .child("\u{00d7}")
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state.update(cx, |s, cx| {
@@ -245,40 +263,26 @@ fn modal_header(app_state: Entity<AppState>) -> gpui::Div {
         )
 }
 
-fn recent_projects_section(projects: &[Project], app_state: &Entity<AppState>) -> gpui::Div {
+fn recent_projects_list(
+    projects: &[Project],
+    app_state: &Entity<AppState>,
+    theme: &Theme,
+) -> gpui::Div {
     let mut list = div().flex().flex_col().gap(px(4.));
     for project in projects {
-        list = list.child(recent_project_row(project, app_state));
+        list = list.child(recent_project_row(project, app_state, theme));
     }
-
-    div()
-        .px(px(16.))
-        .pb(px(12.))
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(rgba(0x6666_66ff))
-                .pb(px(4.))
-                .child("RECENT PROJECTS"),
-        )
-        .child(
-            div()
-                .id("recent-projects-scroll")
-                .max_h(px(200.))
-                .overflow_y_scroll()
-                .child(list),
-        )
+    list
 }
 
 impl Render for NewInstanceModal {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let theme = self.app_state.read(cx).theme().clone();
         let app_state_backdrop = self.app_state.clone();
 
         let recent_projects: Vec<Project> = {
@@ -290,13 +294,96 @@ impl Render for NewInstanceModal {
             projects
         };
 
+        let recent_section = if recent_projects.is_empty() {
+            None
+        } else {
+            let list = recent_projects_list(&recent_projects, &self.app_state, &theme);
+
+            let scroll_div = div()
+                .id("recent-projects-scroll")
+                .max_h(px(200.))
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll_handle)
+                .child(list);
+
+            let scrollbar_el = scrollbar::render_scrollbar(
+                "recent-projects",
+                &self.scroll_handle,
+                &self.scrollbar_state,
+                ScrollbarCallbacks {
+                    on_thumb_hover: cx.listener(|this, hovered: &bool, _, _| {
+                        this.scrollbar_state.thumb_hovered = *hovered;
+                    }),
+                    on_track_click: cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                        let click_y =
+                            f32::from(ev.position.y) - f32::from(this.scroll_handle.bounds().top());
+                        scrollbar::apply_track_click(&this.scroll_handle, click_y);
+                        cx.notify();
+                    }),
+                    on_drag_start: cx.listener(|this, ev: &gpui::MouseDownEvent, _, _| {
+                        this.scrollbar_state.drag = Some(scrollbar::ScrollbarDrag {
+                            start_mouse_y: f32::from(ev.position.y),
+                            start_offset_y: f32::from(this.scroll_handle.offset().y),
+                        });
+                    }),
+                },
+            );
+
+            let scroll_container = div()
+                .id("recent-scroll-container")
+                .relative()
+                .max_h(px(200.))
+                .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                    this.scrollbar_state.container_hovered = *hovered;
+                }))
+                .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
+                    if let Some(drag) = &this.scrollbar_state.drag {
+                        let drag = *drag;
+                        scrollbar::apply_drag(&this.scroll_handle, &drag, f32::from(ev.position.y));
+                        cx.notify();
+                    }
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.scrollbar_state.drag = None;
+                    }),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.scrollbar_state.drag = None;
+                    }),
+                )
+                .child(scroll_div)
+                .children(scrollbar_el);
+
+            Some(
+                div()
+                    .id("recent-projects-section")
+                    .px(px(16.))
+                    .pb(px(12.))
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.text_faint)
+                            .pb(px(4.))
+                            .child("RECENT PROJECTS"),
+                    )
+                    .child(scroll_container),
+            )
+        };
+
         div()
             .id("modal-backdrop")
             .absolute()
             .size_full()
             .top_0()
             .left_0()
-            .bg(rgba(0x0000_0080))
+            .bg(theme.backdrop)
             .flex()
             .items_center()
             .justify_center()
@@ -306,7 +393,7 @@ impl Render for NewInstanceModal {
                     cx.notify();
                 });
             })
-            .child(render_modal_body(&self.app_state, &recent_projects))
+            .child(render_modal_body(&self.app_state, recent_section, &theme))
     }
 }
 
@@ -322,24 +409,26 @@ fn modal_button(
     description: &str,
     app_state: Entity<AppState>,
     action: ActionKind,
+    theme: &Theme,
 ) -> gpui::Div {
     let label = label.to_owned();
     let description = description.to_owned();
+    let border_variant = theme.border_variant;
     div()
         .px(px(12.))
         .py(px(10.))
         .rounded(px(6.))
         .cursor_pointer()
-        .bg(rgba(0x3c3c_3cff))
-        .hover(|s| s.bg(rgba(0x4c4c_4cff)))
+        .bg(theme.border)
+        .hover(move |s| s.bg(border_variant))
         .flex()
         .flex_col()
         .gap(px(2.))
-        .child(div().text_color(rgba(0xdddd_ddff)).child(label))
+        .child(div().text_color(theme.text).child(label))
         .child(
             div()
                 .text_size(px(11.))
-                .text_color(rgba(0x8888_88ff))
+                .text_color(theme.text_muted)
                 .child(description),
         )
         .on_mouse_down(MouseButton::Left, move |_, window, cx| match action {
@@ -432,17 +521,18 @@ fn browse_for_directory(
     .detach();
 }
 
-fn recent_project_row(project: &Project, app_state: &Entity<AppState>) -> gpui::Div {
+fn recent_project_row(project: &Project, app_state: &Entity<AppState>, theme: &Theme) -> gpui::Div {
     let project = project.clone();
     let app_state = app_state.clone();
     let short_path = shorten_path(&project.path);
+    let border = theme.border;
 
     div()
         .px(px(8.))
         .py(px(6.))
         .rounded(px(4.))
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0x3c3c_3cff)))
+        .hover(move |s| s.bg(border))
         .flex()
         .flex_row()
         .items_center()
@@ -454,13 +544,13 @@ fn recent_project_row(project: &Project, app_state: &Entity<AppState>) -> gpui::
                 .flex_col()
                 .child(
                     div()
-                        .text_color(rgba(0xcccc_ccff))
+                        .text_color(theme.text)
                         .text_size(px(13.))
                         .child(project.display_name.clone()),
                 )
                 .child(
                     div()
-                        .text_color(rgba(0x6666_66ff))
+                        .text_color(theme.text_faint)
                         .text_size(px(11.))
                         .child(short_path),
                 ),

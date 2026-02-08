@@ -100,7 +100,7 @@ impl InstanceList {
 
             let pane = crate::terminal::spawn_terminal_pane(Some(&cwd), font_family, window, cx);
             entry.update(cx, |e, cx| {
-                e.attach_terminal(pane);
+                e.attach_terminal(pane, cx);
                 e.start_output_polling(cx);
             });
 

@@ -5,6 +5,7 @@ use super::db_worker::DbHandle;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
 use super::settings_store::{SettingsStore, ViewMode};
+use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::{TextInput, TextInputEvent};
 
 /// Pending confirmation dialog state.
@@ -21,7 +22,6 @@ pub struct AppState {
     pub settings_store: Entity<SettingsStore>,
     pub db: DbHandle,
     pub questions_queue_open: bool,
-    pub settings_modal_open: bool,
     pub new_instance_modal_open: bool,
     pub confirm_action: Option<ConfirmAction>,
     /// Error message to display (error boundary).
@@ -29,6 +29,8 @@ pub struct AppState {
     /// Tile being edited (overview grid inline title editing).
     pub editing_tile_id: Option<String>,
     pub editing_input: Option<Entity<TextInput>>,
+    /// Active color theme.
+    theme: Theme,
 }
 
 impl std::fmt::Debug for AppState {
@@ -56,14 +58,32 @@ impl AppState {
                 settings_store,
                 db,
                 questions_queue_open: false,
-                settings_modal_open: false,
                 new_instance_modal_open: false,
                 confirm_action: None,
                 error_message: None,
                 editing_tile_id: None,
                 editing_input: None,
+                theme: Theme::load_builtin(ThemeMode::Light),
             }
         })
+    }
+
+    #[must_use]
+    pub fn theme(&self) -> &Theme {
+        &self.theme
+    }
+
+    pub fn set_theme(&mut self, mode: ThemeMode, cx: &mut gpui::Context<Self>) {
+        self.theme = Theme::load_builtin(mode);
+        self.settings_store.update(cx, |store, _| {
+            mode.as_str().clone_into(&mut store.settings_mut().theme);
+        });
+        cx.notify();
+    }
+
+    pub fn cycle_theme(&mut self, cx: &mut gpui::Context<Self>) {
+        let new_mode = self.theme.mode.toggle();
+        self.set_theme(new_mode, cx);
     }
 
     #[must_use]
@@ -202,8 +222,22 @@ impl AppState {
         cx.notify();
     }
 
-    pub fn toggle_settings_modal(&mut self, cx: &mut gpui::Context<Self>) {
-        self.settings_modal_open = !self.settings_modal_open;
+    pub fn open_settings(&mut self, cx: &mut gpui::Context<Self>) {
+        self.settings_store
+            .update(cx, |store, _| store.enter_settings_mode());
+        cx.notify();
+    }
+
+    pub fn close_settings(&mut self, cx: &mut gpui::Context<Self>) {
+        // Apply theme from current settings
+        let theme_str = self.settings_store.read(cx).settings().theme.clone();
+        let mode = crate::theme::ThemeMode::from_str_or_default(&theme_str);
+        if mode != self.theme.mode {
+            self.theme = Theme::load_builtin(mode);
+        }
+
+        self.settings_store
+            .update(cx, |store, _| store.exit_settings_mode());
         cx.notify();
     }
 

@@ -19,5 +19,6 @@ actions!(
         ToggleEditor,
         ToggleTerminal,
         OpenSettings,
+        CloseSettings,
     ]
 );

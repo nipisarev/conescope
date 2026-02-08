@@ -19,6 +19,8 @@ pub fn render_tab_bar(
     on_click_shell: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     on_click_add: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> gpui::Div {
+    // Terminal tabs don't have direct access to theme; use simple hardcoded values
+    // that work for both dark/light (these are fairly neutral).
     let bar = div()
         .h(px(28.))
         .flex()

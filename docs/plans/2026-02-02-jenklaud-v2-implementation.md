@@ -197,7 +197,7 @@ class DatabaseService {
   // Instances
   getAllInstances(): any[] {
     if (!this.db) throw new Error('Database not initialized')
-    return this.db.prepare('SELECT * FROM instances WHERE ended_at IS NULL ORDER BY started_at DESC').all()
+    return this.db.prepare('SELECT * FROM instances WHERE ended_at IS NULL ORDER BY started_at ASC').all()
   }
 
   getInstance(id: string): any {

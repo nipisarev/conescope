@@ -9,7 +9,7 @@ license.workspace = true
 conescope-core = { path = "../conescope-core" }
 conescope-pty = { path = "../conescope-pty" }
 gpui.workspace = true
-gpui_ghostty_terminal.workspace = true
+alacritty_terminal.workspace = true
 portable-pty.workspace = true
 flume.workspace = true
 anyhow.workspace = true
@@ -19,7 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 unicode-segmentation.workspace = true
-syntect.workspace = true
+gpui-component.workspace = true
+rust-embed.workspace = true
 
 [lints]
 workspace = true

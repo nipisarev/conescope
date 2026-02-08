@@ -1,6 +1,6 @@
+use crate::terminal::terminal_view::TerminalView;
 use gpui::prelude::*;
 use gpui::{CursorStyle, Entity, div, px, rgba};
-use gpui_ghostty_terminal::view::TerminalView;
 
 /// A 2×2 grid of terminal views for gate testing.
 pub struct MultiTerminalGrid {

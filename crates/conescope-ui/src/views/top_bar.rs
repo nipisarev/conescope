@@ -1,8 +1,11 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, rgba};
+use gpui::{Entity, Hsla, MouseButton, div, px, rgba, svg};
 
+use crate::actions::{CloseSettings, OpenSettings};
+use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
+use crate::theme::Theme;
 use crate::views::colors::hex_to_rgba;
 
 #[derive(Debug)]
@@ -17,13 +20,13 @@ impl TopBar {
     }
 }
 
-/// Resolve the focused instance title, number, and project color.
-fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(i64, String, gpui::Rgba)> {
+/// Resolve the focused instance title, positional number, and project color.
+fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(usize, String, gpui::Rgba)> {
     let id = state.focused_instance_id(cx)?;
     let il = state.instance_list.read(cx);
-    let entry = il.find_by_id(id, cx)?;
+    let pos = il.entries().iter().position(|e| e.read(cx).id() == id)?;
+    let entry = &il.entries()[pos];
     let inst = entry.read(cx);
-    let num = inst.instance.instance_number.unwrap_or(0);
     let title = inst
         .instance
         .title
@@ -35,7 +38,7 @@ fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(i64, String, gpui::
         .color
         .as_deref()
         .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba);
-    Some((num, title, color))
+    Some((pos + 1, title, color))
 }
 
 impl Render for TopBar {
@@ -45,25 +48,30 @@ impl Render for TopBar {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let state = self.app_state.read(cx);
+        let theme = state.theme().clone();
         let view_mode = state.view_mode(cx);
 
         let (center_text, title_color) = match view_mode {
-            ViewMode::Overview => ("CONESCOPE".to_string(), rgba(0x8888_88ff)),
+            ViewMode::Overview => ("CONESCOPE".to_string(), theme.text_muted),
             ViewMode::Focus => {
                 if let Some((num, title, color)) = focused_info(state, cx) {
-                    (format!("#{num} {title}"), color)
+                    (format!("\u{2318}{num} {title}"), color)
                 } else {
-                    ("CONESCOPE".into(), rgba(0x8888_88ff))
+                    ("CONESCOPE".into(), theme.text_muted)
                 }
             }
+            ViewMode::Settings => ("SETTINGS".to_string(), theme.text_muted),
         };
 
         let app_state_for_close = self.app_state.clone();
         let app_state_for_back = self.app_state.clone();
 
         let right_section = match view_mode {
-            ViewMode::Focus => render_focus_buttons(app_state_for_back, app_state_for_close),
-            ViewMode::Overview => render_overview_buttons(&self.app_state),
+            ViewMode::Focus => {
+                render_focus_buttons(app_state_for_back, app_state_for_close, &theme)
+            }
+            ViewMode::Overview => render_overview_buttons(&self.app_state, &theme),
+            ViewMode::Settings => render_settings_buttons(&theme),
         };
 
         div()
@@ -72,9 +80,9 @@ impl Render for TopBar {
             .flex()
             .flex_row()
             .items_center()
-            .bg(rgba(0x2525_26ff))
+            .bg(theme.panel)
             .border_b_1()
-            .border_color(rgba(0x3c3c_3cff))
+            .border_color(theme.border)
             // Left padding for macOS traffic lights
             .child(div().w(px(76.)))
             // Center title
@@ -90,10 +98,13 @@ impl Render for TopBar {
     }
 }
 
-fn render_overview_buttons(app_state: &Entity<AppState>) -> gpui::Div {
+fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui::Div {
     let app_state_new = app_state.clone();
     let app_state_q = app_state.clone();
-    let app_state_s = app_state.clone();
+    let text_muted: Hsla = theme.text_muted.into();
+    let text: Hsla = theme.text.into();
+    let border = theme.border;
+    let border_variant = theme.border_variant;
 
     div()
         .flex()
@@ -112,19 +123,23 @@ fn render_overview_buttons(app_state: &Entity<AppState>) -> gpui::Div {
                 .py(px(3.))
                 .rounded(px(16.))
                 .border_1()
-                .border_color(rgba(0x5555_55ff))
+                .border_color(theme.text_disabled)
                 .cursor_pointer()
                 .text_size(px(12.))
-                .text_color(rgba(0xaaaa_aaff))
-                .hover(|s| {
-                    s.bg(rgba(0x3c3c_3cff))
-                        .border_color(rgba(0x6666_66ff))
-                        .text_color(rgba(0xffff_ffff))
+                .text_color(text_muted)
+                .hover(move |s| {
+                    s.bg(border).border_color(border_variant).text_color(text)
                 })
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state_new.update(cx, AppState::toggle_new_instance_modal);
                 })
-                .child("+")
+                .child(
+                    svg()
+                        .path(icons::ICON_PLUS)
+                        .size(px(14.))
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
                 .child("New Window"),
         )
         // Questions button
@@ -134,10 +149,14 @@ fn render_overview_buttons(app_state: &Entity<AppState>) -> gpui::Div {
                 .py(px(4.))
                 .rounded(px(4.))
                 .cursor_pointer()
-                .text_size(px(14.))
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xffff_ffff)))
-                .child("\u{003F}") // ?
+                .hover(move |s| s.text_color(text))
+                .child(
+                    svg()
+                        .path(icons::ICON_QUESTION)
+                        .size(px(14.))
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state_q.update(cx, AppState::toggle_questions_queue);
                 }),
@@ -149,20 +168,62 @@ fn render_overview_buttons(app_state: &Entity<AppState>) -> gpui::Div {
                 .py(px(4.))
                 .rounded(px(4.))
                 .cursor_pointer()
-                .text_size(px(14.))
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xffff_ffff)))
-                .child("\u{2699}") // ⚙
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    app_state_s.update(cx, AppState::toggle_settings_modal);
+                .hover(move |s| s.text_color(text))
+                .child(
+                    svg()
+                        .path(icons::ICON_SETTINGS)
+                        .size(px(14.))
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    window.dispatch_action(Box::new(OpenSettings), cx);
                 }),
+        )
+}
+
+fn render_settings_buttons(theme: &Theme) -> gpui::Div {
+    let text_muted: Hsla = theme.text_muted.into();
+    let text: Hsla = theme.text.into();
+    let border = theme.border;
+    let border_variant = theme.border_variant;
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.))
+        .pr(px(12.))
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .px(px(10.))
+                .py(px(3.))
+                .rounded(px(16.))
+                .border_1()
+                .border_color(theme.text_disabled)
+                .cursor_pointer()
+                .text_size(px(12.))
+                .text_color(text_muted)
+                .hover(move |s| s.bg(border).border_color(border_variant).text_color(text))
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    window.dispatch_action(Box::new(CloseSettings), cx);
+                })
+                .child("Done"),
         )
 }
 
 fn render_focus_buttons(
     app_state_for_back: Entity<AppState>,
     app_state_for_close: Entity<AppState>,
+    theme: &Theme,
 ) -> gpui::Div {
+    let text_muted: Hsla = theme.text_muted.into();
+    let text: Hsla = theme.text.into();
+    let destructive_hover: Hsla = theme.destructive_hover.into();
+
     div()
         .flex()
         .flex_row()
@@ -175,9 +236,14 @@ fn render_focus_buttons(
                 .py(px(4.))
                 .rounded(px(4.))
                 .cursor_pointer()
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xffff_ffff)))
-                .child("\u{229D}") // ⊝ circled minus
+                .hover(move |s| s.text_color(text))
+                .child(
+                    svg()
+                        .path(icons::ICON_BACK)
+                        .size(px(14.))
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state_for_back.update(cx, AppState::return_to_overview);
                 }),
@@ -189,9 +255,14 @@ fn render_focus_buttons(
                 .py(px(4.))
                 .rounded(px(4.))
                 .cursor_pointer()
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xe539_35ff)))
-                .child("\u{2297}") // ⊗ circled X
+                .hover(move |s| s.text_color(destructive_hover))
+                .child(
+                    svg()
+                        .path(icons::ICON_CLOSE_CIRCLE)
+                        .size(px(14.))
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     let (id, title) = {
                         let s = app_state_for_close.read(cx);

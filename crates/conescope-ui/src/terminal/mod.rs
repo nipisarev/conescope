@@ -1,12 +1,18 @@
+#[allow(clippy::module_inception)]
+pub mod terminal;
+pub mod terminal_element;
+pub mod terminal_view;
+
 use std::io::{Read, Write};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 
 use gpui::{AppContext, SharedString};
-use gpui_ghostty_terminal::view::{TerminalInput, TerminalView};
-use gpui_ghostty_terminal::{TerminalConfig, TerminalSession, default_terminal_font};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
+
+use terminal::Terminal;
+use terminal_view::TerminalView;
 
 /// All state needed for a single terminal pane.
 pub struct TerminalPane {
@@ -28,9 +34,35 @@ impl std::fmt::Debug for TerminalPane {
 /// Build a `gpui::Font` with the given family name and standard terminal fallbacks.
 #[must_use]
 pub fn terminal_font(family: &str) -> gpui::Font {
-    let mut font = default_terminal_font();
-    font.family = gpui::SharedString::from(family.to_owned());
-    font
+    let fallbacks = gpui::FontFallbacks::from_fonts(vec![
+        "Menlo".to_owned(),
+        "SF Mono".to_owned(),
+        "Monaco".to_owned(),
+        "Courier New".to_owned(),
+        "Courier".to_owned(),
+    ]);
+    gpui::Font {
+        family: SharedString::from(family.to_owned()),
+        features: default_terminal_font_features(),
+        weight: gpui::FontWeight::NORMAL,
+        style: gpui::FontStyle::Normal,
+        fallbacks: Some(fallbacks),
+    }
+}
+
+/// Default terminal font with standard fallbacks.
+#[must_use]
+pub fn default_terminal_font() -> gpui::Font {
+    terminal_font("Menlo")
+}
+
+/// Font features disabled for terminal rendering (ligatures off).
+#[must_use]
+pub fn default_terminal_font_features() -> gpui::FontFeatures {
+    gpui::FontFeatures(Arc::new(vec![
+        ("calt".to_owned(), 0),
+        ("liga".to_owned(), 0),
+    ]))
 }
 
 /// Spawn a PTY-backed terminal pane. Must be called from GPUI app context.
@@ -47,17 +79,14 @@ pub fn spawn_terminal_pane(
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> TerminalPane {
-    let mut config = TerminalConfig::default();
-    // Match the app background (#1E1E1E) so half-block chars (▀▄) blend correctly.
-    config.default_bg.r = 0x1E;
-    config.default_bg.g = 0x1E;
-    config.default_bg.b = 0x1E;
+    let initial_rows: u16 = 24;
+    let initial_cols: u16 = 80;
 
     let pty_system = native_pty_system();
     let pty_pair = pty_system
         .openpty(PtySize {
-            rows: config.rows,
-            cols: config.cols,
+            rows: initial_rows,
+            cols: initial_cols,
             pixel_width: 0,
             pixel_height: 0,
         })
@@ -115,21 +144,19 @@ pub fn spawn_terminal_pane(
     });
 
     let stdin_tx_for_pane = stdin_tx.clone();
+    let font = font_family.map_or_else(default_terminal_font, terminal_font);
+    let font_family_str = font.family.clone();
 
     let mut pane_focus_handle: Option<gpui::FocusHandle> = None;
     let view = cx.new(|cx| {
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window, cx);
         pane_focus_handle = Some(focus_handle.clone());
-        let session = TerminalSession::new(config).expect("vt init");
-        let input = TerminalInput::new(move |bytes| {
-            let _ = stdin_tx.send(bytes.to_vec());
-        });
-        let mut tv = TerminalView::new_with_input(session, focus_handle, input);
-        if let Some(family) = font_family {
-            tv.set_font(terminal_font(family));
-        }
-        tv
+
+        let term =
+            cx.new(|_cx| Terminal::new(initial_cols as usize, initial_rows as usize, stdin_tx));
+
+        TerminalView::new(term, focus_handle, font_family_str, 13.0)
     });
 
     TerminalPane {
@@ -157,7 +184,7 @@ pub fn compute_cell_metrics(
     } else {
         style.font_family = font.family.clone();
     }
-    style.font_features = gpui_ghostty_terminal::default_terminal_font_features();
+    style.font_features = default_terminal_font_features();
     style.font_fallbacks.clone_from(&font.fallbacks);
 
     let rem_size = window.rem_size();

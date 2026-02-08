@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::terminal::terminal_view::{TerminalView, TerminalViewEvent};
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType, TerminalTab};
 use conescope_pty::history::TerminalHistory;
-use gpui_ghostty_terminal::view::TerminalView;
 use portable_pty::{MasterPty, PtySize};
 
 use crate::terminal::{TerminalPane, terminal_font};
@@ -76,13 +76,20 @@ impl InstanceEntry {
     }
 
     /// Attach a spawned terminal pane to this entry.
-    pub fn attach_terminal(&mut self, pane: TerminalPane) {
-        self.terminal_view = Some(pane.view);
+    pub fn attach_terminal(&mut self, pane: TerminalPane, cx: &mut gpui::Context<Self>) {
+        self.terminal_view = Some(pane.view.clone());
         self.focus_handle = Some(pane.focus_handle);
         self.stdout_rx = Some(pane.stdout_rx);
         self.stdin_tx = Some(pane.stdin_tx);
         self.master_pty = Some(pane.master);
         self.alive = true;
+
+        // Subscribe to container-driven resizes so PTY stays in sync.
+        cx.subscribe(&pane.view, |this, _, event: &TerminalViewEvent, _cx| {
+            let TerminalViewEvent::ContainerResize(cols, rows) = event;
+            this.resize_pty(*cols, *rows);
+        })
+        .detach();
     }
 
     #[must_use]
@@ -190,13 +197,19 @@ impl InstanceEntry {
     }
 
     /// Attach a spawned shell terminal pane (secondary PTY).
-    pub fn attach_shell_terminal(&mut self, pane: TerminalPane) {
-        self.shell_terminal_view = Some(pane.view);
+    pub fn attach_shell_terminal(&mut self, pane: TerminalPane, cx: &mut gpui::Context<Self>) {
+        self.shell_terminal_view = Some(pane.view.clone());
         self.shell_focus_handle = Some(pane.focus_handle);
         self.shell_stdout_rx = Some(pane.stdout_rx);
         self.shell_stdin_tx = Some(pane.stdin_tx);
         self.shell_master_pty = Some(pane.master);
         self.shell_alive = true;
+
+        cx.subscribe(&pane.view, |this, _, event: &TerminalViewEvent, _cx| {
+            let TerminalViewEvent::ContainerResize(cols, rows) = event;
+            this.resize_shell_pty(*cols, *rows);
+        })
+        .detach();
     }
 
     /// Start polling `shell_stdout_rx` for the secondary shell terminal.

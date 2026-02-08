@@ -1,10 +1,10 @@
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, div, rgba};
+use gpui::{AppContext, Entity, div};
 
 use crate::actions::{
-    CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
-    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, OpenSettings,
-    ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
+    CloseInstance, CloseSettings, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
+    FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
+    OpenSettings, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -16,7 +16,7 @@ use super::focus_view::FocusView;
 use super::new_instance_modal::NewInstanceModal;
 use super::overview_grid::OverviewGrid;
 use super::questions_panel::QuestionsPanel;
-use super::settings_modal::SettingsModal;
+use super::settings_view::SettingsView;
 use super::top_bar::TopBar;
 
 pub struct AppView {
@@ -26,7 +26,7 @@ pub struct AppView {
     pub overview_grid: Entity<OverviewGrid>,
     pub focus_view: Entity<FocusView>,
     pub new_instance_modal: Entity<NewInstanceModal>,
-    pub settings_modal: Entity<SettingsModal>,
+    pub settings_view: Entity<SettingsView>,
     pub confirm_modal: Entity<ConfirmModal>,
     pub questions_panel: Entity<QuestionsPanel>,
     pub error_modal: Entity<ErrorModal>,
@@ -46,7 +46,7 @@ impl AppView {
         let overview_grid = cx.new(|_| OverviewGrid::new(app_state.clone()));
         let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
-        let settings_modal = cx.new(|_| SettingsModal::new(app_state.clone()));
+        let settings_view = cx.new(|cx| SettingsView::new(app_state.clone(), cx));
         let confirm_modal = cx.new(|_| ConfirmModal::new(app_state.clone()));
         let questions_panel = cx.new(|_| QuestionsPanel::new(app_state.clone()));
         let error_modal = cx.new(|_| ErrorModal::new(app_state.clone()));
@@ -55,12 +55,7 @@ impl AppView {
         let settings_store = app_state.read(cx).settings_store.clone();
         let app_state_for_font = app_state.clone();
         cx.observe(&settings_store, move |_this, store, cx| {
-            let font_family = store
-                .read(cx)
-                .settings()
-                .get("font_family")
-                .unwrap_or("Menlo")
-                .to_owned();
+            let font_family = store.read(cx).settings().font_family.clone();
             let entries: Vec<_> = app_state_for_font
                 .read(cx)
                 .instance_list
@@ -80,7 +75,7 @@ impl AppView {
             overview_grid,
             focus_view,
             new_instance_modal,
-            settings_modal,
+            settings_view,
             confirm_modal,
             questions_panel,
             error_modal,
@@ -116,9 +111,11 @@ fn focus_instance_n(
 }
 
 /// Make the root div stateful and chain all keyboard action handlers onto it.
+#[allow(clippy::too_many_lines)]
 fn with_action_handlers(
     root: gpui::Div,
     app_state: &Entity<AppState>,
+    settings_view: &Entity<SettingsView>,
 ) -> gpui::Stateful<gpui::Div> {
     let root = root
         .id("app-root")
@@ -185,8 +182,30 @@ fn with_action_handlers(
         })
         .on_action({
             let app_state = app_state.clone();
+            let settings_view = settings_view.clone();
             move |_: &OpenSettings, _window, cx| {
-                app_state.update(cx, AppState::toggle_settings_modal);
+                let view_mode = app_state.read(cx).view_mode(cx);
+                if view_mode == ViewMode::Settings {
+                    // Toggle: if already in settings, save and close
+                    settings_view.update(cx, |sv, cx| {
+                        sv.save_and_close(cx);
+                    });
+                } else {
+                    app_state.update(cx, AppState::open_settings);
+                    settings_view.update(cx, SettingsView::reload_settings);
+                }
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            let settings_view = settings_view.clone();
+            move |_: &CloseSettings, _window, cx| {
+                if app_state.read(cx).view_mode(cx) != ViewMode::Settings {
+                    return;
+                }
+                settings_view.update(cx, |sv, cx| {
+                    sv.save_and_close(cx);
+                });
             }
         });
 
@@ -222,19 +241,19 @@ impl Render for AppView {
         let state = self.app_state.read(cx);
         let view_mode = state.view_mode(cx);
         let new_instance_modal_open = state.new_instance_modal_open;
-        let settings_modal_open = state.settings_modal_open;
         let confirm_open = state.confirm_action.is_some();
         let questions_open = state.questions_queue_open;
         let error_open = state.error_message.is_some();
 
+        let theme = state.theme();
         let root = div()
             .size_full()
             .flex()
             .flex_col()
-            .bg(rgba(0x1e1e_1eff))
-            .text_color(rgba(0xd4d4_d4ff));
+            .bg(theme.background)
+            .text_color(theme.text);
 
-        with_action_handlers(root, &self.app_state)
+        with_action_handlers(root, &self.app_state, &self.settings_view)
             // Top bar
             .child(self.top_bar.clone())
             // Main content area
@@ -249,15 +268,17 @@ impl Render for AppView {
                     .min_h_0()
                     .child(self.focus_view.clone())
                     .into_any_element(),
+                ViewMode::Settings => div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.settings_view.clone())
+                    .into_any_element(),
             })
             // Activity bar (bottom)
             .child(self.activity_bar.clone())
             // Modal overlays (conditionally rendered)
             .when(new_instance_modal_open, |el| {
                 el.child(self.new_instance_modal.clone())
-            })
-            .when(settings_modal_open, |el| {
-                el.child(self.settings_modal.clone())
             })
             .when(confirm_open, |el| {
                 el.child(self.confirm_modal.clone())

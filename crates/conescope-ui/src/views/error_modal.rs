@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, rgba};
+use gpui::{Entity, MouseButton, div, px};
 
 use crate::state::app_state::AppState;
 
@@ -25,9 +25,13 @@ impl Render for ErrorModal {
         let Some(message) = state.error_message.clone() else {
             return div().into_any_element();
         };
+        let theme = state.theme().clone();
 
         let app_dismiss = self.app_state.clone();
         let app_backdrop = self.app_state.clone();
+
+        let border_variant = theme.border_variant;
+        let border = theme.border;
 
         div()
             .id("error-backdrop")
@@ -35,7 +39,7 @@ impl Render for ErrorModal {
             .size_full()
             .top_0()
             .left_0()
-            .bg(rgba(0x0000_0080))
+            .bg(theme.backdrop)
             .flex()
             .items_center()
             .justify_center()
@@ -46,10 +50,10 @@ impl Render for ErrorModal {
                 div()
                     .w(px(400.))
                     .max_h(px(400.))
-                    .bg(rgba(0x2d2d_2dff))
+                    .bg(theme.surface)
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(rgba(0x4c4c_4cff))
+                    .border_color(theme.border_variant)
                     .flex()
                     .flex_col()
                     .overflow_hidden()
@@ -62,13 +66,13 @@ impl Render for ErrorModal {
                             .px(px(16.))
                             .py(px(12.))
                             .border_b_1()
-                            .border_color(rgba(0x3c3c_3cff))
+                            .border_color(theme.border)
                             .flex()
                             .flex_row()
                             .items_center()
                             .child(
                                 div()
-                                    .text_color(rgba(0xcc44_44ff))
+                                    .text_color(theme.destructive)
                                     .text_size(px(14.))
                                     .child("\u{26a0} Error"),
                             ),
@@ -78,7 +82,7 @@ impl Render for ErrorModal {
                         div()
                             .px(px(16.))
                             .py(px(12.))
-                            .text_color(rgba(0xcccc_ccff))
+                            .text_color(theme.text)
                             .text_size(px(13.))
                             .child(message),
                     )
@@ -88,7 +92,7 @@ impl Render for ErrorModal {
                             .px(px(16.))
                             .py(px(12.))
                             .border_t_1()
-                            .border_color(rgba(0x3c3c_3cff))
+                            .border_color(theme.border)
                             .flex()
                             .justify_end()
                             .child(
@@ -98,9 +102,9 @@ impl Render for ErrorModal {
                                     .py(px(6.))
                                     .rounded(px(4.))
                                     .cursor_pointer()
-                                    .bg(rgba(0x3c3c_3cff))
-                                    .hover(|s| s.bg(rgba(0x4c4c_4cff)))
-                                    .text_color(rgba(0xcccc_ccff))
+                                    .bg(border)
+                                    .hover(move |s| s.bg(border_variant))
+                                    .text_color(theme.text)
                                     .text_size(px(13.))
                                     .child("Dismiss")
                                     .on_click(move |_, _, cx| {

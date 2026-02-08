@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 
 use gpui::prelude::*;
-use gpui::{Entity, EventEmitter, MouseButton, div, px, rgba};
+use gpui::{Entity, EventEmitter, Hsla, MouseButton, ScrollHandle, div, px, rgba, svg};
 
 use crate::state::app_state::AppState;
+use crate::theme::Theme;
+use crate::views::scrollbar::{self, ScrollbarCallbacks, ScrollbarState};
 
 #[derive(Debug, Clone)]
 pub enum FileTreeEvent {
@@ -27,6 +29,8 @@ pub struct FileTree {
     expanded: HashSet<String>,
     selected: Option<String>,
     root_path: Option<String>,
+    scroll_handle: ScrollHandle,
+    scrollbar_state: ScrollbarState,
 }
 
 impl FileTree {
@@ -38,6 +42,8 @@ impl FileTree {
             expanded: HashSet::new(),
             selected: None,
             root_path: None,
+            scroll_handle: ScrollHandle::new(),
+            scrollbar_state: ScrollbarState::default(),
         }
     }
 
@@ -147,6 +153,8 @@ impl Render for FileTree {
         };
         self.set_root(root);
 
+        let theme = self.app_state.read(cx).theme().clone();
+
         if self.entries.is_empty() {
             return div()
                 .size_full()
@@ -154,29 +162,83 @@ impl Render for FileTree {
                 .items_center()
                 .justify_center()
                 .text_size(px(11.))
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .child("No project folder")
                 .into_any_element();
         }
 
-        let mut list = div()
+        let mut scroll_div = div()
             .id("file-tree-scroll")
             .size_full()
             .min_h_0()
             .overflow_y_scroll()
+            .track_scroll(&self.scroll_handle)
             .py(px(4.));
 
         for (i, entry) in self.entries.iter().enumerate() {
-            list = list.child(render_entry(
+            scroll_div = scroll_div.child(render_entry(
                 entry,
                 i,
                 self.selected.as_ref(),
                 &self.expanded,
+                &theme,
                 cx,
             ));
         }
 
-        list.into_any_element()
+        let scrollbar_el = scrollbar::render_scrollbar(
+            "file-tree",
+            &self.scroll_handle,
+            &self.scrollbar_state,
+            ScrollbarCallbacks {
+                on_thumb_hover: cx.listener(|this, hovered: &bool, _, _| {
+                    this.scrollbar_state.thumb_hovered = *hovered;
+                }),
+                on_track_click: cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                    let click_y =
+                        f32::from(ev.position.y) - f32::from(this.scroll_handle.bounds().top());
+                    scrollbar::apply_track_click(&this.scroll_handle, click_y);
+                    cx.notify();
+                }),
+                on_drag_start: cx.listener(|this, ev: &gpui::MouseDownEvent, _, _| {
+                    this.scrollbar_state.drag = Some(scrollbar::ScrollbarDrag {
+                        start_mouse_y: f32::from(ev.position.y),
+                        start_offset_y: f32::from(this.scroll_handle.offset().y),
+                    });
+                }),
+            },
+        );
+
+        div()
+            .id("file-tree-container")
+            .relative()
+            .size_full()
+            .min_h_0()
+            .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                this.scrollbar_state.container_hovered = *hovered;
+            }))
+            .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
+                if let Some(drag) = &this.scrollbar_state.drag {
+                    let drag = *drag;
+                    scrollbar::apply_drag(&this.scroll_handle, &drag, f32::from(ev.position.y));
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.scrollbar_state.drag = None;
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.scrollbar_state.drag = None;
+                }),
+            )
+            .child(scroll_div)
+            .children(scrollbar_el)
+            .into_any_element()
     }
 }
 
@@ -199,42 +261,45 @@ fn file_ext_color(name: &str) -> gpui::Rgba {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_entry(
     entry: &FileEntry,
     _index: usize,
     selected: Option<&String>,
     expanded: &HashSet<String>,
+    theme: &Theme,
     cx: &mut gpui::Context<FileTree>,
 ) -> gpui::Div {
-    // depth is always small (< 50), so precision loss is not an issue
     #[allow(clippy::cast_precision_loss)]
     let indent = px(entry.depth as f32 * 16.0 + 8.0);
     let is_selected = selected == Some(&entry.path);
 
-    let icon = if entry.is_dir {
-        if expanded.contains(&entry.path) {
-            "▾ "
-        } else {
-            "▸ "
-        }
+    let icon_path = if entry.is_dir {
+        crate::icons::icon_for_dir(expanded.contains(&entry.path))
     } else {
-        "  "
+        crate::icons::icon_for_file(&entry.name)
+    };
+    let icon_color: Hsla = if entry.is_dir {
+        theme.text_muted.into()
+    } else {
+        file_ext_color(&entry.name).into()
     };
 
     let fg = if entry.is_dir {
-        rgba(0xaaaa_aaff)
+        theme.text_muted
     } else {
         file_ext_color(&entry.name)
     };
     let bg = if is_selected {
-        rgba(0x0944_61ff)
+        theme.element_selected
     } else {
         rgba(0x0000_0000)
     };
+    let surface = theme.surface;
 
     let path = entry.path.clone();
     let is_dir = entry.is_dir;
-    let label = format!("{icon}{}", entry.name);
+    let name = entry.name.clone();
 
     div()
         .pl(indent)
@@ -244,7 +309,7 @@ fn render_entry(
         .text_color(fg)
         .bg(bg)
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0x2d2d_2dff)))
+        .hover(move |s| s.bg(surface))
         .on_mouse_down(
             MouseButton::Left,
             cx.listener(move |this, _event: &gpui::MouseDownEvent, _window, cx| {
@@ -255,7 +320,21 @@ fn render_entry(
                 }
             }),
         )
-        .child(label)
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    svg()
+                        .path(icon_path)
+                        .size(px(14.))
+                        .text_color(icon_color)
+                        .flex_shrink_0(),
+                )
+                .child(name),
+        )
 }
 
 /// Shorthand to get project path from focused instance.

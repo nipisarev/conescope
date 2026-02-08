@@ -1,85 +1,106 @@
-use std::ops::Range;
-use std::sync::LazyLock;
-
 use gpui::prelude::*;
-use gpui::{
-    EventEmitter, HighlightStyle, Hsla, ScrollHandle, SharedString, StyledText, div, px, rgba,
-};
-use syntect::highlighting::ThemeSet;
-use syntect::parsing::SyntaxSet;
+use gpui::{Entity, EventEmitter, div, px, rgba};
+use gpui_component::input::{Input, InputEvent, InputState};
 
-const MAX_FILE_SIZE: u64 = 1_024 * 1_024; // 1 MB
-
-static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
-static THEME: LazyLock<syntect::highlighting::Theme> = LazyLock::new(|| {
-    let ts = ThemeSet::load_defaults();
-    ts.themes
-        .get("base16-ocean.dark")
-        .cloned()
-        .unwrap_or_else(|| ts.themes.values().next().cloned().unwrap_or_default())
-});
-
-/// Pre-computed highlighted line: full text + byte-range color highlights.
-#[derive(Debug, Clone)]
-struct HighlightedLine {
-    text: SharedString,
-    highlights: Vec<(Range<usize>, HighlightStyle)>,
-}
+const MAX_FILE_SIZE: u64 = 10 * 1_024 * 1_024; // 10 MB (ropey handles large files)
 
 #[derive(Debug, Clone)]
-pub enum CodeViewerEvent {
+pub enum CodeEditorEvent {
     FileOpened(String),
 }
 
-impl EventEmitter<CodeViewerEvent> for CodeViewer {}
+impl EventEmitter<CodeEditorEvent> for CodeEditor {}
 
-#[derive(Debug)]
-pub struct CodeViewer {
+pub struct CodeEditor {
     file_path: Option<String>,
-    highlighted: Vec<HighlightedLine>,
-    scroll_handle: ScrollHandle,
+    editor_state: Option<Entity<InputState>>,
+    /// Pending file to open once the editor state is initialized.
+    pending_open: Option<String>,
 }
 
-impl Default for CodeViewer {
+impl std::fmt::Debug for CodeEditor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CodeEditor")
+            .field("file_path", &self.file_path)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for CodeEditor {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl CodeViewer {
+impl CodeEditor {
     #[must_use]
     pub fn new() -> Self {
         Self {
             file_path: None,
-            highlighted: Vec::new(),
-            scroll_handle: ScrollHandle::new(),
+            editor_state: None,
+            pending_open: None,
         }
     }
 
-    /// Open and display a file. Caps at 1 MB.
+    /// Lazily create the `InputState` entity on first render (requires `Window`).
+    fn ensure_editor(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(ref state) = self.editor_state {
+            return state.clone();
+        }
+        let state = cx.new(|cx| {
+            InputState::new(window, cx)
+                .code_editor("rust")
+                .line_number(true)
+                .searchable(true)
+        });
+
+        cx.subscribe(&state, |this, _state, event, _cx| {
+            if let InputEvent::Change = event {
+                // Mark as dirty — content changed by user
+                let _ = this;
+            }
+        })
+        .detach();
+
+        self.editor_state = Some(state.clone());
+        state
+    }
+
+    /// Open and display a file. Defers to render if editor not yet initialized.
     pub fn open_file(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        self.pending_open = Some(path.to_owned());
+        cx.notify();
+    }
+
+    fn load_file_into_state(
+        &mut self,
+        path: &str,
+        state: &Entity<InputState>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if let Ok(metadata) = std::fs::metadata(path) {
             if metadata.len() > MAX_FILE_SIZE {
                 self.file_path = Some(path.to_owned());
-                self.highlighted = vec![HighlightedLine {
-                    text: "File too large (> 1 MB)".into(),
-                    highlights: Vec::new(),
-                }];
-                cx.emit(CodeViewerEvent::FileOpened(path.to_owned()));
+                cx.emit(CodeEditorEvent::FileOpened(path.to_owned()));
                 cx.notify();
                 return;
             }
         }
 
         if let Ok(content) = std::fs::read_to_string(path) {
-            self.highlighted = highlight_lines(path, &content);
+            let lang = lang_from_path(path);
+            state.update(cx, |s, cx| {
+                s.set_highlighter(lang, cx);
+                s.set_value(&content, window, cx);
+            });
             self.file_path = Some(path.to_owned());
-            cx.emit(CodeViewerEvent::FileOpened(path.to_owned()));
+            cx.emit(CodeEditorEvent::FileOpened(path.to_owned()));
         } else {
-            self.highlighted = vec![HighlightedLine {
-                text: "Failed to read file".into(),
-                highlights: Vec::new(),
-            }];
             self.file_path = Some(path.to_owned());
         }
         cx.notify();
@@ -90,84 +111,83 @@ impl CodeViewer {
         self.file_path.as_deref()
     }
 
+    /// Get the current editor text content.
+    #[must_use]
+    pub fn value(&self, cx: &gpui::App) -> Option<String> {
+        self.editor_state
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+    }
+
+    /// Save the current content to the open file path.
+    ///
+    /// # Errors
+    /// Returns `std::io::Error` if the file cannot be written.
+    pub fn save_file(&self, cx: &gpui::App) -> Result<(), std::io::Error> {
+        let Some(path) = &self.file_path else {
+            return Ok(());
+        };
+        let Some(content) = self.value(cx) else {
+            return Ok(());
+        };
+        std::fs::write(path, content)
+    }
+
     pub fn close_file(&mut self, cx: &mut gpui::Context<Self>) {
         self.file_path = None;
-        self.highlighted.clear();
+        self.pending_open = None;
         cx.notify();
     }
 }
 
-/// Highlight source lines using syntect, producing pre-computed byte-range highlights.
-fn highlight_lines(path: &str, content: &str) -> Vec<HighlightedLine> {
-    let ss = &*SYNTAX_SET;
-    let theme = &*THEME;
-
-    let syntax = ss
-        .find_syntax_for_file(path)
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| ss.find_syntax_plain_text());
-
-    let mut highlighter = syntect::easy::HighlightLines::new(syntax, theme);
-    let mut result = Vec::with_capacity(content.lines().count());
-
-    for line in content.lines() {
-        let line_with_nl = format!("{line}\n");
-        let spans = highlighter
-            .highlight_line(&line_with_nl, ss)
-            .unwrap_or_default();
-
-        let mut text = String::new();
-        let mut highlights = Vec::new();
-
-        for (style, span_text) in &spans {
-            let trimmed = span_text.trim_end_matches('\n');
-            if trimmed.is_empty() {
-                continue;
-            }
-            let start = text.len();
-            text.push_str(trimmed);
-            let end = text.len();
-            highlights.push((
-                start..end,
-                HighlightStyle {
-                    color: Some(syntect_color_to_hsla(style.foreground)),
-                    ..Default::default()
-                },
-            ));
-        }
-
-        result.push(HighlightedLine {
-            text: SharedString::from(text),
-            highlights,
-        });
+/// Map file extension to tree-sitter language name.
+fn lang_from_path(path: &str) -> String {
+    let ext = path.rsplit('.').next().unwrap_or("");
+    match ext {
+        "ts" | "tsx" => "typescript",
+        "js" | "jsx" => "javascript",
+        "py" => "python",
+        "go" => "go",
+        "rb" => "ruby",
+        "c" | "h" => "c",
+        "cpp" | "cc" | "cxx" | "hpp" => "cpp",
+        "java" => "java",
+        "cs" => "c_sharp",
+        "swift" => "swift",
+        "kt" | "kts" => "kotlin",
+        "json" | "json5" => "json",
+        "toml" => "toml",
+        "yaml" | "yml" => "yaml",
+        "html" | "htm" => "html",
+        "css" => "css",
+        "scss" => "scss",
+        "md" | "markdown" => "markdown",
+        "sh" | "bash" | "zsh" => "bash",
+        "sql" => "sql",
+        "lua" => "lua",
+        "zig" => "zig",
+        "ex" | "exs" => "elixir",
+        "erl" | "hrl" => "erlang",
+        "hs" => "haskell",
+        _ => "rust", // fallback
     }
-
-    result
+    .to_owned()
 }
 
-/// Convert syntect `Color` to GPUI `Hsla`.
-fn syntect_color_to_hsla(color: syntect::highlighting::Color) -> Hsla {
-    Hsla::from(gpui::Rgba {
-        r: f32::from(color.r) / 255.0,
-        g: f32::from(color.g) / 255.0,
-        b: f32::from(color.b) / 255.0,
-        a: f32::from(color.a) / 255.0,
-    })
-}
-
-/// Estimated height per line in pixels (`text_size` 12px + flex row padding).
-const LINE_HEIGHT_ESTIMATE: f32 = 20.0;
-/// Extra lines to render above/below the visible viewport for smooth scrolling.
-const OVERSCAN: usize = 20;
-
-impl Render for CodeViewer {
+impl Render for CodeEditor {
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<Self>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        if self.highlighted.is_empty() {
+        let state = self.ensure_editor(window, cx);
+
+        // Process pending file open (deferred from before editor was initialized)
+        if let Some(path) = self.pending_open.take() {
+            self.load_file_into_state(&path, &state, window, cx);
+        }
+
+        if self.file_path.is_none() {
             return div()
                 .size_full()
                 .flex()
@@ -179,76 +199,10 @@ impl Render for CodeViewer {
                 .into_any_element();
         }
 
-        let total = self.highlighted.len();
-        let viewport_h = f32::from(self.scroll_handle.bounds().size.height);
-        let scroll_y = f32::from(self.scroll_handle.offset().y).abs();
-
-        // Compute visible line range with overscan buffer.
-        // Line counts and pixel offsets are always non-negative and small enough for f32.
-        #[allow(clippy::cast_sign_loss, clippy::cast_precision_loss)]
-        let (first, last, top_spacer_h, bottom_spacer_h) = if viewport_h > 0.0 {
-            let first = (scroll_y / LINE_HEIGHT_ESTIMATE).floor() as usize;
-            let visible_count = (viewport_h / LINE_HEIGHT_ESTIMATE).ceil() as usize + 1;
-            let first = first.saturating_sub(OVERSCAN);
-            let last = (first + visible_count + 2 * OVERSCAN).min(total);
-            let top = first as f32 * LINE_HEIGHT_ESTIMATE;
-            let bottom = (total - last) as f32 * LINE_HEIGHT_ESTIMATE;
-            (first, last, top, bottom)
-        } else {
-            (0, total.min(80), 0.0, 0.0)
-        };
-
-        let mut container = div()
-            .id("code-viewer-scroll")
+        div()
             .size_full()
-            .overflow_scroll()
-            .track_scroll(&self.scroll_handle)
             .bg(rgba(0x1e1e_1eff))
-            .text_size(px(12.));
-
-        if top_spacer_h > 0.0 {
-            container = container.child(div().h(px(top_spacer_h)).w_full());
-        }
-
-        for i in first..last {
-            container = container.child(render_line(i + 1, &self.highlighted[i]));
-        }
-
-        if bottom_spacer_h > 0.0 {
-            container = container.child(div().h(px(bottom_spacer_h)).w_full());
-        }
-
-        container.into_any_element()
+            .child(Input::new(&state).h_full())
+            .into_any_element()
     }
-}
-
-fn render_line(line_number: usize, hl: &HighlightedLine) -> gpui::Div {
-    let content = if hl.text.is_empty() {
-        div().flex_1().pl(px(8.)).text_size(px(12.)).child(" ")
-    } else {
-        let styled = StyledText::new(hl.text.clone()).with_highlights(hl.highlights.clone());
-        div().flex_1().pl(px(8.)).text_size(px(12.)).child(styled)
-    };
-
-    div()
-        .flex()
-        .flex_row()
-        .child(
-            div()
-                .w(px(40.))
-                .flex_shrink_0()
-                .text_color(rgba(0x5555_55ff))
-                .pr(px(8.))
-                .text_size(px(12.))
-                .border_r_1()
-                .border_color(rgba(0x3c3c_3cff))
-                .child(
-                    div()
-                        .w_full()
-                        .flex()
-                        .justify_end()
-                        .child(line_number.to_string()),
-                ),
-        )
-        .child(content)
 }

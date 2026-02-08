@@ -45,7 +45,7 @@ crates/
 │   │   ├── instance_list.rs    # Entity list, add/remove/restore instances
 │   │   ├── instance_entry.rs   # Single instance: PTY handle, terminal view, metadata
 │   │   ├── project_store.rs    # Saved project paths
-│   │   ├── settings_store.rs   # Key-value settings
+│   │   ├── settings_store.rs   # Session state (DB) + user settings (JSON file)
 │   │   └── db_worker.rs        # Async SQLite via flume channels
 │   └── src/views/
 │       ├── app_view.rs         # Root view, action handlers, mode switching
@@ -53,6 +53,7 @@ crates/
 │       ├── focus_view.rs       # Single instance full-screen
 │       ├── activity_bar.rs     # Left sidebar with instance icons
 │       ├── new_instance_modal.rs # Create instance dialog
+│       ├── settings_view.rs    # Full-screen JSON settings editor
 │       └── top_bar.rs          # Window title bar
 ├── conescope-core/     # Data types + SQLite (rusqlite). No UI deps.
 │   └── src/
@@ -60,7 +61,7 @@ crates/
 │       ├── instance.rs         # Instance model + queries
 │       ├── project.rs          # Project model + queries
 │       ├── question.rs         # Question model + queries
-│       ├── settings.rs         # Settings model + queries
+│       ├── settings.rs         # SettingsJson typed struct + file I/O (~/.conescope/settings.json)
 │       └── shell.rs            # Shell/environment helpers
 ├── conescope-pty/      # PTY spawning via portable-pty
 └── conescope-platform/ # macOS-specific (window styling)
@@ -80,7 +81,9 @@ crates/
 - `AppState` is the root entity, holds `Entity<InstanceList>`, `Entity<ProjectStore>`, etc.
 - `DbWorker` runs SQLite on a background thread, communicates via `flume` channels.
 - All DB writes are fire-and-forget sends. Reads return a `flume::Receiver` awaited in async tasks.
-- Instance terminals use `gpui_ghostty_terminal` (wraps Ghostty/alacritty_terminal).
+- User settings stored in `~/.conescope/settings.json` as typed `SettingsJson` struct. Edited via full-screen `SettingsView` (ViewMode::Settings).
+- Session state (window bounds, panel visibility, view mode) stored in DB `settings` table (`session_state` key).
+- Instance terminals use custom `terminal` module wrapping `alacritty_terminal` (Zed's fork, pure Rust VT parser).
 
 ### Terminal / PTY
 - `portable-pty` spawns shell processes. Master handle stored in `InstanceEntry`.
@@ -118,28 +121,15 @@ When content can exceed its container (lists, modals, panels), always:
 4. Parent must constrain the scrollable div's size (`.size_full()`, `.flex_1()`, `.max_h()`)
 5. For large lists (100+ items), prefer `uniform_list()` for virtual rendering
 
-### gpui-ghostty patch (terminal font family)
+### Terminal module (`conescope-ui/src/terminal/`)
 
-`gpui_ghostty_terminal::TerminalView` has a private `font` field with no public setter.
-We patched the cargo git checkout to add `pub fn set_font(&mut self, font: gpui::Font)`.
+Custom terminal rendering built on `alacritty_terminal` (Zed's fork, pure Rust VT parser):
+- `terminal.rs` — `Terminal` entity wrapping `alacritty_terminal::Term`, processes VT bytes, extracts cell grid
+- `terminal_view.rs` — `TerminalView` GPUI view with keyboard/mouse input, focus, copy/paste
+- `terminal_element.rs` — `TerminalElement` GPUI Element, cell-based rendering (backgrounds, text runs, cursor)
+- `mod.rs` — `spawn_terminal_pane()`, font utilities, cell metrics
 
-**Patch location:** `~/.cargo/git/checkouts/gpui-ghostty-*/e302598/crates/gpui_ghostty_terminal/src/view/mod.rs`
-
-**Re-apply after `cargo clean`:**
-```rust
-// Add after `new_with_input()` method (~line 312):
-/// Override the terminal font (family + fallbacks).
-pub fn set_font(&mut self, font: gpui::Font) {
-    self.font = font;
-}
-```
-
-**Limitation:** Changing font family requires app restart for existing terminals.
-The `TerminalView.prepaint()` caches line layouts keyed on `(font_size, line_height)` —
-changing family doesn't invalidate the cache. New terminals get the correct font immediately.
-
-**TODO:** Fork `github.com/Xuanwo/gpui-ghostty` and update `Cargo.toml` git URL.
-The fork should add `set_font` + invalidate `line_layout_key` on font change for live updates.
+Actions (`Copy`, `Paste`, `SelectAll`) defined in `terminal_view.rs`, bound in `main.rs`.
 
 ## Legacy (Electron)
 

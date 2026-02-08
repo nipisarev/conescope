@@ -4,6 +4,7 @@ use gpui::{Entity, MouseButton, div, px, relative, rgba};
 use conescope_core::instance::InstanceType;
 
 use crate::state::app_state::AppState;
+use crate::theme::Theme;
 use crate::views::colors::{hex_to_rgba, status_color};
 use crate::views::text_input::TextInput;
 
@@ -34,12 +35,14 @@ fn grid_dimensions(total: usize) -> (usize, usize) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tile(
     tile: &TileData,
     app_state: Entity<AppState>,
     editing_input: Option<&Entity<TextInput>>,
     terminal_font_size: f32,
     font_family: &str,
+    theme: &Theme,
 ) -> gpui::AnyElement {
     let status_rgba = status_color(tile.status);
 
@@ -50,19 +53,21 @@ fn render_tile(
         .flex_col()
         .border_r_1()
         .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .border_color(theme.border)
         .child(render_tile_header(
             tile,
             status_rgba,
             app_state.clone(),
             editing_input,
+            theme,
         ))
-        .child(render_tile_meta(tile))
+        .child(render_tile_meta(tile, theme))
         .child(render_tile_body(
             tile,
             app_state,
             terminal_font_size,
             font_family,
+            theme,
         ))
         .into_any_element()
 }
@@ -72,6 +77,7 @@ fn render_tile_header(
     status_rgba: gpui::Rgba,
     app_state: Entity<AppState>,
     editing_input: Option<&Entity<TextInput>>,
+    theme: &Theme,
 ) -> gpui::AnyElement {
     let close_id = tile.id.clone();
     let close_title = tile.title.clone();
@@ -80,10 +86,12 @@ fn render_tile_header(
     let title_element: gpui::AnyElement = if let Some(input) = editing_input {
         div().flex_1().child(input.clone()).into_any_element()
     } else {
-        render_static_title(tile, app_state)
+        render_static_title(tile, app_state, theme)
     };
 
     let token_label = format_tokens_compact(tile.tokens_used);
+    let text_faint = theme.text_faint;
+    let text = theme.text;
 
     div()
         .h(px(24.))
@@ -92,9 +100,9 @@ fn render_tile_header(
         .flex_row()
         .items_center()
         .gap(px(6.))
-        .bg(rgba(0x2525_26ff))
+        .bg(theme.panel)
         .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .border_color(theme.border)
         .child(
             div()
                 .text_size(px(11.))
@@ -107,7 +115,7 @@ fn render_tile_header(
         .child(
             div()
                 .text_size(px(10.))
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .child(token_label),
         )
         .child(
@@ -115,9 +123,9 @@ fn render_tile_header(
                 .ml(px(2.))
                 .cursor_pointer()
                 .text_size(px(12.))
-                .text_color(rgba(0x6666_66ff))
-                .hover(|s| s.text_color(rgba(0xcccc_ccff)))
-                .child("\u{00d7}") // × character
+                .text_color(text_faint)
+                .hover(move |s| s.text_color(text))
+                .child("\u{00d7}")
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     close_state.update(cx, |s, cx| {
                         s.request_close_instance(&close_id, &close_title, cx);
@@ -127,21 +135,24 @@ fn render_tile_header(
         .into_any_element()
 }
 
-fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::AnyElement {
+fn render_static_title(
+    tile: &TileData,
+    app_state: Entity<AppState>,
+    theme: &Theme,
+) -> gpui::AnyElement {
     let click_id = tile.id.clone();
     let current_title = tile.title.clone();
 
     div()
         .flex_1()
         .text_size(px(11.))
-        .text_color(rgba(0xaaaa_aaff))
+        .text_color(theme.text_muted)
         .overflow_x_hidden()
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
             app_state.update(cx, |s, cx| {
                 s.start_edit_title(&click_id, &current_title, cx);
             });
-            // Focus the text input
             let editing_input = app_state.read(cx).editing_input.clone();
             if let Some(input) = editing_input {
                 input.read(cx).focus_handle.clone().focus(window, cx);
@@ -151,7 +162,7 @@ fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::An
         .into_any_element()
 }
 
-fn render_tile_meta(tile: &TileData) -> gpui::Div {
+fn render_tile_meta(tile: &TileData, theme: &Theme) -> gpui::Div {
     let path_text = tile.project_path.as_deref().map_or_else(
         || match tile.instance_type {
             InstanceType::Project => "Claude Project".to_owned(),
@@ -168,21 +179,21 @@ fn render_tile_meta(tile: &TileData) -> gpui::Div {
         .flex_row()
         .items_center()
         .gap(px(6.))
-        .bg(rgba(0x1e1e_1eff))
+        .bg(theme.background)
         .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .border_color(theme.border)
         .child(
             div()
                 .flex_1()
                 .text_size(px(10.))
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .overflow_x_hidden()
                 .child(path_text),
         )
         .child(
             div()
                 .text_size(px(10.))
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .child(stats_text),
         )
 }
@@ -246,45 +257,63 @@ fn format_stats(tokens: i64, cost: f64) -> String {
 }
 
 /// Tile body: terminal preview + click-to-focus handler.
+///
+/// A transparent overlay sits on top of the terminal to capture clicks,
+/// preventing the `TerminalView`'s `stop_propagation()` from blocking focus switch.
 fn render_tile_body(
     tile: &TileData,
     app_state: Entity<AppState>,
     terminal_font_size: f32,
     font_family: &str,
+    theme: &Theme,
 ) -> gpui::Div {
     let tile_id = tile.id.clone();
     let tile_focus_handle = tile.focus_handle.clone();
+    let panel = theme.panel;
+
+    let terminal_child = tile.terminal_view.as_ref().map(|tv| {
+        div()
+            .size_full()
+            .relative()
+            .child(tv.clone())
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .cursor_pointer()
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        app_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
+                        if let Some(ref fh) = tile_focus_handle {
+                            fh.focus(window, cx);
+                        }
+                    }),
+            )
+            .into_any_element()
+    });
 
     div()
         .flex_1()
         .overflow_hidden()
-        .cursor_pointer()
         .font_family(gpui::SharedString::from(font_family.to_owned()))
         .text_size(px(terminal_font_size))
         .line_height(relative(1.0))
-        .hover(|s| s.bg(rgba(0x2525_26ff)))
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-            app_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
-            if let Some(ref fh) = tile_focus_handle {
-                fh.focus(window, cx);
-            }
-        })
-        .children(
-            tile.terminal_view
-                .as_ref()
-                .map(|tv| div().size_full().child(tv.clone()).into_any_element()),
-        )
+        .hover(move |s| s.bg(panel))
+        .children(terminal_child)
 }
 
-fn render_empty_state(app_state: Entity<AppState>) -> gpui::AnyElement {
+fn render_empty_state(app_state: Entity<AppState>, theme: &Theme) -> gpui::AnyElement {
+    let bg = theme.background;
+    let panel = theme.panel;
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
         .cursor_pointer()
-        .bg(rgba(0x1e1e_1eff))
-        .hover(|s| s.bg(rgba(0x2525_26ff)))
+        .bg(bg)
+        .hover(move |s| s.bg(panel))
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
             app_state.update(cx, AppState::toggle_new_instance_modal);
         })
@@ -294,7 +323,7 @@ fn render_empty_state(app_state: Entity<AppState>) -> gpui::AnyElement {
                 .flex_col()
                 .items_center()
                 .gap(px(4.))
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .child(div().text_size(px(24.)).child("+"))
                 .child(div().text_size(px(11.)).child("New Window")),
         )
@@ -328,9 +357,11 @@ impl Render for OverviewGrid {
         let state = self.app_state.read(cx);
         let il = state.instance_list.read(cx);
 
+        let theme = state.theme();
+
         // Empty state: show "+ New Window" tile
         if il.is_empty() {
-            return build_grid(vec![render_empty_state(self.app_state.clone())], 1);
+            return build_grid(vec![render_empty_state(self.app_state.clone(), theme)], 1);
         }
 
         let ps = state.project_store.read(cx);
@@ -339,25 +370,15 @@ impl Render for OverviewGrid {
         let editing_input = state.editing_input.clone();
 
         #[allow(clippy::cast_precision_loss)]
-        let terminal_font_size = state
-            .settings_store
-            .read(cx)
-            .settings()
-            .get_i64("terminal_font_size")
-            .unwrap_or(13) as f32;
+        let terminal_font_size = state.settings_store.read(cx).settings().terminal_font_size as f32;
 
-        let font_family = state
-            .settings_store
-            .read(cx)
-            .settings()
-            .get("font_family")
-            .unwrap_or("Menlo")
-            .to_owned();
+        let font_family = state.settings_store.read(cx).settings().font_family.clone();
 
         let tiles: Vec<TileData> = il
             .entries()
             .iter()
-            .map(|entry| {
+            .enumerate()
+            .map(|(i, entry)| {
                 let inst = entry.read(cx);
                 let project_path = inst
                     .instance
@@ -367,7 +388,7 @@ impl Render for OverviewGrid {
                     .map(|p| p.path.clone());
                 TileData {
                     id: inst.id().to_owned(),
-                    num: inst.instance.instance_number.unwrap_or(0),
+                    num: i + 1,
                     title: inst
                         .instance
                         .title
@@ -406,6 +427,7 @@ impl Render for OverviewGrid {
                     input,
                     terminal_font_size,
                     &font_family,
+                    theme,
                 )
             })
             .collect();
@@ -416,7 +438,7 @@ impl Render for OverviewGrid {
 
 struct TileData {
     id: String,
-    num: i64,
+    num: usize,
     title: String,
     status: conescope_core::instance::InstanceStatus,
     color: gpui::Rgba,
@@ -424,6 +446,6 @@ struct TileData {
     project_path: Option<String>,
     tokens_used: i64,
     cost_estimate: f64,
-    terminal_view: Option<gpui::Entity<gpui_ghostty_terminal::view::TerminalView>>,
+    terminal_view: Option<gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<gpui::FocusHandle>,
 }

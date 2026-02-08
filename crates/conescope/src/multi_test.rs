@@ -1,7 +1,7 @@
 use std::time::Duration;
 
+use conescope_ui::terminal::terminal_view::{Copy, Paste, SelectAll};
 use gpui::{AppContext, KeyBinding, WindowOptions};
-use gpui_ghostty_terminal::view::{Copy, Paste, SelectAll};
 use portable_pty::PtySize;
 
 use conescope_ui::multi_terminal::MultiTerminalGrid;

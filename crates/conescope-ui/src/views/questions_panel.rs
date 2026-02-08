@@ -1,15 +1,19 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, rgba};
+use gpui::{Entity, MouseButton, ScrollHandle, div, px, rgba};
 
 use conescope_core::question::QuestionWithContext;
 
 use crate::state::app_state::AppState;
+use crate::theme::Theme;
 use crate::views::colors::hex_to_rgba;
+use crate::views::scrollbar::{self, ScrollbarCallbacks, ScrollbarState};
 
 #[derive(Debug)]
 pub struct QuestionsPanel {
     app_state: Entity<AppState>,
     questions: Vec<QuestionWithContext>,
+    scroll_handle: ScrollHandle,
+    scrollbar_state: ScrollbarState,
 }
 
 impl QuestionsPanel {
@@ -18,6 +22,8 @@ impl QuestionsPanel {
         Self {
             app_state,
             questions: Vec::new(),
+            scroll_handle: ScrollHandle::new(),
+            scrollbar_state: ScrollbarState::default(),
         }
     }
 
@@ -30,6 +36,7 @@ impl QuestionsPanel {
 fn render_question_card(
     q: &QuestionWithContext,
     app_state: &Entity<AppState>,
+    theme: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
     let id_str = q.question.id.clone();
     let app_state = app_state.clone();
@@ -46,18 +53,18 @@ fn render_question_card(
     let project_label = q.project_name.clone().unwrap_or_default();
 
     let element_id = format!("question-{}", q.question.id);
+    let bg = theme.background;
 
     div()
         .id(gpui::SharedString::from(element_id))
         .p(px(12.))
         .rounded(px(6.))
-        .bg(rgba(0x2d2d_2dff))
+        .bg(theme.surface)
         .border_1()
-        .border_color(rgba(0x3c3c_3cff))
+        .border_color(theme.border)
         .flex()
         .flex_col()
         .gap(px(6.))
-        // Source line: instance + project
         .child(
             div()
                 .flex()
@@ -73,54 +80,56 @@ fn render_question_card(
                 .child(
                     div()
                         .text_size(px(11.))
-                        .text_color(rgba(0x8888_88ff))
+                        .text_color(theme.text_muted)
                         .child(instance_label),
                 ),
         )
-        // Question text
         .child(
             div()
                 .text_size(px(13.))
-                .text_color(rgba(0xdddd_ddff))
+                .text_color(theme.text)
                 .child(q.question.question_text.clone()),
         )
-        // Context (if any)
         .when(q.question.context.is_some(), |el| {
             let ctx = q.question.context.clone().unwrap_or_default();
             el.child(
                 div()
                     .text_size(px(11.))
-                    .text_color(rgba(0x8888_88ff))
+                    .text_color(theme.text_muted)
                     .px(px(8.))
                     .py(px(4.))
                     .rounded(px(4.))
-                    .bg(rgba(0x1e1e_1eff))
+                    .bg(bg)
                     .child(ctx),
             )
         })
-        // Actions
         .child(
             div()
                 .flex()
                 .flex_row()
                 .gap(px(8.))
                 .justify_end()
-                .child(dismiss_button(id_str, app_state)),
+                .child(dismiss_button(id_str, app_state, theme)),
         )
 }
 
-fn dismiss_button(question_id: String, app_state: Entity<AppState>) -> gpui::Stateful<gpui::Div> {
+fn dismiss_button(
+    question_id: String,
+    app_state: Entity<AppState>,
+    theme: &Theme,
+) -> gpui::Stateful<gpui::Div> {
     let element_id = format!("dismiss-{question_id}");
+    let border_variant = theme.border_variant;
     div()
         .id(gpui::SharedString::from(element_id))
         .px(px(8.))
         .py(px(4.))
         .rounded(px(4.))
         .cursor_pointer()
-        .bg(rgba(0x3c3c_3cff))
-        .hover(|s| s.bg(rgba(0x4c4c_4cff)))
+        .bg(theme.border)
+        .hover(move |s| s.bg(border_variant))
         .text_size(px(11.))
-        .text_color(rgba(0xcccc_ccff))
+        .text_color(theme.text)
         .child("Dismiss")
         .on_click(move |_, _, cx| {
             let now = chrono::Utc::now().to_rfc3339();
@@ -130,12 +139,112 @@ fn dismiss_button(question_id: String, app_state: Entity<AppState>) -> gpui::Sta
 }
 
 impl Render for QuestionsPanel {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        let theme = self.app_state.read(cx).theme().clone();
         let app_state_close = self.app_state.clone();
+        let app_state_header = self.app_state.clone();
+
+        let mut body = div()
+            .id("questions-panel")
+            .w(px(420.))
+            .max_h(px(600.))
+            .bg(theme.panel)
+            .rounded(px(8.))
+            .border_1()
+            .border_color(theme.border_variant)
+            .flex()
+            .flex_col()
+            .overflow_hidden()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| {
+                cx.stop_propagation();
+            })
+            .child(panel_header(app_state_header, &theme));
+
+        if self.questions.is_empty() {
+            body = body.child(
+                div()
+                    .p(px(24.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(13.))
+                    .text_color(theme.text_faint)
+                    .child("No pending questions"),
+            );
+        } else {
+            let mut list = div().p(px(12.)).flex().flex_col().gap(px(8.));
+            for q in &self.questions {
+                list = list.child(render_question_card(q, &self.app_state, &theme));
+            }
+
+            let scroll_div = div()
+                .id("questions-list-scroll")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll_handle)
+                .child(list);
+
+            let scrollbar_el = scrollbar::render_scrollbar(
+                "questions",
+                &self.scroll_handle,
+                &self.scrollbar_state,
+                ScrollbarCallbacks {
+                    on_thumb_hover: cx.listener(|this, hovered: &bool, _, _| {
+                        this.scrollbar_state.thumb_hovered = *hovered;
+                    }),
+                    on_track_click: cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                        let click_y =
+                            f32::from(ev.position.y) - f32::from(this.scroll_handle.bounds().top());
+                        scrollbar::apply_track_click(&this.scroll_handle, click_y);
+                        cx.notify();
+                    }),
+                    on_drag_start: cx.listener(|this, ev: &gpui::MouseDownEvent, _, _| {
+                        this.scrollbar_state.drag = Some(scrollbar::ScrollbarDrag {
+                            start_mouse_y: f32::from(ev.position.y),
+                            start_offset_y: f32::from(this.scroll_handle.offset().y),
+                        });
+                    }),
+                },
+            );
+
+            let scroll_container = div()
+                .id("questions-scroll-container")
+                .relative()
+                .flex_1()
+                .min_h_0()
+                .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                    this.scrollbar_state.container_hovered = *hovered;
+                }))
+                .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
+                    if let Some(drag) = &this.scrollbar_state.drag {
+                        let drag = *drag;
+                        scrollbar::apply_drag(&this.scroll_handle, &drag, f32::from(ev.position.y));
+                        cx.notify();
+                    }
+                }))
+                .on_mouse_up(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.scrollbar_state.drag = None;
+                    }),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.scrollbar_state.drag = None;
+                    }),
+                )
+                .child(scroll_div)
+                .children(scrollbar_el);
+
+            body = body.child(scroll_container);
+        }
 
         // Backdrop
         div()
@@ -144,7 +253,7 @@ impl Render for QuestionsPanel {
             .size_full()
             .top_0()
             .left_0()
-            .bg(rgba(0x0000_0080))
+            .bg(theme.backdrop)
             .flex()
             .items_center()
             .justify_center()
@@ -154,65 +263,12 @@ impl Render for QuestionsPanel {
                     cx.notify();
                 });
             })
-            .child(render_panel_body(&self.questions, &self.app_state, cx))
+            .child(body)
     }
 }
 
-fn render_panel_body(
-    questions: &[QuestionWithContext],
-    app_state: &Entity<AppState>,
-    _cx: &gpui::Context<QuestionsPanel>,
-) -> gpui::Stateful<gpui::Div> {
-    let app_state_header = app_state.clone();
-
-    let mut body = div()
-        .id("questions-panel")
-        .w(px(420.))
-        .max_h(px(600.))
-        .bg(rgba(0x2525_26ff))
-        .rounded(px(8.))
-        .border_1()
-        .border_color(rgba(0x4c4c_4cff))
-        .flex()
-        .flex_col()
-        .overflow_hidden()
-        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-            cx.stop_propagation();
-        })
-        // Header
-        .child(panel_header(app_state_header));
-
-    // Content
-    if questions.is_empty() {
-        body = body.child(
-            div()
-                .p(px(24.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(13.))
-                .text_color(rgba(0x6666_66ff))
-                .child("No pending questions"),
-        );
-    } else {
-        let mut list = div().p(px(12.)).flex().flex_col().gap(px(8.));
-        for q in questions {
-            list = list.child(render_question_card(q, app_state));
-        }
-        body = body.child(
-            div()
-                .id("questions-list-scroll")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .child(list),
-        );
-    }
-
-    body
-}
-
-fn panel_header(app_state: Entity<AppState>) -> gpui::Div {
+fn panel_header(app_state: Entity<AppState>, theme: &Theme) -> gpui::Div {
+    let text = theme.text;
     div()
         .px(px(16.))
         .py(px(12.))
@@ -220,18 +276,13 @@ fn panel_header(app_state: Entity<AppState>) -> gpui::Div {
         .flex_row()
         .items_center()
         .border_b_1()
-        .border_color(rgba(0x3c3c_3cff))
-        .child(
-            div()
-                .flex_1()
-                .text_color(rgba(0xdddd_ddff))
-                .child("Questions"),
-        )
+        .border_color(theme.border)
+        .child(div().flex_1().text_color(theme.text).child("Questions"))
         .child(
             div()
                 .cursor_pointer()
-                .text_color(rgba(0x8888_88ff))
-                .hover(|s| s.text_color(rgba(0xcccc_ccff)))
+                .text_color(theme.text_muted)
+                .hover(move |s| s.text_color(text))
                 .child("\u{00d7}")
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state.update(cx, |s, cx| {

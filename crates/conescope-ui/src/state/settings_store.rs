@@ -1,4 +1,4 @@
-use conescope_core::settings::Settings;
+use conescope_core::settings::SettingsJson;
 
 use super::db_worker::DbHandle;
 
@@ -7,6 +7,8 @@ use super::db_worker::DbHandle;
 pub enum ViewMode {
     Overview,
     Focus,
+    #[serde(other)]
+    Settings,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,8 +56,10 @@ impl Default for SessionState {
 
 #[derive(Debug)]
 pub struct SettingsStore {
-    settings: Settings,
+    settings: SettingsJson,
     session: SessionState,
+    /// Previous view mode before entering Settings (for restoring on exit).
+    previous_view_mode: Option<ViewMode>,
     db: DbHandle,
     loaded: bool,
 }
@@ -64,38 +68,59 @@ impl SettingsStore {
     #[must_use]
     pub fn new(db: DbHandle) -> Self {
         Self {
-            settings: Settings::default(),
+            settings: SettingsJson::default(),
             session: SessionState::default(),
+            previous_view_mode: None,
             db,
             loaded: false,
         }
     }
 
-    pub fn load(&mut self, all_settings: Vec<(String, String)>) {
+    /// Load session state from DB key-value pairs (`session_state` key only).
+    pub fn load_session(&mut self, all_settings: Vec<(String, String)>) {
         for (key, value) in all_settings {
             if key == "session_state" {
-                if let Ok(parsed) = serde_json::from_str::<SessionState>(&value) {
+                if let Ok(mut parsed) = serde_json::from_str::<SessionState>(&value) {
+                    // Never restore Settings view mode from DB
+                    if parsed.view_mode == ViewMode::Settings {
+                        parsed.view_mode = ViewMode::Overview;
+                    }
                     self.session = parsed;
                 }
             }
-            self.settings.map.insert(key, value);
         }
         self.loaded = true;
     }
 
-    pub fn set(&mut self, key: &str, value: &str) {
-        self.settings.map.insert(key.to_owned(), value.to_owned());
-        self.db.set_setting(key.to_owned(), value.to_owned());
+    /// Load user settings from a `SettingsJson` (loaded from file).
+    pub fn load_settings(&mut self, settings: SettingsJson) {
+        self.settings = settings;
     }
 
     pub fn save_session(&mut self, session: SessionState) {
         self.session = session;
-        if let Ok(json) = serde_json::to_string(&self.session) {
-            self.settings
-                .map
-                .insert("session_state".to_owned(), json.clone());
+        // If we're in Settings mode, serialize the previous_view_mode instead
+        let mut session_to_save = self.session.clone();
+        if session_to_save.view_mode == ViewMode::Settings {
+            session_to_save.view_mode = self.previous_view_mode.unwrap_or(ViewMode::Overview);
+        }
+        if let Ok(json) = serde_json::to_string(&session_to_save) {
             self.db.set_setting("session_state".to_owned(), json);
         }
+    }
+
+    /// Enter settings editing mode, stashing current view mode.
+    pub fn enter_settings_mode(&mut self) {
+        if self.session.view_mode != ViewMode::Settings {
+            self.previous_view_mode = Some(self.session.view_mode);
+        }
+        self.session.view_mode = ViewMode::Settings;
+    }
+
+    /// Exit settings editing mode, restoring previous view mode.
+    pub fn exit_settings_mode(&mut self) {
+        self.session.view_mode = self.previous_view_mode.unwrap_or(ViewMode::Overview);
+        self.previous_view_mode = None;
     }
 
     #[must_use]
@@ -114,8 +139,12 @@ impl SettingsStore {
     }
 
     #[must_use]
-    pub fn settings(&self) -> &Settings {
+    pub fn settings(&self) -> &SettingsJson {
         &self.settings
+    }
+
+    pub fn settings_mut(&mut self) -> &mut SettingsJson {
+        &mut self.settings
     }
 
     #[must_use]
@@ -180,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn settings_store_load_parses_session() {
+    fn settings_store_load_session() {
         let db = DbHandle::spawn(":memory:").unwrap();
         let mut store = SettingsStore::new(db);
         assert!(!store.is_loaded());
@@ -192,7 +221,7 @@ mod tests {
         })
         .unwrap();
 
-        store.load(vec![
+        store.load_session(vec![
             ("theme".into(), "dark".into()),
             ("session_state".into(), session_json),
         ]);
@@ -200,6 +229,57 @@ mod tests {
         assert!(store.is_loaded());
         assert_eq!(store.view_mode(), ViewMode::Focus);
         assert_eq!(store.focused_instance_id(), Some("test-id"));
-        assert_eq!(store.settings().get("theme"), Some("dark"));
+    }
+
+    #[test]
+    fn settings_mode_stash_restore() {
+        let db = DbHandle::spawn(":memory:").unwrap();
+        let mut store = SettingsStore::new(db);
+        store.load_session(vec![]);
+
+        assert_eq!(store.view_mode(), ViewMode::Overview);
+        store.enter_settings_mode();
+        assert_eq!(store.view_mode(), ViewMode::Settings);
+        store.exit_settings_mode();
+        assert_eq!(store.view_mode(), ViewMode::Overview);
+    }
+
+    #[test]
+    fn settings_view_mode_never_persisted() {
+        // If view_mode is Settings in DB JSON, it should deserialize as Settings
+        // but load_session should override to Overview
+        let session_json = r#"{
+            "view_mode":"settings",
+            "focused_instance_id":null,
+            "terminal_height":300.0,
+            "sidebar_width":240.0,
+            "folder_panel_visible":true,
+            "editor_panel_visible":true,
+            "terminal_panel_visible":true
+        }"#;
+
+        let db = DbHandle::spawn(":memory:").unwrap();
+        let mut store = SettingsStore::new(db);
+        store.load_session(vec![("session_state".into(), session_json.into())]);
+        // Should NOT restore to Settings
+        assert_eq!(store.view_mode(), ViewMode::Overview);
+    }
+
+    #[test]
+    fn typed_settings_access() {
+        let db = DbHandle::spawn(":memory:").unwrap();
+        let mut store = SettingsStore::new(db);
+        store.load_settings(SettingsJson {
+            theme: "light".into(),
+            font_family: "SF Mono".into(),
+            editor_font_size: 14,
+            terminal_font_size: 16,
+            ..Default::default()
+        });
+
+        assert_eq!(store.settings().theme, "light");
+        assert_eq!(store.settings().font_family, "SF Mono");
+        assert_eq!(store.settings().editor_font_size, 14);
+        assert_eq!(store.settings().terminal_font_size, 16);
     }
 }

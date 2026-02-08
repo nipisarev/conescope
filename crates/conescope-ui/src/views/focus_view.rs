@@ -1,11 +1,13 @@
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative, rgba};
+use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative};
+
+use crate::theme::Theme;
 
 use conescope_core::instance::{InstanceType, TerminalTab};
 
 use crate::state::app_state::AppState;
 use crate::terminal::spawn_terminal_pane;
-use crate::views::code_viewer::CodeViewer;
+use crate::views::code_viewer::CodeEditor;
 use crate::views::editor_tabs::{EditorTabs, EditorTabsEvent};
 use crate::views::file_tree::{FileTree, FileTreeEvent};
 use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size, render_divider};
@@ -26,7 +28,7 @@ pub struct FocusView {
     app_state: Entity<AppState>,
     drag: Option<DragState>,
     file_tree: Entity<FileTree>,
-    code_viewer: Entity<CodeViewer>,
+    code_editor: Entity<CodeEditor>,
     editor_tabs: Entity<EditorTabs>,
 }
 
@@ -42,11 +44,11 @@ impl FocusView {
     #[must_use]
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
         let file_tree = cx.new(|_| FileTree::new(app_state.clone()));
-        let code_viewer = cx.new(|_| CodeViewer::new());
+        let code_editor = cx.new(|_| CodeEditor::new());
         let editor_tabs = cx.new(|_| EditorTabs::new());
 
         // FileTree → open file in editor
-        let cv = code_viewer.clone();
+        let cv = code_editor.clone();
         let et = editor_tabs.clone();
         cx.subscribe(&file_tree, move |_this, _ft, event, cx| {
             let FileTreeEvent::OpenFile(path) = event;
@@ -56,7 +58,7 @@ impl FocusView {
         .detach();
 
         // EditorTabs → select/close + persist tabs
-        let cv2 = code_viewer.clone();
+        let cv2 = code_editor.clone();
         let et2 = editor_tabs.clone();
         let app_state_tabs = app_state.clone();
         cx.subscribe(&editor_tabs, move |_this, _tabs, event, cx| {
@@ -70,7 +72,7 @@ impl FocusView {
                     if let Some(path) = et2.read(cx).active_path().map(str::to_owned) {
                         cv2.update(cx, |v, cx| v.open_file(&path, cx));
                     } else {
-                        cv2.update(cx, CodeViewer::close_file);
+                        cv2.update(cx, CodeEditor::close_file);
                     }
                 }
             }
@@ -90,7 +92,7 @@ impl FocusView {
             // Open the active file in the viewer
             let active_path = editor_tabs.read(cx).active_path().map(str::to_owned);
             if let Some(path) = active_path {
-                code_viewer.update(cx, |v, cx| v.open_file(&path, cx));
+                code_editor.update(cx, |v, cx| v.open_file(&path, cx));
             }
         }
 
@@ -98,7 +100,7 @@ impl FocusView {
             app_state,
             drag: None,
             file_tree,
-            code_viewer,
+            code_editor,
             editor_tabs,
         }
     }
@@ -141,6 +143,7 @@ impl FocusView {
         self.drag = None;
     }
 
+    #[allow(clippy::too_many_lines)]
     fn build_tab_bar(
         &self,
         entry: &gpui::Entity<crate::state::instance_entry::InstanceEntry>,
@@ -184,16 +187,18 @@ impl FocusView {
                                 .map(|p| p.path.clone())
                         })
                     };
-                    let ff = app_state_for_shell
-                        .read(cx)
-                        .settings_store
-                        .read(cx)
-                        .settings()
-                        .get("font_family")
-                        .map(str::to_owned);
+                    let ff = Some(
+                        app_state_for_shell
+                            .read(cx)
+                            .settings_store
+                            .read(cx)
+                            .settings()
+                            .font_family
+                            .clone(),
+                    );
                     let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), window, cx);
                     entry_for_shell.update(cx, |e, cx| {
-                        e.attach_shell_terminal(pane);
+                        e.attach_shell_terminal(pane, cx);
                         e.start_shell_output_polling(cx);
                         e.set_active_tab(TerminalTab::Shell, cx);
                     });
@@ -222,16 +227,18 @@ impl FocusView {
                                 .map(|p| p.path.clone())
                         })
                     };
-                    let ff = app_state_for_add
-                        .read(cx)
-                        .settings_store
-                        .read(cx)
-                        .settings()
-                        .get("font_family")
-                        .map(str::to_owned);
+                    let ff = Some(
+                        app_state_for_add
+                            .read(cx)
+                            .settings_store
+                            .read(cx)
+                            .settings()
+                            .font_family
+                            .clone(),
+                    );
                     let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), window, cx);
                     entry_for_add.update(cx, |e, cx| {
-                        e.attach_shell_terminal(pane);
+                        e.attach_shell_terminal(pane, cx);
                         e.start_shell_output_polling(cx);
                         e.set_active_tab(TerminalTab::Shell, cx);
                     });
@@ -251,13 +258,14 @@ impl FocusView {
 
 #[allow(clippy::too_many_arguments)]
 fn render_terminal_pane(
-    terminal_view: Option<&gpui::Entity<gpui_ghostty_terminal::view::TerminalView>>,
+    terminal_view: Option<&gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<&gpui::FocusHandle>,
     tab_bar: gpui::Div,
     height: f32,
     fill_height: bool,
     font_size: f32,
     font_family: &str,
+    theme: &Theme,
 ) -> gpui::Div {
     let fh = focus_handle.cloned();
     let click_handler =
@@ -299,7 +307,7 @@ fn render_terminal_pane(
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_color(rgba(0x5555_55ff))
+                    .text_color(theme.text_disabled)
                     .child("Terminal not attached"),
             );
         if fill_height {
@@ -312,7 +320,7 @@ fn render_terminal_pane(
 
 fn render_editor_area(
     editor_tabs: &Entity<EditorTabs>,
-    code_viewer: &Entity<CodeViewer>,
+    code_editor: &Entity<CodeEditor>,
 ) -> gpui::Div {
     div()
         .flex_1()
@@ -325,7 +333,7 @@ fn render_editor_area(
                 .flex_1()
                 .min_h_0()
                 .overflow_hidden()
-                .child(code_viewer.clone()),
+                .child(code_editor.clone()),
         )
 }
 
@@ -334,8 +342,8 @@ fn render_main_area(
     editor_visible: bool,
     terminal_visible: bool,
     editor_tabs: &Entity<EditorTabs>,
-    code_viewer: &Entity<CodeViewer>,
-    terminal_view: Option<&gpui::Entity<gpui_ghostty_terminal::view::TerminalView>>,
+    code_editor: &Entity<CodeEditor>,
+    terminal_view: Option<&gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<&gpui::FocusHandle>,
     tab_bar: gpui::Div,
     terminal_height: f32,
@@ -343,11 +351,12 @@ fn render_main_area(
     font_family: &str,
     dragging_terminal: bool,
     drag_listener: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    theme: &Theme,
 ) -> gpui::Div {
     let mut col = div().flex_1().min_h_0().flex().flex_col().overflow_hidden();
 
     if editor_visible {
-        col = col.child(render_editor_area(editor_tabs, code_viewer));
+        col = col.child(render_editor_area(editor_tabs, code_editor));
     }
 
     if editor_visible && terminal_visible {
@@ -368,6 +377,7 @@ fn render_main_area(
             fill,
             terminal_font_size,
             font_family,
+            theme,
         ));
     }
 
@@ -378,7 +388,7 @@ fn render_main_area(
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(rgba(0x5555_55ff))
+                .text_color(theme.text_disabled)
                 .text_size(px(12.))
                 .child("All panels hidden (Cmd+B/E/T to toggle)"),
         );
@@ -397,13 +407,15 @@ impl Render for FocusView {
         let state = self.app_state.read(cx);
         let focused_id = state.focused_instance_id(cx);
 
+        let theme = state.theme().clone();
+
         let Some(id) = focused_id else {
             return div()
                 .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(rgba(0x6666_66ff))
+                .text_color(theme.text_faint)
                 .child("No instance focused");
         };
 
@@ -418,7 +430,7 @@ impl Render for FocusView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(rgba(0x6666_66ff))
+                .text_color(theme.text_faint)
                 .child("Instance not found");
         };
 
@@ -433,20 +445,9 @@ impl Render for FocusView {
         let click_focus_handle = inst.active_focus_handle().cloned();
 
         #[allow(clippy::cast_precision_loss)]
-        let terminal_font_size = state
-            .settings_store
-            .read(cx)
-            .settings()
-            .get_i64("terminal_font_size")
-            .unwrap_or(13) as f32;
+        let terminal_font_size = state.settings_store.read(cx).settings().terminal_font_size as f32;
 
-        let font_family = state
-            .settings_store
-            .read(cx)
-            .settings()
-            .get("font_family")
-            .unwrap_or("Menlo")
-            .to_owned();
+        let font_family = state.settings_store.read(cx).settings().font_family.clone();
 
         let dragging_sidebar = self
             .drag
@@ -463,7 +464,7 @@ impl Render for FocusView {
             editor_visible,
             terminal_visible,
             &self.editor_tabs,
-            &self.code_viewer,
+            &self.code_editor,
             terminal_view.as_ref(),
             click_focus_handle.as_ref(),
             tab_bar,
@@ -478,6 +479,7 @@ impl Render for FocusView {
                     last_pos: f32::from(event.position.y),
                 });
             }),
+            &theme,
         );
 
         let mut root = div()
@@ -499,8 +501,8 @@ impl Render for FocusView {
                         .flex()
                         .flex_col()
                         .border_r_1()
-                        .border_color(rgba(0x3c3c_3cff))
-                        .bg(rgba(0x2525_26ff))
+                        .border_color(theme.border)
+                        .bg(theme.panel)
                         .child(self.file_tree.clone()),
                 )
                 .child(render_divider(
@@ -520,7 +522,82 @@ impl Render for FocusView {
     }
 }
 
-/// Register a window bounds observer that resizes the focused instance's PTY.
+/// Resize the focused terminal PTY and view to match the available pixel area.
+///
+/// Reads layout parameters from `AppState`, computes cell metrics using the window's
+/// text system, and applies the resulting cols/rows to both the PTY and the terminal view.
+fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut gpui::App) {
+    use crate::state::settings_store::ViewMode;
+    use crate::terminal::compute_cell_metrics;
+
+    if this.view_mode(cx) != ViewMode::Focus {
+        return;
+    }
+    let Some(focused_id) = this.focused_instance_id(cx) else {
+        return;
+    };
+    let il = this.instance_list.read(cx);
+    let Some(entry) = il.find_by_id(focused_id, cx) else {
+        return;
+    };
+
+    let is_terminal =
+        entry.read(cx).instance_type() == conescope_core::instance::InstanceType::Terminal;
+    let sidebar_visible = !is_terminal && this.sidebar_visible(cx);
+    let editor_visible = !is_terminal && this.editor_visible(cx);
+    let terminal_visible = is_terminal || this.terminal_visible(cx);
+
+    // If only editor visible (no terminal), no PTY to resize
+    if editor_visible && !terminal_visible {
+        return;
+    }
+
+    let size = window.viewport_size();
+    let mut content_height = f32::from(size.height) - TOP_BAR_HEIGHT - ACTIVITY_BAR_HEIGHT;
+    let mut content_width = f32::from(size.width);
+
+    if sidebar_visible {
+        content_width -= this.sidebar_width(cx) + DIVIDER_SIZE;
+    }
+
+    content_height -= TERMINAL_TABS_HEIGHT;
+
+    if editor_visible && terminal_visible {
+        content_height = this.terminal_height(cx) - TERMINAL_TABS_HEIGHT - DIVIDER_SIZE;
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let term_font_size = this.settings_store.read(cx).settings().terminal_font_size as f32;
+    let font_family = Some(this.settings_store.read(cx).settings().font_family.clone());
+    let Some((cell_width, cell_height)) =
+        compute_cell_metrics(window, Some(term_font_size), font_family.as_deref())
+    else {
+        return;
+    };
+
+    #[allow(clippy::cast_sign_loss)]
+    let cols = (content_width / cell_width).floor().max(1.0) as u16;
+    #[allow(clippy::cast_sign_loss)]
+    let rows = (content_height / cell_height).floor().max(1.0) as u16;
+
+    let inst = entry.read(cx);
+    let tv = inst.terminal_view.clone();
+    let shell_tv = inst.shell_terminal_view.clone();
+    inst.resize_pty(cols, rows);
+    inst.resize_shell_pty(cols, rows);
+    if let Some(tv) = tv {
+        tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
+    }
+    if let Some(tv) = shell_tv {
+        tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
+    }
+}
+
+/// Register observers that resize the focused instance's PTY.
+///
+/// Responds to:
+/// 1. Window bounds changes (resize/move)
+/// 2. Settings store changes (view mode switch, focused instance change, panel toggles)
 ///
 /// Must be called once after creating the `AppView`, from within the window context.
 pub fn register_focus_resize(
@@ -528,82 +605,23 @@ pub fn register_focus_resize(
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> gpui::Subscription {
-    use crate::state::settings_store::ViewMode;
-    use crate::terminal::compute_cell_metrics;
+    let app_state_observer = app_state.clone();
+    let window_handle = window.window_handle();
 
-    let app_state = app_state.clone();
+    // Resize on app_state changes (view mode switch, focused instance, panel toggles).
+    // Uses App::observe (no entity context) to avoid re-entrant borrows.
+    cx.observe(app_state, move |entity, cx| {
+        let _ = cx.update_window(window_handle, |_, window, cx| {
+            entity.update(cx, |state, cx| {
+                resize_focused_terminal(state, window, cx);
+            });
+        });
+    })
+    .detach();
 
-    app_state.update(cx, |_, cx| {
-        cx.observe_window_bounds(window, move |this, window, cx| {
-            if this.view_mode(cx) != ViewMode::Focus {
-                return;
-            }
-            let Some(focused_id) = this.focused_instance_id(cx) else {
-                return;
-            };
-            let il = this.instance_list.read(cx);
-            let Some(entry) = il.find_by_id(focused_id, cx) else {
-                return;
-            };
-
-            let size = window.viewport_size();
-            // Start with full viewport, subtract top bar and activity bar
-            let mut content_height = f32::from(size.height) - TOP_BAR_HEIGHT - ACTIVITY_BAR_HEIGHT;
-            let mut content_width = f32::from(size.width);
-
-            // Subtract sidebar width + divider if visible
-            if this.sidebar_visible(cx) {
-                content_width -= this.sidebar_width(cx) + DIVIDER_SIZE;
-            }
-
-            // Account for terminal tabs height
-            content_height -= TERMINAL_TABS_HEIGHT;
-
-            // If both editor and terminal visible, terminal gets fixed height
-            if this.editor_visible(cx) && this.terminal_visible(cx) {
-                content_height = this.terminal_height(cx) - TERMINAL_TABS_HEIGHT - DIVIDER_SIZE;
-            }
-
-            // If only editor visible (no terminal), no PTY to resize
-            if this.editor_visible(cx) && !this.terminal_visible(cx) {
-                return;
-            }
-
-            #[allow(clippy::cast_precision_loss)]
-            let term_font_size = this
-                .settings_store
-                .read(cx)
-                .settings()
-                .get_i64("terminal_font_size")
-                .unwrap_or(13) as f32;
-            let font_family = this
-                .settings_store
-                .read(cx)
-                .settings()
-                .get("font_family")
-                .map(str::to_owned);
-            let Some((cell_width, cell_height)) =
-                compute_cell_metrics(window, Some(term_font_size), font_family.as_deref())
-            else {
-                return;
-            };
-
-            #[allow(clippy::cast_sign_loss)]
-            let cols = (content_width / cell_width).floor().max(1.0) as u16;
-            #[allow(clippy::cast_sign_loss)]
-            let rows = (content_height / cell_height).floor().max(1.0) as u16;
-
-            let inst = entry.read(cx);
-            let tv = inst.terminal_view.clone();
-            let shell_tv = inst.shell_terminal_view.clone();
-            inst.resize_pty(cols, rows);
-            inst.resize_shell_pty(cols, rows);
-            if let Some(tv) = tv {
-                tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
-            }
-            if let Some(tv) = shell_tv {
-                tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
-            }
+    app_state_observer.update(cx, |_, cx| {
+        cx.observe_window_bounds(window, |this, window, cx| {
+            resize_focused_terminal(this, window, cx);
         })
     })
 }

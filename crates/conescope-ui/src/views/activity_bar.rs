@@ -1,10 +1,13 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, SharedString, div, px, rgba};
+use gpui::{Entity, Hsla, MouseButton, SharedString, div, px, rgba, svg};
 
 use conescope_core::instance::InstanceType;
 
+use crate::actions::CloseSettings;
+use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
+use crate::theme::Theme;
 use crate::views::colors::hex_to_rgba;
 
 struct InstanceTooltip {
@@ -57,7 +60,7 @@ impl ActivityBar {
 
 struct InstanceButton {
     id: String,
-    num: i64,
+    num: usize,
     color: gpui::Rgba,
     is_focused: bool,
     title: String,
@@ -67,22 +70,38 @@ struct InstanceButton {
 fn render_instance_button(
     btn: &InstanceButton,
     app_state: &Entity<AppState>,
+    theme: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
     let app_state_btn = app_state.clone();
     let tooltip_title: SharedString = btn.title.clone().into();
     let tooltip_status: SharedString = btn.status.clone().into();
     let element_id: SharedString = format!("inst-btn-{}", btn.num).into();
 
+    let accent = theme.accent;
+    let element_hover = theme.element_hover;
+
     div()
         .id(element_id)
-        .px(px(6.))
+        .px(px(4.))
         .py(px(1.))
         .rounded(px(3.))
         .cursor_pointer()
         .text_size(px(11.))
-        .when(btn.is_focused, |el| el.bg(rgba(0x0e63_9cff)))
-        .when(!btn.is_focused, |el| el.hover(|s| s.bg(rgba(0x3333_33ff))))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(2.))
+        .when(btn.is_focused, move |el| el.bg(accent))
+        .when(!btn.is_focused, move |el| {
+            el.hover(move |s| s.bg(element_hover))
+        })
         .text_color(btn.color)
+        .child(
+            svg()
+                .path(icons::ICON_COMMAND)
+                .size(px(10.))
+                .flex_shrink_0(),
+        )
         .child(format!("{}", btn.num))
         .on_click({
             let id = btn.id.clone();
@@ -101,29 +120,35 @@ fn render_instance_button(
 
 /// Render a panel toggle icon for the activity bar.
 fn render_panel_toggle(
-    icon: &str,
+    icon_path: &'static str,
     active: bool,
     app_state: Entity<AppState>,
     toggle_fn: fn(&mut AppState, &mut gpui::Context<AppState>),
+    theme: &Theme,
 ) -> gpui::Div {
-    let fg = if active {
-        rgba(0x0e63_9cff) // blue when active
+    let fg: Hsla = if active {
+        theme.accent.into()
     } else {
-        rgba(0x5555_55ff) // gray when inactive
+        theme.text_muted.into()
     };
+    let hover_fg: Hsla = theme.text.into();
 
     div()
         .px(px(4.))
         .py(px(2.))
         .rounded(px(3.))
         .cursor_pointer()
-        .text_size(px(12.))
-        .text_color(fg)
-        .hover(|s| s.text_color(rgba(0xcccc_ccff)))
+        .hover(move |s| s.text_color(hover_fg))
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
             app_state.update(cx, toggle_fn);
         })
-        .child(icon.to_owned())
+        .child(
+            svg()
+                .path(icon_path)
+                .size(px(14.))
+                .text_color(fg)
+                .flex_shrink_0(),
+        )
 }
 
 /// Collect instance buttons and aggregate token/cost stats.
@@ -138,9 +163,9 @@ fn collect_instance_data(
     let mut total_tokens: i64 = 0;
     let mut total_cost: f64 = 0.0;
 
-    for entry in il.entries() {
+    for (i, entry) in il.entries().iter().enumerate() {
         let inst = entry.read(cx);
-        let num = inst.instance.instance_number.unwrap_or(0);
+        let num = i + 1;
         let color = inst
             .instance
             .color
@@ -164,7 +189,6 @@ fn collect_instance_data(
         total_tokens += inst.instance.tokens_used;
         total_cost += inst.instance.cost_estimate;
     }
-    buttons.sort_by_key(|b| b.num);
     (buttons, total_tokens, total_cost)
 }
 
@@ -175,14 +199,29 @@ struct PanelState {
 }
 
 /// Build the left section of the activity bar.
+#[allow(clippy::too_many_arguments)]
 fn build_left_section(
     view_mode: ViewMode,
     focused_type: Option<InstanceType>,
     buttons: &[InstanceButton],
     panels: &PanelState,
     app_state: &Entity<AppState>,
+    theme: &Theme,
 ) -> gpui::Div {
     let app_state_grid = app_state.clone();
+    let accent = theme.accent;
+    let text_faint = theme.text_faint;
+    let text = theme.text;
+
+    let is_overview = view_mode == ViewMode::Overview;
+    let is_settings = view_mode == ViewMode::Settings;
+    let show_solid = is_overview || is_settings;
+    let (icon_path, icon_color): (&str, Hsla) = if show_solid {
+        (icons::ICON_CONESCOPE_SOLID, accent.into())
+    } else {
+        (icons::ICON_CONESCOPE_OUTLINE, text_faint.into())
+    };
+    let hover_color: Hsla = text.into();
 
     let mut left = div()
         .flex_1()
@@ -192,56 +231,65 @@ fn build_left_section(
         .gap(px(4.))
         .child(
             div()
-                .px(px(4.))
-                .py(px(2.))
+                .px(px(2.))
+                .py(px(1.))
                 .rounded(px(3.))
                 .cursor_pointer()
-                .text_size(px(12.))
-                .when(view_mode == ViewMode::Overview, |el| {
-                    el.bg(rgba(0x0e63_9cff)).text_color(rgba(0xffff_ffff))
+                .text_color(icon_color)
+                .when(!show_solid, move |el| {
+                    el.hover(move |s| s.text_color(hover_color))
                 })
-                .when(view_mode != ViewMode::Overview, |el| {
-                    el.text_color(rgba(0x6666_66ff))
-                        .hover(|s| s.bg(rgba(0x3c3c_3cff)).text_color(rgba(0xcccc_ccff)))
-                })
-                .child("\u{25a6}")
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                .child(
+                    svg()
+                        .path(icon_path)
+                        .size(px(16.))
+                        .text_color(icon_color)
+                        .flex_shrink_0(),
+                )
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                     if view_mode == ViewMode::Focus {
                         app_state_grid.update(cx, AppState::return_to_overview);
+                    } else if view_mode == ViewMode::Settings {
+                        window.dispatch_action(Box::new(CloseSettings), cx);
                     }
                 }),
         );
 
     match view_mode {
         ViewMode::Focus => {
-            // Only show panel toggles for Project instances (not Terminal)
             if focused_type != Some(InstanceType::Terminal) {
-                left = left.child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(rgba(0x3c3c_3cff)));
+                left = left.child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(theme.border));
                 left = left
                     .child(render_panel_toggle(
-                        "\u{1F4C1}",
+                        icons::ICON_SIDEBAR,
                         panels.sidebar,
                         app_state.clone(),
                         AppState::toggle_sidebar,
+                        theme,
                     ))
                     .child(render_panel_toggle(
-                        "\u{2338}",
+                        icons::ICON_EDITOR,
                         panels.editor,
                         app_state.clone(),
                         AppState::toggle_editor,
+                        theme,
                     ))
                     .child(render_panel_toggle(
-                        "\u{25B8}",
+                        icons::ICON_TERMINAL,
                         panels.terminal,
                         app_state.clone(),
                         AppState::toggle_terminal,
+                        theme,
                     ));
             }
         }
         ViewMode::Overview => {
             for btn in buttons {
-                left = left.child(render_instance_button(btn, app_state));
+                left = left.child(render_instance_button(btn, app_state, theme));
             }
+        }
+        ViewMode::Settings => {
+            // No instance buttons or panel toggles in settings mode
         }
     }
 
@@ -269,6 +317,8 @@ impl Render for ActivityBar {
                 .map(|e| e.read(cx).instance_type())
         });
 
+        let theme = state.theme().clone();
+
         let (buttons, total_tokens, total_cost) = collect_instance_data(&self.app_state, cx);
 
         let token_text = format!("{}k tokens", total_tokens / 1000);
@@ -279,7 +329,14 @@ impl Render for ActivityBar {
             editor: editor_visible,
             terminal: terminal_visible,
         };
-        let left = build_left_section(view_mode, focused_type, &buttons, &panels, &self.app_state);
+        let left = build_left_section(
+            view_mode,
+            focused_type,
+            &buttons,
+            &panels,
+            &self.app_state,
+            &theme,
+        );
 
         div()
             .h(px(28.))
@@ -288,16 +345,16 @@ impl Render for ActivityBar {
             .flex_row()
             .items_center()
             .px(px(8.))
-            .bg(rgba(0x1818_18ff))
+            .bg(theme.background)
             .border_t_1()
-            .border_color(rgba(0x3c3c_3cff))
+            .border_color(theme.border)
             .child(left)
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .gap(px(12.))
-                    .text_color(rgba(0x6666_66ff))
+                    .text_color(theme.text_faint)
                     .text_size(px(11.))
                     .child(token_text)
                     .child(cost_text),

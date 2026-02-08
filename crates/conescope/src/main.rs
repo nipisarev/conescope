@@ -1,11 +1,12 @@
+use conescope_ui::terminal::terminal_view::{Copy, Paste, SelectAll};
 use gpui::{AnyWindowHandle, AppContext, KeyBinding, WindowOptions};
-use gpui_ghostty_terminal::view::{Copy, Paste, SelectAll};
 use tracing::info;
 
+use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
-    CloseInstance, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4, FocusInstance5,
-    FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance, OpenSettings,
-    ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
+    CloseInstance, CloseSettings, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
+    FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
+    OpenSettings, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -97,6 +98,7 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-t", ToggleTerminal, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("escape", CloseSettings, Some("AppView")),
     ]);
 }
 
@@ -132,11 +134,8 @@ fn load_data_async(
             let project_store_for_restore = project_store.clone();
             let settings_for_restore = settings_store.clone();
             let _ = cx.update_window(window_handle, |_view, window, cx| {
-                let font_family = settings_for_restore
-                    .read(cx)
-                    .settings()
-                    .get("font_family")
-                    .map(str::to_owned);
+                let font_family =
+                    Some(settings_for_restore.read(cx).settings().font_family.clone());
                 instance_list.update(cx, |list, cx| {
                     list.restore_terminals(
                         &project_store_for_restore,
@@ -166,53 +165,90 @@ fn main() {
     info!("Database path: {db_path}");
     let db = DbHandle::spawn(&db_path).expect("Failed to open database");
 
-    gpui::Application::new().run(move |cx: &mut gpui::App| {
-        bind_keys(cx);
+    gpui::Application::new()
+        .with_assets(conescope_ui::assets::ConescopeAssets)
+        .run(move |cx: &mut gpui::App| {
+            gpui_component::init(cx);
+            bind_keys(cx);
 
-        let app_state = AppState::new(db.clone(), cx);
+            let app_state = AppState::new(db.clone(), cx);
 
-        // Synchronously load settings before opening window for saved bounds
-        if let Ok(Ok(settings)) = db.get_all_settings().recv() {
-            let settings_store = app_state.read(cx).settings_store.clone();
-            settings_store.update(cx, |store, _| store.load(settings));
-            info!("Settings loaded (sync)");
-        }
+            // Load user settings from JSON file (with DB migration on first run)
+            let settings_dir = SettingsJson::settings_dir();
+            let settings_path = SettingsJson::file_path(&settings_dir);
+            let user_settings = if settings_path.exists() {
+                SettingsJson::load_from_file(&settings_dir)
+            } else {
+                // First run: migrate from DB
+                let migrated = if let Ok(Ok(db_settings)) = db.get_all_settings().recv() {
+                    SettingsJson::migrate_from_db(&db_settings)
+                } else {
+                    SettingsJson::default()
+                };
+                let _ = migrated.save_to_file(&settings_dir);
+                info!("Migrated settings to {}", settings_path.display());
+                migrated
+            };
 
-        // Read saved window bounds
-        let session = app_state.read(cx).settings_store.read(cx).session().clone();
-        let window_bounds = gpui::WindowBounds::Windowed(gpui::Bounds {
-            origin: gpui::point(
-                gpui::px(session.window_x.unwrap_or(100.0)),
-                gpui::px(session.window_y.unwrap_or(100.0)),
-            ),
-            size: gpui::size(
-                gpui::px(session.window_width.unwrap_or(1400.0)),
-                gpui::px(session.window_height.unwrap_or(900.0)),
-            ),
-        });
+            // Load session state from DB
+            if let Ok(Ok(db_settings)) = db.get_all_settings().recv() {
+                let settings_store = app_state.read(cx).settings_store.clone();
+                settings_store.update(cx, |store, _| store.load_session(db_settings));
+                info!("Session state loaded");
+            }
 
-        let window_handle: AnyWindowHandle = cx
-            .open_window(
-                WindowOptions {
-                    window_bounds: Some(window_bounds),
-                    titlebar: Some(gpui::TitlebarOptions {
-                        title: Some("Conescope".into()),
-                        appears_transparent: true,
-                        traffic_light_position: Some(gpui::point(gpui::px(12.), gpui::px(12.))),
-                    }),
-                    ..Default::default()
-                },
-                |window, cx| {
-                    let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
-                    conescope_ui::views::focus_view::register_focus_resize(&app_state, window, cx)
+            // Load user settings into store
+            {
+                let settings_store = app_state.read(cx).settings_store.clone();
+                settings_store.update(cx, |store, _| store.load_settings(user_settings.clone()));
+            }
+
+            // Apply saved theme
+            {
+                let mode =
+                    conescope_ui::theme::ThemeMode::from_str_or_default(&user_settings.theme);
+                if mode != app_state.read(cx).theme().mode {
+                    app_state.update(cx, |s, cx| s.set_theme(mode, cx));
+                }
+            }
+
+            // Read saved window bounds
+            let session = app_state.read(cx).settings_store.read(cx).session().clone();
+            let window_bounds = gpui::WindowBounds::Windowed(gpui::Bounds {
+                origin: gpui::point(
+                    gpui::px(session.window_x.unwrap_or(100.0)),
+                    gpui::px(session.window_y.unwrap_or(100.0)),
+                ),
+                size: gpui::size(
+                    gpui::px(session.window_width.unwrap_or(1400.0)),
+                    gpui::px(session.window_height.unwrap_or(900.0)),
+                ),
+            });
+
+            let window_handle: AnyWindowHandle = cx
+                .open_window(
+                    WindowOptions {
+                        window_bounds: Some(window_bounds),
+                        titlebar: Some(gpui::TitlebarOptions {
+                            title: Some("Conescope".into()),
+                            appears_transparent: true,
+                            traffic_light_position: Some(gpui::point(gpui::px(12.), gpui::px(12.))),
+                        }),
+                        ..Default::default()
+                    },
+                    |window, cx| {
+                        let view = cx.new(|cx| AppView::new(app_state.clone(), cx));
+                        conescope_ui::views::focus_view::register_focus_resize(
+                            &app_state, window, cx,
+                        )
                         .detach();
-                    register_window_bounds_save(&app_state, window, cx).detach();
-                    view
-                },
-            )
-            .expect("Failed to open window")
-            .into();
+                        register_window_bounds_save(&app_state, window, cx).detach();
+                        cx.new(|cx| gpui_component::Root::new(view, window, cx))
+                    },
+                )
+                .expect("Failed to open window")
+                .into();
 
-        load_data_async(db, &app_state, window_handle, cx);
-    });
+            load_data_async(db, &app_state, window_handle, cx);
+        });
 }
