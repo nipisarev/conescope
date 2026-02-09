@@ -52,6 +52,7 @@ pub const ICON_QUESTION: &str = "icons/question-thin.svg";
 pub const ICON_SETTINGS: &str = "icons/gear-thin.svg";
 pub const ICON_BACK: &str = "icons/minus-circle-thin.svg";
 pub const ICON_CLOSE_CIRCLE: &str = "icons/x-circle-thin.svg";
+pub const ICON_GIT: &str = "icons/git-branch-thin.svg";
 
 #[cfg(test)]
 mod tests {

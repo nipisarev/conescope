@@ -5,7 +5,7 @@ use conescope_core::instance::InstanceType;
 
 use crate::icons;
 use crate::state::app_state::AppState;
-use crate::state::settings_store::ViewMode;
+use crate::state::settings_store::{SidebarTab, ViewMode};
 use crate::theme::Theme;
 use crate::views::colors::hex_to_rgba;
 
@@ -195,6 +195,7 @@ struct PanelState {
     sidebar: bool,
     editor: bool,
     terminal: bool,
+    sidebar_tab: SidebarTab,
 }
 
 /// Build the left section of the activity bar.
@@ -261,9 +262,16 @@ fn build_left_section(
                 left = left
                     .child(render_panel_toggle(
                         icons::ICON_SIDEBAR,
-                        panels.sidebar,
+                        panels.sidebar && panels.sidebar_tab == SidebarTab::Files,
                         app_state.clone(),
                         AppState::toggle_sidebar,
+                        theme,
+                    ))
+                    .child(render_panel_toggle(
+                        icons::ICON_GIT,
+                        panels.sidebar && panels.sidebar_tab == SidebarTab::Git,
+                        app_state.clone(),
+                        AppState::toggle_git_panel,
                         theme,
                     ))
                     .child(render_panel_toggle(
@@ -304,6 +312,7 @@ impl Render for ActivityBar {
         let state = self.app_state.read(cx);
         let view_mode = state.view_mode(cx);
         let sidebar_visible = state.sidebar_visible(cx);
+        let sidebar_tab = state.sidebar_tab(cx);
         let editor_visible = state.editor_visible(cx);
         let terminal_visible = state.terminal_visible(cx);
 
@@ -327,6 +336,7 @@ impl Render for ActivityBar {
             sidebar: sidebar_visible,
             editor: editor_visible,
             terminal: terminal_visible,
+            sidebar_tab,
         };
         let left = build_left_section(
             view_mode,
