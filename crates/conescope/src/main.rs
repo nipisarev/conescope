@@ -4,10 +4,11 @@ use tracing::info;
 
 use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
-    CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
-    FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, Quit, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar,
-    ToggleTerminal,
+    CloseSettings, CloseTab, CopyPath, CopyRelativePath, FileCopy, FileCut, FileDelete,
+    FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
+    FocusInstance3, FocusInstance4, FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8,
+    FocusInstance9, NewFile, NewFolder, NewInstance, OpenSettings, Quit, ReturnToOverview,
+    RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar, ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -92,7 +93,7 @@ fn bind_keys(cx: &mut gpui::App) {
     text_input::register_key_bindings(cx);
 
     cx.bind_keys([
-        KeyBinding::new("cmd-n", NewInstance, None),
+        KeyBinding::new("cmd-n", NewInstance, Some("Overview")),
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-0", ReturnToOverview, None),
         KeyBinding::new("cmd-1", FocusInstance1, None),
@@ -111,6 +112,22 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-t", ToggleTerminal, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
         KeyBinding::new("escape", CloseSettings, Some("AppView")),
+    ]);
+
+    // FileTree-scoped keybindings (active only when file tree is focused)
+    cx.bind_keys([
+        KeyBinding::new("cmd-n", NewFile, Some("FileTree")),
+        KeyBinding::new("alt-cmd-n", NewFolder, Some("FileTree")),
+        KeyBinding::new("alt-cmd-r", RevealInFinder, Some("FileTree")),
+        KeyBinding::new("cmd-x", FileCut, Some("FileTree")),
+        KeyBinding::new("cmd-c", FileCopy, Some("FileTree")),
+        KeyBinding::new("cmd-d", FileDuplicate, Some("FileTree")),
+        KeyBinding::new("cmd-v", FilePaste, Some("FileTree")),
+        KeyBinding::new("alt-cmd-c", CopyPath, Some("FileTree")),
+        KeyBinding::new("alt-cmd-shift-c", CopyRelativePath, Some("FileTree")),
+        KeyBinding::new("f2", FileRename, Some("FileTree")),
+        KeyBinding::new("backspace", FileTrash, Some("FileTree")),
+        KeyBinding::new("alt-cmd-backspace", FileDelete, Some("FileTree")),
     ]);
 }
 

@@ -257,6 +257,7 @@ impl Render for AppView {
             // Main content area
             .child(match view_mode {
                 ViewMode::Overview => div()
+                    .key_context("Overview")
                     .flex_1()
                     .min_h_0()
                     .child(self.overview_grid.clone())

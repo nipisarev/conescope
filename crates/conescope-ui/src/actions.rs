@@ -24,5 +24,19 @@ actions!(
         CloseSettings,
         SaveFile,
         ToggleGitPanel,
+        // File tree actions
+        NewFile,
+        NewFolder,
+        RevealInFinder,
+        OpenInTerminal,
+        FileCut,
+        FileCopy,
+        FileDuplicate,
+        FilePaste,
+        CopyPath,
+        CopyRelativePath,
+        FileRename,
+        FileTrash,
+        FileDelete,
     ]
 );
