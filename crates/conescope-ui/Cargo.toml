@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 conescope-core = { path = "../conescope-core" }
+conescope-git = { path = "../conescope-git" }
 conescope-pty = { path = "../conescope-pty" }
 gpui.workspace = true
 alacritty_terminal.workspace = true
@@ -21,6 +22,7 @@ uuid.workspace = true
 unicode-segmentation.workspace = true
 gpui-component.workspace = true
 rust-embed.workspace = true
+rfd.workspace = true
 
 [lints]
 workspace = true

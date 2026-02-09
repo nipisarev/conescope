@@ -2,6 +2,7 @@ use conescope_core::instance::InstanceUpdate;
 use gpui::{AppContext, Entity};
 
 use super::db_worker::DbHandle;
+use super::git_store::GitStore;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
 use super::settings_store::{SettingsStore, ViewMode};
@@ -20,6 +21,7 @@ pub struct AppState {
     pub instance_list: Entity<InstanceList>,
     pub project_store: Entity<ProjectStore>,
     pub settings_store: Entity<SettingsStore>,
+    pub git_store: Entity<GitStore>,
     pub db: DbHandle,
     pub questions_queue_open: bool,
     pub new_instance_modal_open: bool,
@@ -51,11 +53,13 @@ impl AppState {
             let instance_list = cx.new(|_| InstanceList::new(db2));
             let project_store = cx.new(|_| ProjectStore::new(db3));
             let settings_store = cx.new(|_| SettingsStore::new(db4));
+            let git_store = cx.new(|_| GitStore::new());
 
             Self {
                 instance_list,
                 project_store,
                 settings_store,
+                git_store,
                 db,
                 questions_queue_open: false,
                 new_instance_modal_open: false,
@@ -283,6 +287,13 @@ impl AppState {
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
         cx.notify();
+    }
+
+    /// Make the editor panel visible (if currently hidden).
+    pub fn ensure_editor_visible(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.editor_visible(cx) {
+            self.toggle_editor(cx);
+        }
     }
 
     pub fn toggle_editor(&mut self, cx: &mut gpui::Context<Self>) {

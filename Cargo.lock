@@ -1128,6 +1128,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "conescope-core",
+ "conescope-git",
  "conescope-pty",
  "flume",
  "gpui",
