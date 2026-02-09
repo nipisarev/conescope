@@ -81,10 +81,11 @@ impl FocusView {
         // FileTree → open file in editor
         let cv = code_editor.clone();
         let et = editor_tabs.clone();
-        cx.subscribe(&file_tree, move |_this, _ft, event, cx| {
+        cx.subscribe(&file_tree, move |this, _ft, event, cx| {
             let FileTreeEvent::OpenFile(path) = event;
             et.update(cx, |tabs, cx| tabs.open_tab(path, cx));
             cv.update(cx, |viewer, cx| viewer.open_file(path, cx));
+            this.app_state.update(cx, AppState::ensure_editor_visible);
         })
         .detach();
 
@@ -162,6 +163,11 @@ impl FocusView {
             }
         }
 
+        // Auto-hide editor if no tabs open (sync ActivityBar toggle on fresh entry)
+        if editor_tabs.read(cx).tab_count() == 0 && app_state.read(cx).editor_visible(cx) {
+            app_state.update(cx, AppState::toggle_editor);
+        }
+
         // Subscribe to FileSavedAs: update tab path + persist
         let et_for_save = editor_tabs.clone();
         let app_state_for_save = app_state.clone();
@@ -183,7 +189,7 @@ impl FocusView {
         let dv_for_git = diff_viewer.clone();
         let gs_for_diff = git_store.clone();
         let et_for_diff = editor_tabs.clone();
-        cx.subscribe(&git_store, move |_this, _store, event, cx| {
+        cx.subscribe(&git_store, move |this, _store, event, cx| {
             if let GitStoreEvent::OpenDiff { path, staged } = event {
                 let path = path.clone();
                 let staged = *staged;
@@ -198,6 +204,7 @@ impl FocusView {
                         });
                     });
                 });
+                this.app_state.update(cx, AppState::ensure_editor_visible);
             }
         })
         .detach();
@@ -206,11 +213,12 @@ impl FocusView {
         let cv_for_git = code_editor.clone();
         let et_for_git = editor_tabs.clone();
         let gs_for_open = git_store.clone();
-        cx.subscribe(&git_panel, move |_this, _panel, event, cx| {
+        cx.subscribe(&git_panel, move |this, _panel, event, cx| {
             let GitPanelEvent::OpenFile(rel_path) = event;
             let abs_path = gs_for_open.read(cx).resolve_path(rel_path);
             et_for_git.update(cx, |tabs, cx| tabs.open_tab(&abs_path, cx));
             cv_for_git.update(cx, |viewer, cx| viewer.open_file(&abs_path, cx));
+            this.app_state.update(cx, AppState::ensure_editor_visible);
         })
         .detach();
 
@@ -678,6 +686,13 @@ impl Render for FocusView {
                 }
             }
 
+            // Auto-hide editor if no tabs after restoration (sync ActivityBar toggle)
+            if self.editor_tabs.read(cx).tab_count() == 0
+                && self.app_state.read(cx).editor_visible(cx)
+            {
+                self.app_state.update(cx, AppState::toggle_editor);
+            }
+
             self.last_focused_id.clone_from(&focused_id);
         }
 
@@ -715,8 +730,7 @@ impl Render for FocusView {
 
         // Terminal instances: force-hide sidebar and editor (no project root / code)
         let sidebar_visible = !is_terminal && state.sidebar_visible(cx);
-        let editor_visible =
-            !is_terminal && state.editor_visible(cx) && self.editor_tabs.read(cx).tab_count() > 0;
+        let editor_visible = !is_terminal && state.editor_visible(cx);
         let terminal_visible = is_terminal || state.terminal_visible(cx);
         let terminal_view = inst.active_terminal_view().cloned();
         let click_focus_handle = inst.active_focus_handle().cloned();
