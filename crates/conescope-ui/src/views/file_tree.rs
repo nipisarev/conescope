@@ -404,37 +404,75 @@ impl FileTree {
     }
 
     fn on_trash(&mut self, _: &FileTrash, _w: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
-        if let Some(ref sel) = self.selected {
+        if let Some(sel) = self.selected.clone() {
+            self.do_trash(&sel, cx);
+        }
+    }
+
+    fn on_delete(&mut self, _: &FileDelete, _w: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        if let Some(sel) = self.selected.clone() {
+            self.do_delete(&sel, cx);
+        }
+    }
+
+    /// Move a file/folder to Trash via Finder, then refresh tree.
+    ///
+    /// Clears menu/selection immediately, but defers `rebuild_entries()` via
+    /// `cx.spawn()` so the DOM element that received mouse-down survives the
+    /// event cycle — preventing GPUI mouse-tracking from getting stuck.
+    fn do_trash(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        let path = path.to_owned();
+        self.selected = None;
+        self.context_menu = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("osascript")
                     .arg("-e")
                     .arg(format!(
                         "tell application \"Finder\" to delete POSIX file \"{}\"",
-                        sel.replace('"', "\\\"")
+                        path.replace('"', "\\\"")
                     ))
                     .output();
             }
-            self.selected = None;
-            self.rebuild_entries();
-        }
-        self.context_menu = None;
-        cx.notify();
+            cx.update(|cx| {
+                if let Some(entity) = this.upgrade() {
+                    entity.update(cx, |this, cx| {
+                        this.rebuild_entries();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
     }
 
-    fn on_delete(&mut self, _: &FileDelete, _w: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
-        if let Some(ref sel) = self.selected {
-            let p = Path::new(sel);
+    /// Permanently delete a file/folder, then refresh tree.
+    ///
+    /// Same deferred rebuild pattern as `do_trash` — see its doc comment.
+    fn do_delete(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        let path = path.to_owned();
+        self.selected = None;
+        self.context_menu = None;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let p = Path::new(&path);
             if p.is_dir() {
                 let _ = std::fs::remove_dir_all(p);
             } else {
                 let _ = std::fs::remove_file(p);
             }
-            self.selected = None;
-            self.rebuild_entries();
-        }
-        self.context_menu = None;
-        cx.notify();
+            cx.update(|cx| {
+                if let Some(entity) = this.upgrade() {
+                    entity.update(cx, |this, cx| {
+                        this.rebuild_entries();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
     }
 
     fn confirm_rename(&mut self, cx: &mut gpui::Context<Self>) {
@@ -528,6 +566,7 @@ impl Render for FileTree {
                     i,
                     self.selected.as_ref(),
                     &self.expanded,
+                    self.context_menu.is_some(),
                     &theme,
                     cx,
                 ));
@@ -603,7 +642,9 @@ impl Render for FileTree {
             .child(scroll_div)
             .children(scrollbar_el);
 
-        // Context menu overlay
+        // Context menu: dismiss-overlay + menu as parent-child (not siblings).
+        // Making the menu a child of the overlay gives it proper z-order nesting
+        // so GPUI's hover hit-testing reaches the menu items naturally.
         if let Some(ref menu) = self.context_menu {
             root = root.child(
                 div()
@@ -615,6 +656,7 @@ impl Render for FileTree {
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
                             this.context_menu = None;
                             cx.notify();
                         }),
@@ -622,12 +664,13 @@ impl Render for FileTree {
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
                             this.context_menu = None;
                             cx.notify();
                         }),
-                    ),
+                    )
+                    .child(render_context_menu(menu, has_clipboard, &theme, cx)),
             );
-            root = root.child(render_context_menu(menu, has_clipboard, &theme, cx));
         }
 
         root.into_any_element()
@@ -874,20 +917,7 @@ fn render_context_menu(
                 "\u{232b}",
                 theme,
                 cx.listener(move |this, _, _, cx| {
-                    #[cfg(target_os = "macos")]
-                    {
-                        let _ = std::process::Command::new("osascript")
-                            .arg("-e")
-                            .arg(format!(
-                                "tell application \"Finder\" to delete POSIX file \"{}\"",
-                                p.replace('"', "\\\"")
-                            ))
-                            .output();
-                    }
-                    this.selected = None;
-                    this.context_menu = None;
-                    this.rebuild_entries();
-                    cx.notify();
+                    this.do_trash(&p, cx);
                 }),
             )
             .into_any_element(),
@@ -901,16 +931,7 @@ fn render_context_menu(
                 "\u{2325}\u{2318}\u{232b}",
                 theme,
                 cx.listener(move |this, _, _, cx| {
-                    let pp = Path::new(&p);
-                    if pp.is_dir() {
-                        let _ = std::fs::remove_dir_all(pp);
-                    } else {
-                        let _ = std::fs::remove_file(pp);
-                    }
-                    this.selected = None;
-                    this.context_menu = None;
-                    this.rebuild_entries();
-                    cx.notify();
+                    this.do_delete(&p, cx);
                 }),
             )
             .into_any_element(),
@@ -936,7 +957,7 @@ fn ctx_item(
     label: &str,
     shortcut: &str,
     theme: &Theme,
-    on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    handler: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> gpui::Div {
     let hover_bg = theme.element_hover;
     let sc = shortcut.to_owned();
@@ -950,7 +971,10 @@ fn ctx_item(
         .text_color(theme.text)
         .cursor_pointer()
         .hover(move |s| s.bg(hover_bg))
-        .on_mouse_down(MouseButton::Left, on_click)
+        .on_mouse_down(MouseButton::Left, move |ev, win, cx| {
+            cx.stop_propagation();
+            handler(ev, win, cx);
+        })
         .child(label.to_owned())
         .child(
             div()
@@ -1071,6 +1095,7 @@ fn render_entry(
     _index: usize,
     selected: Option<&String>,
     expanded: &HashSet<String>,
+    context_menu_open: bool,
     theme: &Theme,
     cx: &mut gpui::Context<FileTree>,
 ) -> gpui::Div {
@@ -1106,55 +1131,61 @@ fn render_entry(
     let is_dir = entry.is_dir;
     let name = entry.name.clone();
 
-    div()
+    let row = div()
         .pl(indent)
         .pr(px(8.))
         .py(px(4.))
         .text_size(px(13.))
         .text_color(fg)
         .bg(bg)
-        .cursor_pointer()
-        .hover(move |s| s.bg(surface))
-        .on_mouse_down(
-            MouseButton::Left,
-            cx.listener(move |this, _event: &gpui::MouseDownEvent, _window, cx| {
-                if is_dir {
-                    this.toggle_dir(&path, cx);
-                } else {
-                    this.select_file(&path, cx);
-                }
-            }),
-        )
-        .on_mouse_down(
-            MouseButton::Right,
-            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                this.selected = Some(path_for_rclick.clone());
-                let root_origin = this.root_handle.bounds().origin;
-                this.context_menu = Some(ContextMenuState {
-                    path: path_for_rclick.clone(),
-                    position: Point {
-                        x: event.position.x - root_origin.x,
-                        y: event.position.y - root_origin.y,
-                    },
-                });
-                cx.notify();
-            }),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(4.))
-                .child(
-                    svg()
-                        .path(icon_path)
-                        .size(px(14.))
-                        .text_color(icon_color)
-                        .flex_shrink_0(),
-                )
-                .child(name),
-        )
+        .cursor_pointer();
+    // Suppress hover highlight when context menu is open — GPUI hover is
+    // hit-test based and passes through overlapping siblings.
+    let row = if context_menu_open {
+        row
+    } else {
+        row.hover(move |s| s.bg(surface))
+    };
+    row.on_mouse_down(
+        MouseButton::Left,
+        cx.listener(move |this, _event: &gpui::MouseDownEvent, _window, cx| {
+            if is_dir {
+                this.toggle_dir(&path, cx);
+            } else {
+                this.select_file(&path, cx);
+            }
+        }),
+    )
+    .on_mouse_down(
+        MouseButton::Right,
+        cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+            this.selected = Some(path_for_rclick.clone());
+            let root_origin = this.root_handle.bounds().origin;
+            this.context_menu = Some(ContextMenuState {
+                path: path_for_rclick.clone(),
+                position: Point {
+                    x: event.position.x - root_origin.x,
+                    y: event.position.y - root_origin.y,
+                },
+            });
+            cx.notify();
+        }),
+    )
+    .child(
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(4.))
+            .child(
+                svg()
+                    .path(icon_path)
+                    .size(px(14.))
+                    .text_color(icon_color)
+                    .flex_shrink_0(),
+            )
+            .child(name),
+    )
 }
 
 /// Recursively copy a directory.
