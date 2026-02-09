@@ -111,6 +111,19 @@ fn discard_untracked_file() {
 }
 
 #[test]
+fn diff_untracked_file() {
+    let (dir, repo) = init_repo();
+    fs::write(dir.path().join("new.txt"), "line1\nline2\n").unwrap();
+    let hunks = repo.diff_file("new.txt", false).unwrap();
+    assert!(!hunks.is_empty(), "should return hunks for untracked files");
+    assert_eq!(hunks[0].lines.len(), 2);
+    assert_eq!(
+        hunks[0].lines[0].origin,
+        conescope_git::diff::LineOrigin::Addition
+    );
+}
+
+#[test]
 fn head_branch() {
     let (_dir, repo) = init_repo();
     let branch = repo.head_branch();

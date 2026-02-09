@@ -172,6 +172,30 @@ impl GitRepo {
             true
         })?;
 
+        // Untracked files aren't in the index so diff_index_to_workdir returns nothing.
+        // Generate a synthetic "new file" diff by reading the file content.
+        if hunks.is_empty() && !staged {
+            let full_path = self.work_dir.join(path);
+            if let Ok(content) = std::fs::read_to_string(&full_path) {
+                let lines: Vec<DiffLine> = content
+                    .lines()
+                    .enumerate()
+                    .map(|(i, line)| DiffLine {
+                        origin: LineOrigin::Addition,
+                        old_lineno: None,
+                        new_lineno: Some((i as u32) + 1),
+                        content: format!("{line}\n"),
+                    })
+                    .collect();
+                if !lines.is_empty() {
+                    hunks.push(DiffHunk {
+                        header: format!("@@ -0,0 +1,{} @@ new file", lines.len()),
+                        lines,
+                    });
+                }
+            }
+        }
+
         Ok(hunks)
     }
 

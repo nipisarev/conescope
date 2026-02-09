@@ -58,6 +58,41 @@ impl SettingsJson {
         PathBuf::from(home).join(".conescope")
     }
 
+    /// Returns `$HOME/.conescope/scratch/{project_id}/` for project-scoped scratch files.
+    /// Uses `_no_project` for instances without a project.
+    #[must_use]
+    pub fn scratch_dir(project_id: Option<&str>) -> PathBuf {
+        let base = Self::settings_dir().join("scratch");
+        base.join(project_id.unwrap_or("_no_project"))
+    }
+
+    /// Base scratch directory `$HOME/.conescope/scratch/` (for `is_scratch_file` checks).
+    #[must_use]
+    pub fn scratch_base_dir() -> PathBuf {
+        Self::settings_dir().join("scratch")
+    }
+
+    /// Returns `$HOME/.conescope/archives/scratches/{project_id}/`.
+    #[must_use]
+    pub fn archive_dir(project_id: Option<&str>) -> PathBuf {
+        Self::settings_dir()
+            .join("archives")
+            .join("scratches")
+            .join(project_id.unwrap_or("_no_project"))
+    }
+
+    /// Returns true if the path is inside the scratch directory.
+    #[must_use]
+    pub fn is_scratch_file(path: &Path) -> bool {
+        path.starts_with(Self::scratch_base_dir())
+    }
+
+    /// Generate an untitled filename: `Untitled-{n+1}`.
+    #[must_use]
+    pub fn next_untitled_name(counter: usize) -> String {
+        format!("Untitled-{}", counter + 1)
+    }
+
     /// Returns the path to `settings.json` inside `dir`.
     #[must_use]
     pub fn file_path(dir: &Path) -> PathBuf {
@@ -225,5 +260,49 @@ mod tests {
         assert_eq!(s.theme, "light");
         assert_eq!(s.font_family, "Menlo");
         assert_eq!(s.editor_font_size, 13);
+    }
+
+    #[test]
+    fn scratch_dir_is_inside_settings_dir() {
+        let scratch = SettingsJson::scratch_dir(Some("proj-1"));
+        let settings = SettingsJson::settings_dir();
+        assert!(scratch.starts_with(&settings));
+        assert!(scratch.ends_with("proj-1"));
+
+        let no_proj = SettingsJson::scratch_dir(None);
+        assert!(no_proj.ends_with("_no_project"));
+    }
+
+    #[test]
+    fn is_scratch_file_detects_scratch_paths() {
+        let scratch = SettingsJson::scratch_dir(Some("proj-1"));
+        let path = scratch.join("Untitled-1");
+        assert!(SettingsJson::is_scratch_file(&path));
+
+        let no_proj = SettingsJson::scratch_dir(None);
+        assert!(SettingsJson::is_scratch_file(&no_proj.join("Untitled-2")));
+
+        assert!(!SettingsJson::is_scratch_file(Path::new("/tmp/foo.rs")));
+    }
+
+    #[test]
+    fn archive_dir_structure() {
+        let archive = SettingsJson::archive_dir(Some("proj-1"));
+        let settings = SettingsJson::settings_dir();
+        assert!(archive.starts_with(&settings));
+        assert!(
+            archive
+                .to_string_lossy()
+                .contains("archives/scratches/proj-1")
+        );
+
+        let no_proj = SettingsJson::archive_dir(None);
+        assert!(no_proj.to_string_lossy().contains("_no_project"));
+    }
+
+    #[test]
+    fn next_untitled_name_increments() {
+        assert_eq!(SettingsJson::next_untitled_name(0), "Untitled-1");
+        assert_eq!(SettingsJson::next_untitled_name(4), "Untitled-5");
     }
 }

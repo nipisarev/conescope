@@ -7,6 +7,7 @@ const MAX_FILE_SIZE: u64 = 10 * 1_024 * 1_024; // 10 MB (ropey handles large fil
 #[derive(Debug, Clone)]
 pub enum CodeEditorEvent {
     FileOpened(String),
+    FileSavedAs(String),
 }
 
 impl EventEmitter<CodeEditorEvent> for CodeEditor {}
@@ -58,10 +59,18 @@ impl CodeEditor {
                 .searchable(true)
         });
 
-        cx.subscribe(&state, |this, _state, event, _cx| {
+        cx.subscribe(&state, |this, _state, event, cx| {
             if let InputEvent::Change = event {
-                // Mark as dirty — content changed by user
-                let _ = this;
+                if let Some(ref path) = this.file_path {
+                    if conescope_core::settings::SettingsJson::is_scratch_file(
+                        std::path::Path::new(path),
+                    ) {
+                        if let Some(ref editor) = this.editor_state {
+                            let content = editor.read(cx).value().to_string();
+                            let _ = std::fs::write(path, content);
+                        }
+                    }
+                }
             }
         })
         .detach();
@@ -131,6 +140,50 @@ impl CodeEditor {
             return Ok(());
         };
         std::fs::write(path, content)
+    }
+
+    /// Open a native "Save As" dialog. On success, writes content to the chosen path,
+    /// deletes the scratch file, and emits `FileSavedAs`.
+    pub fn save_as(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(ref current_path) = self.file_path else {
+            return;
+        };
+        let content = self
+            .editor_state
+            .as_ref()
+            .map(|s| s.read(cx).value().to_string())
+            .unwrap_or_default();
+        let old_path = current_path.clone();
+
+        cx.spawn(async move |this, cx| {
+            let handle = rfd::AsyncFileDialog::new()
+                .set_file_name("Untitled")
+                .save_file()
+                .await;
+
+            if let Some(file) = handle {
+                let new_path = file.path().to_string_lossy().to_string();
+                // Write content to new location
+                if std::fs::write(&new_path, &content).is_ok() {
+                    // Delete old scratch file
+                    if conescope_core::settings::SettingsJson::is_scratch_file(
+                        std::path::Path::new(&old_path),
+                    ) {
+                        let _ = std::fs::remove_file(&old_path);
+                    }
+                    cx.update(|cx| {
+                        if let Some(editor) = this.upgrade() {
+                            editor.update(cx, |editor, cx| {
+                                editor.file_path = Some(new_path.clone());
+                                cx.emit(CodeEditorEvent::FileSavedAs(new_path));
+                                cx.notify();
+                            });
+                        }
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
     pub fn close_file(&mut self, cx: &mut gpui::Context<Self>) {

@@ -1,4 +1,4 @@
-use conescope_ui::terminal::terminal_view::{Copy, Paste, SelectAll};
+use conescope_ui::terminal::terminal_view::{Copy, Paste, SelectAll, SendBackTab, SendTab};
 use gpui::{AnyWindowHandle, AppContext, KeyBinding, WindowOptions};
 use tracing::info;
 
@@ -83,6 +83,12 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-v", Paste, None),
     ]);
 
+    // Terminal-scoped: override gpui_component Root's tab focus cycling
+    cx.bind_keys([
+        KeyBinding::new("tab", SendTab, Some("Terminal")),
+        KeyBinding::new("shift-tab", SendBackTab, Some("Terminal")),
+    ]);
+
     text_input::register_key_bindings(cx);
 
     cx.bind_keys([
@@ -154,6 +160,27 @@ fn load_data_async(
                         cx,
                     );
                 });
+
+                // Initialize git store for the focused instance's project
+                let focused_project_path = app_state_for_restore
+                    .read(cx)
+                    .focused_instance_id(cx)
+                    .and_then(|fid| {
+                        instance_list
+                            .read(cx)
+                            .find_by_id(fid, cx)
+                            .and_then(|e| e.read(cx).instance.project_id.clone())
+                    })
+                    .and_then(|pid| {
+                        project_store_for_restore
+                            .read(cx)
+                            .get(&pid)
+                            .map(|p| p.path.clone())
+                    });
+                if let Some(path) = focused_project_path {
+                    let git_store = app_state_for_restore.read(cx).git_store.clone();
+                    git_store.update(cx, |store, cx| store.set_project(Some(&path), cx));
+                }
             });
             info!("Terminals restored");
         }

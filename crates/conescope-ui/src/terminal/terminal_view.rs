@@ -14,7 +14,7 @@ use gpui::{
 use super::terminal::{Terminal, TerminalColors};
 use super::terminal_element::{PendingResize, TerminalElement};
 
-actions!(terminal, [Copy, Paste, SelectAll]);
+actions!(terminal, [Copy, Paste, SelectAll, SendTab, SendBackTab]);
 
 /// Events emitted by `TerminalView`.
 #[derive(Debug, Clone)]
@@ -230,6 +230,21 @@ impl TerminalView {
         cx.notify();
     }
 
+    fn send_tab(&mut self, _: &SendTab, _window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
+        self.terminal.read(cx).input(b"\t");
+        cx.notify();
+    }
+
+    fn send_back_tab(
+        &mut self,
+        _: &SendBackTab,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.terminal.read(cx).input(b"\x1b[Z");
+        cx.notify();
+    }
+
     /// Convert a pixel position relative to the window to a terminal grid point.
     fn pixel_to_grid(
         &self,
@@ -294,6 +309,8 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::select_all))
+            .on_action(cx.listener(Self::send_tab))
+            .on_action(cx.listener(Self::send_back_tab))
             .text_size(font_size)
             .child(TerminalElement::new(
                 terminal,
@@ -309,6 +326,7 @@ impl Render for TerminalView {
 }
 
 /// Encode a GPUI keystroke to terminal escape bytes.
+#[allow(clippy::too_many_lines)]
 fn encode_keystroke(keystroke: &gpui::Keystroke, mode: TermMode) -> Option<Cow<'static, [u8]>> {
     let key = keystroke.key_char.as_deref().unwrap_or("");
     let modifiers = &keystroke.modifiers;
@@ -392,27 +410,35 @@ fn encode_keystroke(keystroke: &gpui::Keystroke, mode: TermMode) -> Option<Cow<'
         return result;
     }
 
+    // Ctrl+letter -> control code (0x01-0x1A).
+    // Use keystroke.key (physical key) since key_char is None for control combos on macOS.
+    if modifiers.control {
+        if let Some(ch) = keystroke.key.chars().next() {
+            if ch.is_ascii_alphabetic() {
+                let code = (ch.to_ascii_lowercase() as u8) - b'a' + 1;
+                return Some(Cow::Owned(vec![code]));
+            }
+        }
+    }
+
+    // Alt/Meta prefix (use physical key if key_char unavailable).
+    if modifiers.alt {
+        let ch = key.chars().next().or_else(|| keystroke.key.chars().next());
+        if let Some(ch) = ch {
+            let mut buf = vec![b'\x1b'];
+            let mut tmp = [0u8; 4];
+            let encoded = ch.encode_utf8(&mut tmp);
+            buf.extend_from_slice(encoded.as_bytes());
+            return Some(Cow::Owned(buf));
+        }
+    }
+
     // Character keys.
     if key.is_empty() {
         return None;
     }
 
     let ch = key.chars().next()?;
-
-    // Ctrl+letter -> control code (0x01-0x1A).
-    if modifiers.control && ch.is_ascii_alphabetic() {
-        let code = (ch.to_ascii_lowercase() as u8) - b'a' + 1;
-        return Some(Cow::Owned(vec![code]));
-    }
-
-    // Alt/Meta prefix.
-    if modifiers.alt {
-        let mut buf = vec![b'\x1b'];
-        let mut tmp = [0u8; 4];
-        let encoded = ch.encode_utf8(&mut tmp);
-        buf.extend_from_slice(encoded.as_bytes());
-        return Some(Cow::Owned(buf));
-    }
 
     // Regular character.
     let mut buf = [0u8; 4];

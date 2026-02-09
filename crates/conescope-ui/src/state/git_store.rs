@@ -19,6 +19,7 @@ pub struct GitStore {
     entries: Vec<GitFileEntry>,
     branch: Option<String>,
     current_path: Option<String>,
+    work_dir: Option<String>,
 }
 
 impl std::fmt::Debug for GitStore {
@@ -45,6 +46,7 @@ impl GitStore {
             entries: Vec::new(),
             branch: None,
             current_path: None,
+            work_dir: None,
         }
     }
 
@@ -55,12 +57,14 @@ impl GitStore {
         if let Some(p) = path {
             match GitRepo::open(std::path::Path::new(p)) {
                 Ok(repo) => {
+                    self.work_dir = Some(repo.work_dir().to_string_lossy().to_string());
                     self.repo = Some(Arc::new(Mutex::new(repo)));
                     self.refresh(cx);
                 }
                 Err(e) => {
                     tracing::debug!("no git repo at {p}: {e}");
                     self.repo = None;
+                    self.work_dir = None;
                     self.entries.clear();
                     self.branch = None;
                     cx.notify();
@@ -68,9 +72,25 @@ impl GitStore {
             }
         } else {
             self.repo = None;
+            self.work_dir = None;
             self.entries.clear();
             self.branch = None;
             cx.notify();
+        }
+    }
+
+    /// Convert a relative git path to absolute using the repo `work_dir`.
+    #[must_use]
+    pub fn resolve_path(&self, rel_path: &str) -> String {
+        if let Some(ref wd) = self.work_dir {
+            let mut abs = wd.clone();
+            if !abs.ends_with('/') {
+                abs.push('/');
+            }
+            abs.push_str(rel_path);
+            abs
+        } else {
+            rel_path.to_owned()
         }
     }
 

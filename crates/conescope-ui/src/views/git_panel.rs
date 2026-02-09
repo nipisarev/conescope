@@ -31,6 +31,7 @@ pub struct GitPanel {
     unstaged_expanded: bool,
     selected: Option<(String, StageStatus)>,
     scroll_handle: ScrollHandle,
+    root_handle: ScrollHandle,
     context_menu: Option<ContextMenuState>,
 }
 
@@ -50,6 +51,7 @@ impl GitPanel {
             unstaged_expanded: true,
             selected: None,
             scroll_handle: ScrollHandle::new(),
+            root_handle: ScrollHandle::new(),
             context_menu: None,
         }
     }
@@ -177,6 +179,7 @@ impl Render for GitPanel {
 
         let mut root = div()
             .id("git-panel-root")
+            .track_scroll(&self.root_handle)
             .relative()
             .size_full()
             .flex()
@@ -291,8 +294,13 @@ fn context_menu_items(
         );
     }
 
-    // Discard changes (only for unstaged modified/deleted files)
-    if !staged && matches!(status, FileStatus::Modified | FileStatus::Deleted) {
+    // Discard changes (unstaged modified/deleted/untracked files)
+    if !staged
+        && matches!(
+            status,
+            FileStatus::Modified | FileStatus::Deleted | FileStatus::Untracked
+        )
+    {
         let p = path.clone();
         items.push(
             context_menu_item(
@@ -491,11 +499,16 @@ fn render_file_entry(
         .on_mouse_down(
             MouseButton::Right,
             cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                // Convert window coords to panel-relative coords
+                let root_origin = this.root_handle.bounds().origin;
                 this.context_menu = Some(ContextMenuState {
                     path: path_for_rclick.clone(),
                     status,
                     stage,
-                    position: event.position,
+                    position: Point {
+                        x: event.position.x - root_origin.x,
+                        y: event.position.y - root_origin.y,
+                    },
                 });
                 cx.notify();
             }),

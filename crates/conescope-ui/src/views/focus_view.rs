@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative, rgba};
+use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative};
 
 use crate::theme::Theme;
 
@@ -208,10 +208,12 @@ impl FocusView {
         // GitPanel::OpenFile → open file in editor tabs + code editor
         let cv_for_git = code_editor.clone();
         let et_for_git = editor_tabs.clone();
+        let gs_for_open = git_store.clone();
         cx.subscribe(&git_panel, move |_this, _panel, event, cx| {
-            let GitPanelEvent::OpenFile(path) = event;
-            et_for_git.update(cx, |tabs, cx| tabs.open_tab(path, cx));
-            cv_for_git.update(cx, |viewer, cx| viewer.open_file(path, cx));
+            let GitPanelEvent::OpenFile(rel_path) = event;
+            let abs_path = gs_for_open.read(cx).resolve_path(rel_path);
+            et_for_git.update(cx, |tabs, cx| tabs.open_tab(&abs_path, cx));
+            cv_for_git.update(cx, |viewer, cx| viewer.open_file(&abs_path, cx));
         })
         .detach();
 
@@ -796,8 +798,6 @@ impl Render for FocusView {
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_drag_end));
 
         if sidebar_visible {
-            let app_for_files = self.app_state.clone();
-            let app_for_git = self.app_state.clone();
             root = root
                 .child(
                     div()
@@ -806,16 +806,6 @@ impl Render for FocusView {
                         .flex()
                         .flex_col()
                         .bg(theme.panel)
-                        .child(render_sidebar_tab_strip(
-                            sidebar_tab,
-                            cx.listener(move |_this, _, _, cx| {
-                                app_for_files.update(cx, AppState::toggle_sidebar);
-                            }),
-                            cx.listener(move |_this, _, _, cx| {
-                                app_for_git.update(cx, AppState::toggle_git_panel);
-                            }),
-                            &theme,
-                        ))
                         .child(match sidebar_tab {
                             SidebarTab::Files => self.file_tree.clone().into_any_element(),
                             SidebarTab::Git => self.git_panel.clone().into_any_element(),
@@ -836,62 +826,6 @@ impl Render for FocusView {
 
         root.child(main_area)
     }
-}
-
-/// Sidebar tab strip: "Files" / "Git" tabs at top of sidebar.
-fn render_sidebar_tab_strip(
-    active: SidebarTab,
-    on_files: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-    on_git: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-    theme: &Theme,
-) -> gpui::Div {
-    div()
-        .h(px(24.))
-        .flex()
-        .flex_row()
-        .items_center()
-        .border_b_1()
-        .border_color(theme.border)
-        .bg(theme.background)
-        .text_size(px(11.))
-        .child(render_sidebar_tab_item(
-            "Files",
-            active == SidebarTab::Files,
-            on_files,
-            theme,
-        ))
-        .child(render_sidebar_tab_item(
-            "Git",
-            active == SidebarTab::Git,
-            on_git,
-            theme,
-        ))
-}
-
-fn render_sidebar_tab_item(
-    label: &str,
-    active: bool,
-    on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-    theme: &Theme,
-) -> gpui::Div {
-    let fg = if active { theme.text } else { theme.text_muted };
-    let border = if active {
-        theme.accent
-    } else {
-        rgba(0x0000_0000)
-    };
-    div()
-        .px(px(10.))
-        .h_full()
-        .flex()
-        .items_center()
-        .text_color(fg)
-        .border_b_2()
-        .border_color(border)
-        .cursor_pointer()
-        .hover(|s| s.text_color(theme.text))
-        .on_mouse_down(MouseButton::Left, on_click)
-        .child(label.to_owned())
 }
 
 /// Resize the focused terminal PTY and view to match the available pixel area.
