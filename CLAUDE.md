@@ -46,15 +46,24 @@ crates/
 │   │   ├── instance_entry.rs   # Single instance: PTY handle, terminal view, metadata
 │   │   ├── project_store.rs    # Saved project paths
 │   │   ├── settings_store.rs   # Session state (DB) + user settings (JSON file)
+│   │   ├── git_store.rs        # GitStore entity: bridges conescope-git to UI
 │   │   └── db_worker.rs        # Async SQLite via flume channels
 │   └── src/views/
 │       ├── app_view.rs         # Root view, action handlers, mode switching
 │       ├── overview_grid.rs    # Grid of instance tiles
 │       ├── focus_view.rs       # Single instance full-screen
 │       ├── activity_bar.rs     # Left sidebar with instance icons
+│       ├── git_panel.rs        # Git sidebar: staged/unstaged files, context menu
+│       ├── diff_viewer.rs      # Unified diff viewer for editor area
 │       ├── new_instance_modal.rs # Create instance dialog
 │       ├── settings_view.rs    # Full-screen JSON settings editor
 │       └── top_bar.rs          # Window title bar
+├── conescope-git/      # Git operations: hybrid git2 + CLI backend
+│   └── src/
+│       ├── cli.rs              # Shell git command wrapper
+│       ├── repository.rs       # GitRepo: status, diff, stage, unstage, discard
+│       ├── status.rs           # FileStatus, StageStatus, GitFileEntry types
+│       └── diff.rs             # DiffHunk, DiffLine types
 ├── conescope-core/     # Data types + SQLite (rusqlite). No UI deps.
 │   └── src/
 │       ├── database.rs         # DB init, migrations, WAL mode
@@ -84,6 +93,14 @@ crates/
 - User settings stored in `~/.conescope/settings.json` as typed `SettingsJson` struct. Edited via full-screen `SettingsView` (ViewMode::Settings).
 - Session state (window bounds, panel visibility, view mode) stored in DB `settings` table (`session_state` key).
 - Instance terminals use custom `terminal` module wrapping `alacritty_terminal` (Zed's fork, pure Rust VT parser).
+
+### Git Integration
+- Hybrid backend: `git2` crate for reads (status, diff, branch), shell `git` CLI for writes (stage, unstage, discard).
+- `GitRepo` wraps `git2::Repository` (not `Sync`), stored as `Arc<Mutex<GitRepo>>` in `GitStore`.
+- `GitStore` GPUI entity runs blocking git ops on `cx.background_executor()`, updates state via `cx.update()`.
+- `GitPanel` sidebar view: staged/unstaged file sections, right-click context menu (stage/unstage/discard/open/diff).
+- `DiffViewer` shows unified diffs in editor area, switched via `EditorTab.diff_mode` field.
+- Sidebar tabs (Files/Git) with tab strip header; `Cmd+Shift+G` toggles git panel.
 
 ### Terminal / PTY
 - `portable-pty` spawns shell processes. Master handle stored in `InstanceEntry`.
