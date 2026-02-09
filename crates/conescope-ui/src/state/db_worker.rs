@@ -52,6 +52,10 @@ pub enum DbCommand {
         value: String,
         reply: flume::Sender<Result<()>>,
     },
+    DeleteSetting {
+        key: String,
+        reply: flume::Sender<Result<()>>,
+    },
     // Question ops
     GetPendingQuestions {
         reply: flume::Sender<Result<Vec<QuestionWithContext>>>,
@@ -81,6 +85,7 @@ impl std::fmt::Debug for DbCommand {
             Self::DeleteProject { id, .. } => write!(f, "DeleteProject({id})"),
             Self::GetAllSettings { .. } => write!(f, "GetAllSettings"),
             Self::SetSetting { key, .. } => write!(f, "SetSetting({key})"),
+            Self::DeleteSetting { key, .. } => write!(f, "DeleteSetting({key})"),
             Self::GetPendingQuestions { .. } => write!(f, "GetPendingQuestions"),
             Self::AnswerQuestion { id, .. } => write!(f, "AnswerQuestion({id})"),
             Self::Shutdown => write!(f, "Shutdown"),
@@ -162,6 +167,9 @@ impl DbHandle {
                 }
                 DbCommand::SetSetting { key, value, reply } => {
                     let _ = reply.send(db.set_setting(&key, &value));
+                }
+                DbCommand::DeleteSetting { key, reply } => {
+                    let _ = reply.send(db.delete_setting(&key));
                 }
 
                 DbCommand::GetPendingQuestions { reply } => {
@@ -275,6 +283,11 @@ impl DbHandle {
             value,
             reply: tx,
         });
+    }
+
+    pub fn delete_setting(&self, key: String) {
+        let (tx, _rx) = flume::bounded(1);
+        let _ = self.tx.send(DbCommand::DeleteSetting { key, reply: tx });
     }
 
     #[must_use]

@@ -102,6 +102,16 @@ impl AppState {
     }
 
     pub fn focus_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
+        let old_id = self
+            .settings_store
+            .read(cx)
+            .focused_instance_id()
+            .map(str::to_owned);
+        // Switch per-instance layout: save old, load new
+        self.settings_store.update(cx, |store, _| {
+            store.switch_instance_layout(old_id.as_deref(), id);
+        });
+        // Update global session
         let mut session = self.settings_store.read(cx).session().clone();
         session.view_mode = ViewMode::Focus;
         session.focused_instance_id = Some(id.to_owned());
@@ -203,6 +213,10 @@ impl AppState {
         il.update(cx, |list, cx| {
             list.remove_instance(&action.instance_id, cx);
         });
+        // Clean up orphaned per-instance layout from cache and DB
+        self.settings_store.update(cx, |store, _| {
+            store.remove_instance_layout(&action.instance_id);
+        });
         cx.notify();
     }
 
@@ -255,60 +269,57 @@ impl AppState {
 
     #[must_use]
     pub fn sidebar_tab(&self, cx: &gpui::App) -> SidebarTab {
-        self.settings_store.read(cx).session().sidebar_tab
+        self.settings_store.read(cx).layout().sidebar_tab
     }
 
     #[must_use]
     pub fn sidebar_visible(&self, cx: &gpui::App) -> bool {
-        self.settings_store.read(cx).session().folder_panel_visible
+        self.settings_store.read(cx).layout().folder_panel_visible
     }
 
     #[must_use]
     pub fn editor_visible(&self, cx: &gpui::App) -> bool {
-        self.settings_store.read(cx).session().editor_panel_visible
+        self.settings_store.read(cx).layout().editor_panel_visible
     }
 
     #[must_use]
     pub fn terminal_visible(&self, cx: &gpui::App) -> bool {
-        self.settings_store
-            .read(cx)
-            .session()
-            .terminal_panel_visible
+        self.settings_store.read(cx).layout().terminal_panel_visible
     }
 
     #[must_use]
     pub fn sidebar_width(&self, cx: &gpui::App) -> f32 {
-        self.settings_store.read(cx).session().sidebar_width
+        self.settings_store.read(cx).layout().sidebar_width
     }
 
     #[must_use]
     pub fn terminal_height(&self, cx: &gpui::App) -> f32 {
-        self.settings_store.read(cx).session().terminal_height
+        self.settings_store.read(cx).layout().terminal_height
     }
 
     pub fn toggle_sidebar(&mut self, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        if session.folder_panel_visible && session.sidebar_tab == SidebarTab::Files {
-            session.folder_panel_visible = false;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        if layout.folder_panel_visible && layout.sidebar_tab == SidebarTab::Files {
+            layout.folder_panel_visible = false;
         } else {
-            session.folder_panel_visible = true;
-            session.sidebar_tab = SidebarTab::Files;
+            layout.folder_panel_visible = true;
+            layout.sidebar_tab = SidebarTab::Files;
         }
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
     pub fn toggle_git_panel(&mut self, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        if session.folder_panel_visible && session.sidebar_tab == SidebarTab::Git {
-            session.folder_panel_visible = false;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        if layout.folder_panel_visible && layout.sidebar_tab == SidebarTab::Git {
+            layout.folder_panel_visible = false;
         } else {
-            session.folder_panel_visible = true;
-            session.sidebar_tab = SidebarTab::Git;
+            layout.folder_panel_visible = true;
+            layout.sidebar_tab = SidebarTab::Git;
         }
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
@@ -320,58 +331,58 @@ impl AppState {
     }
 
     pub fn toggle_editor(&mut self, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        session.editor_panel_visible = !session.editor_panel_visible;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        layout.editor_panel_visible = !layout.editor_panel_visible;
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
     pub fn toggle_terminal(&mut self, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        session.terminal_panel_visible = !session.terminal_panel_visible;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        layout.terminal_panel_visible = !layout.terminal_panel_visible;
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
     pub fn set_sidebar_width(&mut self, width: f32, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        session.sidebar_width = width;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        layout.sidebar_width = width;
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
     pub fn set_terminal_height(&mut self, height: f32, cx: &mut gpui::Context<Self>) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        session.terminal_height = height;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        layout.terminal_height = height;
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
         cx.notify();
     }
 
-    /// Save open editor tabs to session state.
+    /// Save open editor tabs to the current instance's layout.
     pub fn save_editor_tabs(
         &mut self,
         tabs: Vec<String>,
         active: Option<String>,
         cx: &mut gpui::Context<Self>,
     ) {
-        let mut session = self.settings_store.read(cx).session().clone();
-        session.open_editor_tabs = tabs;
-        session.active_editor_tab = active;
+        let mut layout = self.settings_store.read(cx).layout().clone();
+        layout.open_editor_tabs = tabs;
+        layout.active_editor_tab = active;
         self.settings_store
-            .update(cx, |store, _| store.save_session(session));
+            .update(cx, |store, _| store.save_layout(layout));
     }
 
-    /// Get saved editor tabs from session state.
+    /// Get saved editor tabs from the current instance's layout.
     #[must_use]
     pub fn saved_editor_tabs(&self, cx: &gpui::App) -> (Vec<String>, Option<String>) {
-        let session = self.settings_store.read(cx).session();
+        let layout = self.settings_store.read(cx).layout();
         (
-            session.open_editor_tabs.clone(),
-            session.active_editor_tab.clone(),
+            layout.open_editor_tabs.clone(),
+            layout.active_editor_tab.clone(),
         )
     }
 

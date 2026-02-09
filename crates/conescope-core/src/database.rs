@@ -337,6 +337,12 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_setting(&self, key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     pub fn get_all_settings(&self) -> Result<Vec<(String, String)>> {
         let mut stmt = self.conn.prepare("SELECT key, value FROM settings")?;
         let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
@@ -512,6 +518,22 @@ mod tests {
 
         let all = db.get_all_settings().unwrap();
         assert!(all.len() >= 4);
+    }
+
+    #[test]
+    fn delete_setting() {
+        let db = test_db();
+        db.set_setting("custom_key", "custom_value").unwrap();
+        assert_eq!(
+            db.get_setting("custom_key").unwrap().as_deref(),
+            Some("custom_value")
+        );
+
+        db.delete_setting("custom_key").unwrap();
+        assert!(db.get_setting("custom_key").unwrap().is_none());
+
+        // Deleting non-existent key is a no-op
+        db.delete_setting("nonexistent").unwrap();
     }
 
     #[test]

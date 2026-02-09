@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::prelude::*;
@@ -39,8 +38,6 @@ pub struct FocusView {
     editor_tabs: Entity<EditorTabs>,
     git_panel: Entity<GitPanel>,
     diff_viewer: Entity<DiffViewer>,
-    /// Per-instance editor tab state: id → (paths, active).
-    instance_tabs: HashMap<String, (Vec<String>, Option<String>)>,
     /// Last focused instance ID, used to detect switches.
     last_focused_id: Option<String>,
 }
@@ -245,7 +242,6 @@ impl FocusView {
             editor_tabs,
             git_panel,
             diff_viewer,
-            instance_tabs: HashMap::new(),
             last_focused_id,
         }
     }
@@ -615,32 +611,16 @@ impl Render for FocusView {
             .focused_instance_id(cx)
             .map(str::to_owned);
 
-        // Detect instance switch: save outgoing tabs, restore incoming tabs
+        // Detect instance switch: layout already switched by focus_instance()
         if focused_id != self.last_focused_id {
-            // Save outgoing instance's tabs
-            if let Some(ref old_id) = self.last_focused_id {
-                let paths = self.editor_tabs.read(cx).tab_paths();
-                let active = self.editor_tabs.read(cx).active_path().map(str::to_owned);
-                self.instance_tabs.insert(old_id.clone(), (paths, active));
-            }
-            // Restore incoming instance's tabs (or clear)
-            if let Some((paths, active)) = focused_id
-                .as_ref()
-                .and_then(|id| self.instance_tabs.get(id))
-                .cloned()
-            {
-                self.editor_tabs.update(cx, |tabs, _| {
-                    tabs.restore_tabs(&paths, active.as_deref());
-                });
-                if let Some(path) = self.editor_tabs.read(cx).active_path().map(str::to_owned) {
-                    self.code_editor.update(cx, |v, cx| v.open_file(&path, cx));
-                } else {
-                    self.code_editor.update(cx, CodeEditor::close_file);
-                }
+            // Restore editor tabs from the new instance's layout
+            let (paths, active) = self.app_state.read(cx).saved_editor_tabs(cx);
+            self.editor_tabs.update(cx, |tabs, _| {
+                tabs.restore_tabs(&paths, active.as_deref());
+            });
+            if let Some(path) = self.editor_tabs.read(cx).active_path().map(str::to_owned) {
+                self.code_editor.update(cx, |v, cx| v.open_file(&path, cx));
             } else {
-                self.editor_tabs.update(cx, |tabs, _| {
-                    tabs.restore_tabs(&[], None);
-                });
                 self.code_editor.update(cx, CodeEditor::close_file);
             }
 
