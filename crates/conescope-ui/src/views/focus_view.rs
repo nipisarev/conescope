@@ -98,13 +98,21 @@ impl FocusView {
         cx.subscribe(&editor_tabs, move |_this, _tabs, event, cx| {
             match event {
                 EditorTabsEvent::SelectTab(_idx) => {
-                    if let Some(path) = et2.read(cx).active_path().map(str::to_owned) {
-                        cv2.update(cx, |v, cx| v.open_file(&path, cx));
+                    let active = et2.read(cx).active_tab().cloned();
+                    if let Some(tab) = active {
+                        if tab.diff_mode.is_none() {
+                            cv2.update(cx, |v, cx| v.open_file(&tab.path, cx));
+                        }
+                        // Diff tabs: DiffViewer already has content; render will switch view
                     }
                 }
                 EditorTabsEvent::CloseTab(_idx) => {
-                    if let Some(path) = et2.read(cx).active_path().map(str::to_owned) {
-                        cv2.update(cx, |v, cx| v.open_file(&path, cx));
+                    let active = et2.read(cx).active_tab().cloned();
+                    if let Some(tab) = active {
+                        if tab.diff_mode.is_none() {
+                            cv2.update(cx, |v, cx| v.open_file(&tab.path, cx));
+                        }
+                        // Diff tabs: render will switch view automatically
                     } else {
                         cv2.update(cx, CodeEditor::close_file);
                     }
@@ -174,15 +182,18 @@ impl FocusView {
         })
         .detach();
 
-        // GitStore::OpenDiff → diff the file and show in DiffViewer
+        // GitStore::OpenDiff → diff the file, open diff tab, show in DiffViewer
         let dv_for_git = diff_viewer.clone();
         let gs_for_diff = git_store.clone();
+        let et_for_diff = editor_tabs.clone();
         cx.subscribe(&git_store, move |_this, _store, event, cx| {
             if let GitStoreEvent::OpenDiff { path, staged } = event {
                 let path = path.clone();
                 let staged = *staged;
                 let dv = dv_for_git.clone();
                 let path_for_cb = path.clone();
+                // Open a diff tab in editor tabs
+                et_for_diff.update(cx, |tabs, cx| tabs.open_diff_tab(&path, staged, cx));
                 gs_for_diff.update(cx, |store, cx| {
                     store.diff_file(&path, staged, cx, move |hunks, cx| {
                         dv.update(cx, |viewer, cx| {
@@ -496,6 +507,8 @@ fn render_terminal_pane(
 fn render_editor_area(
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
+    diff_viewer: &Entity<DiffViewer>,
+    active_diff_mode: Option<bool>,
     theme: &Theme,
 ) -> gpui::Div {
     div()
@@ -510,7 +523,11 @@ fn render_editor_area(
                 .flex_1()
                 .min_h_0()
                 .overflow_hidden()
-                .child(code_editor.clone()),
+                .child(if active_diff_mode.is_some() {
+                    diff_viewer.clone().into_any_element()
+                } else {
+                    code_editor.clone().into_any_element()
+                }),
         )
 }
 
@@ -520,6 +537,8 @@ fn render_main_area(
     terminal_visible: bool,
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
+    diff_viewer: &Entity<DiffViewer>,
+    active_diff_mode: Option<bool>,
     terminal_view: Option<&gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<&gpui::FocusHandle>,
     tab_bar: gpui::Div,
@@ -533,7 +552,13 @@ fn render_main_area(
     let mut col = div().flex_1().min_h_0().flex().flex_col().overflow_hidden();
 
     if editor_visible {
-        col = col.child(render_editor_area(editor_tabs, code_editor, theme));
+        col = col.child(render_editor_area(
+            editor_tabs,
+            code_editor,
+            diff_viewer,
+            active_diff_mode,
+            theme,
+        ));
     }
 
     if editor_visible && terminal_visible {
@@ -728,6 +753,12 @@ impl Render for FocusView {
             .as_ref()
             .is_some_and(|d| d.target == DragTarget::Terminal);
 
+        let active_diff_mode = self
+            .editor_tabs
+            .read(cx)
+            .active_tab()
+            .and_then(|t| t.diff_mode);
+
         let tab_bar = self.build_tab_bar(&entry, &theme, cx);
 
         let main_area = render_main_area(
@@ -735,6 +766,8 @@ impl Render for FocusView {
             terminal_visible,
             &self.editor_tabs,
             &self.code_editor,
+            &self.diff_viewer,
+            active_diff_mode,
             terminal_view.as_ref(),
             click_focus_handle.as_ref(),
             tab_bar,

@@ -13,6 +13,7 @@ const BORDER_COLOR: u32 = 0x3c3c_3cff;
 pub enum EditorTabsEvent {
     SelectTab(usize),
     CloseTab(usize),
+    NewUntitled,
 }
 
 impl EventEmitter<EditorTabsEvent> for EditorTabs {}
@@ -22,12 +23,17 @@ pub struct EditorTab {
     pub path: String,
     pub name: String,
     pub modified: bool,
+    /// `Some(staged)` for diff tabs, `None` for file tabs.
+    pub diff_mode: Option<bool>,
 }
 
 pub struct EditorTabs {
     app_state: Entity<AppState>,
     tabs: Vec<EditorTab>,
     active_index: Option<usize>,
+    next_untitled_id: usize,
+    /// Current `project_id` for scratch file creation (set by `FocusView` on instance switch).
+    pub current_project_id: Option<String>,
 }
 
 impl std::fmt::Debug for EditorTabs {
@@ -35,6 +41,7 @@ impl std::fmt::Debug for EditorTabs {
         f.debug_struct("EditorTabs")
             .field("tabs", &self.tabs)
             .field("active_index", &self.active_index)
+            .field("next_untitled_id", &self.next_untitled_id)
             .finish_non_exhaustive()
     }
 }
@@ -46,6 +53,8 @@ impl EditorTabs {
             app_state,
             tabs: Vec::new(),
             active_index: None,
+            next_untitled_id: 0,
+            current_project_id: None,
         }
     }
 
@@ -67,6 +76,7 @@ impl EditorTabs {
             path: path.to_owned(),
             name,
             modified: false,
+            diff_mode: None,
         });
         let idx = self.tabs.len() - 1;
         self.active_index = Some(idx);
@@ -74,10 +84,57 @@ impl EditorTabs {
         cx.notify();
     }
 
-    /// Close a tab by index.
+    /// Open a diff tab. If already open, just focus it.
+    pub fn open_diff_tab(&mut self, path: &str, staged: bool, cx: &mut gpui::Context<Self>) {
+        // Check if this exact diff is already open
+        if let Some(idx) = self
+            .tabs
+            .iter()
+            .position(|t| t.path == path && t.diff_mode == Some(staged))
+        {
+            self.active_index = Some(idx);
+            cx.emit(EditorTabsEvent::SelectTab(idx));
+            cx.notify();
+            return;
+        }
+
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().to_string());
+
+        self.tabs.push(EditorTab {
+            path: path.to_owned(),
+            name: format!("{file_name} [diff]"),
+            modified: false,
+            diff_mode: Some(staged),
+        });
+        let idx = self.tabs.len() - 1;
+        self.active_index = Some(idx);
+        cx.emit(EditorTabsEvent::SelectTab(idx));
+        cx.notify();
+    }
+
+    /// Close a tab by index. Scratch files are archived instead of deleted.
     pub fn close_tab(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
         if index >= self.tabs.len() {
             return;
+        }
+        // Archive scratch file on close
+        let path = &self.tabs[index].path;
+        if conescope_core::settings::SettingsJson::is_scratch_file(std::path::Path::new(path)) {
+            let path_buf = std::path::PathBuf::from(path);
+            // Extract project_id from path: scratch/{project_id}/Untitled-N
+            let project_id = path_buf
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string());
+            let archive =
+                conescope_core::settings::SettingsJson::archive_dir(project_id.as_deref());
+            std::fs::create_dir_all(&archive).ok();
+            if let Some(file_name) = path_buf.file_name() {
+                let dest = archive.join(file_name);
+                let _ = std::fs::rename(path, &dest);
+            }
         }
         self.tabs.remove(index);
         // Adjust active index
@@ -117,16 +174,26 @@ impl EditorTabs {
             .map(|t| t.path.as_str())
     }
 
+    /// Currently active tab (if any).
+    #[must_use]
+    pub fn active_tab(&self) -> Option<&EditorTab> {
+        self.active_index.and_then(|idx| self.tabs.get(idx))
+    }
+
     /// Number of open tabs.
     #[must_use]
     pub fn tab_count(&self) -> usize {
         self.tabs.len()
     }
 
-    /// Get all open tab paths (for session persistence).
+    /// Get all open tab paths (for session persistence). Diff tabs excluded.
     #[must_use]
     pub fn tab_paths(&self) -> Vec<String> {
-        self.tabs.iter().map(|t| t.path.clone()).collect()
+        self.tabs
+            .iter()
+            .filter(|t| t.diff_mode.is_none())
+            .map(|t| t.path.clone())
+            .collect()
     }
 
     /// Restore tabs from saved paths. Does not emit events.
@@ -140,11 +207,70 @@ impl EditorTabs {
                 path: path.clone(),
                 name,
                 modified: false,
+                diff_mode: None,
             });
         }
         self.active_index = active.and_then(|a| self.tabs.iter().position(|t| t.path == a));
         if self.active_index.is_none() && !self.tabs.is_empty() {
             self.active_index = Some(0);
+        }
+    }
+
+    /// Create a new untitled scratch file and open it as a tab.
+    /// Returns the scratch file path.
+    pub fn create_untitled(
+        &mut self,
+        project_id: Option<&str>,
+        cx: &mut gpui::Context<Self>,
+    ) -> String {
+        use conescope_core::settings::SettingsJson;
+
+        let scratch_dir = SettingsJson::scratch_dir(project_id);
+        std::fs::create_dir_all(&scratch_dir).ok();
+
+        let name = SettingsJson::next_untitled_name(self.next_untitled_id);
+        self.next_untitled_id += 1;
+
+        let path = scratch_dir.join(&name);
+        // Create empty file
+        std::fs::write(&path, "").ok();
+
+        let path_str = path.to_string_lossy().to_string();
+        self.open_tab(&path_str, cx);
+        cx.emit(EditorTabsEvent::NewUntitled);
+        path_str
+    }
+
+    /// Scan scratch dir and set counter to max existing + 1.
+    pub fn init_counter_from_scratch_dir(&mut self, project_id: Option<&str>) {
+        use conescope_core::settings::SettingsJson;
+
+        let scratch_dir = SettingsJson::scratch_dir(project_id);
+        let max_id = std::fs::read_dir(&scratch_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(std::result::Result::ok)
+            .filter_map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.strip_prefix("Untitled-")
+                    .and_then(|n| n.parse::<usize>().ok())
+            })
+            .max()
+            .unwrap_or(0);
+        self.next_untitled_id = max_id;
+    }
+
+    /// Update the active tab's path (after Save As).
+    pub fn update_active_path(&mut self, new_path: &str, cx: &mut gpui::Context<Self>) {
+        if let Some(idx) = self.active_index {
+            if let Some(tab) = self.tabs.get_mut(idx) {
+                new_path.clone_into(&mut tab.path);
+                tab.name = std::path::Path::new(new_path)
+                    .file_name()
+                    .map_or_else(|| new_path.to_owned(), |n| n.to_string_lossy().to_string());
+                tab.modified = false;
+                cx.notify();
+            }
         }
     }
 }
@@ -158,12 +284,22 @@ impl Render for EditorTabs {
         let theme = self.app_state.read(cx).theme().clone();
 
         if self.tabs.is_empty() {
-            // Empty bar: full bottom border baseline
+            // Empty bar: full bottom border baseline, click to create untitled
             return div()
                 .h(px(28.))
                 .border_b_1()
                 .border_color(rgba(BORDER_COLOR))
-                .bg(theme.background);
+                .bg(theme.background)
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
+                        if event.click_count == 2 {
+                            let pid = this.current_project_id.clone();
+                            this.create_untitled(pid.as_deref(), cx);
+                        }
+                    }),
+                );
         }
 
         let active_bg = theme.editor_bg;
@@ -192,8 +328,16 @@ impl Render for EditorTabs {
             ));
         }
 
-        // Flex spacer with bottom border (continues the baseline)
-        bar.child(border_b_spacer().flex_1())
+        // Flex spacer with bottom border (continues the baseline), click to create untitled
+        bar.child(border_b_spacer().flex_1().cursor_pointer().on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
+                if event.click_count == 2 {
+                    let pid = this.current_project_id.clone();
+                    this.create_untitled(pid.as_deref(), cx);
+                }
+            }),
+        ))
     }
 }
 
