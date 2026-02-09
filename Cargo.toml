@@ -20,12 +20,15 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
+git2 = "0.20"
+which = "7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.2"
 unicode-segmentation = "1"
 rust-embed = "8"
 gpui-component = { git = "https://github.com/longbridge/gpui-component", features = ["tree-sitter-languages"] }
+rfd = "0.15"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
