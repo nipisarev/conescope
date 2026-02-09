@@ -3,6 +3,7 @@ pub mod app_view;
 pub mod code_viewer;
 pub mod colors;
 pub mod confirm_modal;
+pub mod diff_viewer;
 pub mod editor_tabs;
 pub mod error_modal;
 pub mod file_tree;
