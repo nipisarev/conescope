@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use gpui::prelude::*;
-use gpui::{Entity, EventEmitter, MouseButton, ScrollHandle, div, px, rgba};
+use gpui::{Entity, EventEmitter, MouseButton, Pixels, Point, ScrollHandle, div, px, rgba};
 
 use conescope_git::status::{FileStatus, GitFileEntry, StageStatus};
 
@@ -16,6 +16,14 @@ pub enum GitPanelEvent {
 
 impl EventEmitter<GitPanelEvent> for GitPanel {}
 
+/// Tracks which file's context menu is open and where to render it.
+struct ContextMenuState {
+    path: String,
+    status: FileStatus,
+    stage: StageStatus,
+    position: Point<Pixels>,
+}
+
 pub struct GitPanel {
     app_state: Entity<AppState>,
     git_store: Entity<GitStore>,
@@ -23,6 +31,7 @@ pub struct GitPanel {
     unstaged_expanded: bool,
     selected: Option<(String, StageStatus)>,
     scroll_handle: ScrollHandle,
+    context_menu: Option<ContextMenuState>,
 }
 
 impl std::fmt::Debug for GitPanel {
@@ -41,6 +50,7 @@ impl GitPanel {
             unstaged_expanded: true,
             selected: None,
             scroll_handle: ScrollHandle::new(),
+            context_menu: None,
         }
     }
 
@@ -165,15 +175,198 @@ impl Render for GitPanel {
 
         let scroll_div = self.render_sections(&entries, &theme, cx);
 
-        div()
+        let mut root = div()
+            .id("git-panel-root")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .min_h_0()
             .child(render_header_bar(&branch, &theme, cx))
-            .child(scroll_div)
-            .into_any_element()
+            .child(scroll_div);
+
+        // Context menu overlay
+        if let Some(ref menu) = self.context_menu {
+            // Full-screen transparent dismiss backdrop
+            root = root.child(
+                div()
+                    .id("git-ctx-dismiss")
+                    .absolute()
+                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.context_menu = None;
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, _, _, cx| {
+                            this.context_menu = None;
+                            cx.notify();
+                        }),
+                    ),
+            );
+            // The actual menu
+            root = root.child(render_context_menu(menu, &theme, cx));
+        }
+
+        root.into_any_element()
     }
+}
+
+/// Render the context menu as an absolute-positioned overlay.
+fn render_context_menu(
+    menu: &ContextMenuState,
+    theme: &Theme,
+    cx: &mut gpui::Context<GitPanel>,
+) -> impl IntoElement {
+    let x = f32::from(menu.position.x);
+    let y = f32::from(menu.position.y);
+    let items = context_menu_items(menu, theme, cx);
+
+    div()
+        .absolute()
+        .top(px(y))
+        .left(px(x))
+        .w(px(160.))
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.border)
+        .rounded(px(4.))
+        .py(px(4.))
+        .text_size(px(12.))
+        .shadow_md()
+        .children(items)
+}
+
+/// Build the list of context menu item elements for the given menu state.
+fn context_menu_items(
+    menu: &ContextMenuState,
+    theme: &Theme,
+    cx: &mut gpui::Context<GitPanel>,
+) -> Vec<gpui::AnyElement> {
+    let path = menu.path.clone();
+    let stage = menu.stage;
+    let status = menu.status;
+    let staged = stage == StageStatus::Staged;
+
+    let mut items: Vec<gpui::AnyElement> = Vec::new();
+
+    // Stage / Unstage
+    if staged {
+        let p = path.clone();
+        items.push(
+            context_menu_item(
+                "Unstage file",
+                theme,
+                cx.listener(move |this, _, _, cx| {
+                    let p = p.clone();
+                    this.git_store
+                        .update(cx, |store, cx| store.unstage_file(&p, cx));
+                    this.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element(),
+        );
+    } else {
+        let p = path.clone();
+        items.push(
+            context_menu_item(
+                "Stage file",
+                theme,
+                cx.listener(move |this, _, _, cx| {
+                    let p = p.clone();
+                    this.git_store
+                        .update(cx, |store, cx| store.stage_file(&p, cx));
+                    this.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element(),
+        );
+    }
+
+    // Discard changes (only for unstaged modified/deleted files)
+    if !staged && matches!(status, FileStatus::Modified | FileStatus::Deleted) {
+        let p = path.clone();
+        items.push(
+            context_menu_item(
+                "Discard changes",
+                theme,
+                cx.listener(move |this, _, _, cx| {
+                    let p = p.clone();
+                    this.git_store
+                        .update(cx, |store, cx| store.discard_file(&p, cx));
+                    this.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element(),
+        );
+    }
+
+    // Open file
+    {
+        let p = path.clone();
+        items.push(
+            context_menu_item(
+                "Open file",
+                theme,
+                cx.listener(move |this, _, _, cx| {
+                    cx.emit(GitPanelEvent::OpenFile(p.clone()));
+                    this.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element(),
+        );
+    }
+
+    // Show diff
+    {
+        let p = path.clone();
+        items.push(
+            context_menu_item(
+                "Show diff",
+                theme,
+                cx.listener(move |this, _, _, cx| {
+                    this.git_store.update(cx, |_store, cx| {
+                        cx.emit(GitStoreEvent::OpenDiff {
+                            path: p.clone(),
+                            staged,
+                        });
+                    });
+                    this.context_menu = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element(),
+        );
+    }
+
+    items
+}
+
+/// A single clickable context menu item row.
+fn context_menu_item(
+    label: &str,
+    theme: &Theme,
+    on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> gpui::Div {
+    let hover_bg = theme.element_hover;
+    div()
+        .px(px(10.))
+        .py(px(4.))
+        .text_color(theme.text)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover_bg))
+        .on_mouse_down(MouseButton::Left, on_click)
+        .child(label.to_owned())
 }
 
 /// Top bar: "Git: {branch}" + refresh button.
@@ -242,6 +435,7 @@ fn render_file_entry(
 ) -> gpui::Div {
     let path = entry.path.clone();
     let stage = entry.stage;
+    let status = entry.status;
     let staged = stage == StageStatus::Staged;
 
     let file_name = Path::new(&entry.path)
@@ -268,6 +462,7 @@ fn render_file_entry(
     let surface = theme.surface;
 
     let path_for_click = path.clone();
+    let path_for_rclick = path.clone();
 
     div()
         .flex()
@@ -289,6 +484,18 @@ fn render_file_entry(
                         path: path_for_click.clone(),
                         staged,
                     });
+                });
+                cx.notify();
+            }),
+        )
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                this.context_menu = Some(ContextMenuState {
+                    path: path_for_rclick.clone(),
+                    status,
+                    stage,
+                    position: event.position,
                 });
                 cx.notify();
             }),
