@@ -7,6 +7,7 @@ pub mod editor_tabs;
 pub mod error_modal;
 pub mod file_tree;
 pub mod focus_view;
+pub mod git_panel;
 pub mod new_instance_modal;
 pub mod overview_grid;
 pub mod questions_panel;
