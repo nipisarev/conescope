@@ -6,7 +6,8 @@ use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, Quit, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
+    OpenSettings, Quit, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar,
+    ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -97,7 +98,9 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-7", FocusInstance7, None),
         KeyBinding::new("cmd-8", FocusInstance8, None),
         KeyBinding::new("cmd-9", FocusInstance9, None),
+        KeyBinding::new("cmd-s", SaveFile, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
+        KeyBinding::new("cmd-shift-g", ToggleGitPanel, None),
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-t", ToggleTerminal, None),
         KeyBinding::new("cmd-,", OpenSettings, None),

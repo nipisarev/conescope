@@ -4,7 +4,8 @@ use gpui::{AppContext, Entity, div};
 use crate::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, ReturnToOverview, ToggleEditor, ToggleSidebar, ToggleTerminal,
+    OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar,
+    ToggleTerminal,
 };
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -146,6 +147,16 @@ fn with_action_handlers(
                 }
                 focus_view.update(cx, |fv, cx| fv.close_active_tab(window, cx));
             }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            let focus_view = focus_view.clone();
+            move |_: &SaveFile, _window, cx| {
+                if app_state.read(cx).view_mode(cx) != ViewMode::Focus {
+                    return;
+                }
+                focus_view.update(cx, |fv, cx| fv.save_active_file(cx));
+            }
         });
 
     let root = root
@@ -165,6 +176,12 @@ fn with_action_handlers(
             let app_state = app_state.clone();
             move |_: &ToggleTerminal, _window, cx| {
                 app_state.update(cx, AppState::toggle_terminal);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
+            move |_: &ToggleGitPanel, _window, cx| {
+                app_state.update(cx, AppState::toggle_git_panel);
             }
         })
         .on_action({

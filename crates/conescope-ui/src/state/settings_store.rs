@@ -11,6 +11,15 @@ pub enum ViewMode {
     Settings,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarTab {
+    Git,
+    #[default]
+    #[serde(other)]
+    Files,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SessionState {
     pub view_mode: ViewMode,
@@ -18,6 +27,8 @@ pub struct SessionState {
     pub terminal_height: f32,
     pub sidebar_width: f32,
     pub folder_panel_visible: bool,
+    #[serde(default)]
+    pub sidebar_tab: SidebarTab,
     pub editor_panel_visible: bool,
     pub terminal_panel_visible: bool,
     #[serde(default)]
@@ -42,6 +53,7 @@ impl Default for SessionState {
             terminal_height: 300.0,
             sidebar_width: 240.0,
             folder_panel_visible: true,
+            sidebar_tab: SidebarTab::Files,
             editor_panel_visible: true,
             terminal_panel_visible: true,
             open_editor_tabs: Vec::new(),
@@ -165,6 +177,7 @@ mod tests {
             terminal_height: 400.0,
             sidebar_width: 280.0,
             folder_panel_visible: false,
+            sidebar_tab: SidebarTab::Files,
             editor_panel_visible: true,
             terminal_panel_visible: false,
             open_editor_tabs: vec!["/foo/bar.rs".into(), "/baz/qux.ts".into()],

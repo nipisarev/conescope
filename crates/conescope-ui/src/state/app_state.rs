@@ -5,7 +5,7 @@ use super::db_worker::DbHandle;
 use super::git_store::GitStore;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
-use super::settings_store::{SettingsStore, ViewMode};
+use super::settings_store::{SettingsStore, SidebarTab, ViewMode};
 use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::{TextInput, TextInputEvent};
 
@@ -254,6 +254,11 @@ impl AppState {
     // --- Panel visibility ---
 
     #[must_use]
+    pub fn sidebar_tab(&self, cx: &gpui::App) -> SidebarTab {
+        self.settings_store.read(cx).session().sidebar_tab
+    }
+
+    #[must_use]
     pub fn sidebar_visible(&self, cx: &gpui::App) -> bool {
         self.settings_store.read(cx).session().folder_panel_visible
     }
@@ -283,7 +288,25 @@ impl AppState {
 
     pub fn toggle_sidebar(&mut self, cx: &mut gpui::Context<Self>) {
         let mut session = self.settings_store.read(cx).session().clone();
-        session.folder_panel_visible = !session.folder_panel_visible;
+        if session.folder_panel_visible && session.sidebar_tab == SidebarTab::Files {
+            session.folder_panel_visible = false;
+        } else {
+            session.folder_panel_visible = true;
+            session.sidebar_tab = SidebarTab::Files;
+        }
+        self.settings_store
+            .update(cx, |store, _| store.save_session(session));
+        cx.notify();
+    }
+
+    pub fn toggle_git_panel(&mut self, cx: &mut gpui::Context<Self>) {
+        let mut session = self.settings_store.read(cx).session().clone();
+        if session.folder_panel_visible && session.sidebar_tab == SidebarTab::Git {
+            session.folder_panel_visible = false;
+        } else {
+            session.folder_panel_visible = true;
+            session.sidebar_tab = SidebarTab::Git;
+        }
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
         cx.notify();

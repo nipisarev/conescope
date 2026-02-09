@@ -22,5 +22,7 @@ actions!(
         ToggleTerminal,
         OpenSettings,
         CloseSettings,
+        SaveFile,
+        ToggleGitPanel,
     ]
 );
