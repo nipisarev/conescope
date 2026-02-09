@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::prelude::*;
@@ -8,10 +9,14 @@ use crate::theme::Theme;
 use conescope_core::instance::{InstanceType, TerminalTab};
 
 use crate::state::app_state::AppState;
+use crate::state::git_store::GitStoreEvent;
+use crate::state::settings_store::SidebarTab;
 use crate::terminal::spawn_terminal_pane;
-use crate::views::code_viewer::CodeEditor;
+use crate::views::code_viewer::{CodeEditor, CodeEditorEvent};
+use crate::views::diff_viewer::DiffViewer;
 use crate::views::editor_tabs::{EditorTabs, EditorTabsEvent};
 use crate::views::file_tree::{FileTree, FileTreeEvent};
+use crate::views::git_panel::{GitPanel, GitPanelEvent};
 use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size, render_divider};
 use crate::views::terminal_tabs::{ShellTabCb, render_tab_bar};
 
@@ -32,6 +37,12 @@ pub struct FocusView {
     file_tree: Entity<FileTree>,
     code_editor: Entity<CodeEditor>,
     editor_tabs: Entity<EditorTabs>,
+    git_panel: Entity<GitPanel>,
+    diff_viewer: Entity<DiffViewer>,
+    /// Per-instance editor tab state: id → (paths, active).
+    instance_tabs: HashMap<String, (Vec<String>, Option<String>)>,
+    /// Last focused instance ID, used to detect switches.
+    last_focused_id: Option<String>,
 }
 
 impl std::fmt::Debug for FocusView {
@@ -44,10 +55,31 @@ impl std::fmt::Debug for FocusView {
 
 impl FocusView {
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
         let file_tree = cx.new(|_| FileTree::new(app_state.clone()));
         let code_editor = cx.new(|_| CodeEditor::new());
         let editor_tabs = cx.new(|_| EditorTabs::new(app_state.clone()));
+
+        let git_store = app_state.read(cx).git_store.clone();
+        let git_panel = cx.new(|_| GitPanel::new(app_state.clone(), git_store.clone()));
+        let diff_viewer = cx.new(|_| DiffViewer::new(app_state.clone()));
+
+        // Get the initial project_id for the focused instance
+        let initial_project_id = {
+            let state = app_state.read(cx);
+            state.focused_instance_id(cx).and_then(|fid| {
+                state
+                    .instance_list
+                    .read(cx)
+                    .find_by_id(fid, cx)
+                    .and_then(|e| e.read(cx).instance.project_id.clone())
+            })
+        };
+        editor_tabs.update(cx, |tabs, _| {
+            tabs.current_project_id.clone_from(&initial_project_id);
+            tabs.init_counter_from_scratch_dir(initial_project_id.as_deref());
+        });
 
         // FileTree → open file in editor
         let cv = code_editor.clone();
@@ -77,6 +109,13 @@ impl FocusView {
                         cv2.update(cx, CodeEditor::close_file);
                     }
                 }
+                EditorTabsEvent::NewUntitled => {
+                    if let Some(path) = et2.read(cx).active_path().map(str::to_owned) {
+                        cv2.update(cx, |v, cx| v.open_file(&path, cx));
+                    }
+                    // Ensure editor panel is visible
+                    app_state_tabs.update(cx, AppState::ensure_editor_visible);
+                }
             }
             // Persist tab state after any change
             let tabs = et2.read(cx).tab_paths();
@@ -98,12 +137,103 @@ impl FocusView {
             }
         }
 
+        // Restore scratch files not already in saved tabs
+        {
+            let scratch_dir =
+                conescope_core::settings::SettingsJson::scratch_dir(initial_project_id.as_deref());
+            if let Ok(entries) = std::fs::read_dir(&scratch_dir) {
+                let existing_paths: std::collections::HashSet<String> =
+                    editor_tabs.read(cx).tab_paths().into_iter().collect();
+                let mut scratch_paths: Vec<String> = entries
+                    .filter_map(std::result::Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with("Untitled-"))
+                    .map(|e| e.path().to_string_lossy().to_string())
+                    .filter(|p| !existing_paths.contains(p))
+                    .collect();
+                scratch_paths.sort();
+                for path in scratch_paths {
+                    editor_tabs.update(cx, |tabs, cx| tabs.open_tab(&path, cx));
+                }
+            }
+        }
+
+        // Subscribe to FileSavedAs: update tab path + persist
+        let et_for_save = editor_tabs.clone();
+        let app_state_for_save = app_state.clone();
+        cx.subscribe(&code_editor, move |_this, _editor, event, cx| {
+            if let CodeEditorEvent::FileSavedAs(new_path) = event {
+                // Update the tab's path from scratch → real path
+                et_for_save.update(cx, |tabs, cx| {
+                    tabs.update_active_path(new_path, cx);
+                });
+                // Persist tabs
+                let tab_paths = et_for_save.read(cx).tab_paths();
+                let active = et_for_save.read(cx).active_path().map(str::to_owned);
+                app_state_for_save.update(cx, |s, cx| s.save_editor_tabs(tab_paths, active, cx));
+            }
+        })
+        .detach();
+
+        // GitStore::OpenDiff → diff the file and show in DiffViewer
+        let dv_for_git = diff_viewer.clone();
+        let gs_for_diff = git_store.clone();
+        cx.subscribe(&git_store, move |_this, _store, event, cx| {
+            if let GitStoreEvent::OpenDiff { path, staged } = event {
+                let path = path.clone();
+                let staged = *staged;
+                let dv = dv_for_git.clone();
+                let path_for_cb = path.clone();
+                gs_for_diff.update(cx, |store, cx| {
+                    store.diff_file(&path, staged, cx, move |hunks, cx| {
+                        dv.update(cx, |viewer, cx| {
+                            viewer.show_diff(&path_for_cb, staged, hunks, cx);
+                        });
+                    });
+                });
+            }
+        })
+        .detach();
+
+        // GitPanel::OpenFile → open file in editor tabs + code editor
+        let cv_for_git = code_editor.clone();
+        let et_for_git = editor_tabs.clone();
+        cx.subscribe(&git_panel, move |_this, _panel, event, cx| {
+            let GitPanelEvent::OpenFile(path) = event;
+            et_for_git.update(cx, |tabs, cx| tabs.open_tab(path, cx));
+            cv_for_git.update(cx, |viewer, cx| viewer.open_file(path, cx));
+        })
+        .detach();
+
+        // Set initial project path on git store
+        if let Some(ref pid) = initial_project_id {
+            let project_path = app_state
+                .read(cx)
+                .project_store
+                .read(cx)
+                .get(pid)
+                .map(|p| p.path.clone());
+            if let Some(path) = project_path {
+                git_store.update(cx, |store, cx| {
+                    store.set_project(Some(&path), cx);
+                });
+            }
+        }
+
+        let last_focused_id = app_state
+            .read(cx)
+            .focused_instance_id(cx)
+            .map(str::to_owned);
+
         Self {
             app_state,
             drag: None,
             file_tree,
             code_editor,
             editor_tabs,
+            git_panel,
+            diff_viewer,
+            instance_tabs: HashMap::new(),
+            last_focused_id,
         }
     }
 
@@ -143,6 +273,21 @@ impl FocusView {
         _cx: &mut gpui::Context<Self>,
     ) {
         self.drag = None;
+    }
+
+    /// Handle Cmd+S: if active tab is a scratch file, trigger Save As dialog.
+    /// Otherwise, save in place.
+    pub fn save_active_file(&self, cx: &mut gpui::Context<Self>) {
+        let active_path = self.editor_tabs.read(cx).active_path().map(str::to_owned);
+        let Some(path) = active_path else { return };
+
+        if conescope_core::settings::SettingsJson::is_scratch_file(std::path::Path::new(&path)) {
+            self.code_editor.update(cx, CodeEditor::save_as);
+        } else {
+            self.code_editor.update(cx, |editor, cx| {
+                let _ = editor.save_file(cx);
+            });
+        }
     }
 
     /// Close the active tab based on what's focused.
@@ -436,12 +581,104 @@ impl Render for FocusView {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        // Read focused_id before borrowing state for the rest of render
+        let focused_id = self
+            .app_state
+            .read(cx)
+            .focused_instance_id(cx)
+            .map(str::to_owned);
+
+        // Detect instance switch: save outgoing tabs, restore incoming tabs
+        if focused_id != self.last_focused_id {
+            // Save outgoing instance's tabs
+            if let Some(ref old_id) = self.last_focused_id {
+                let paths = self.editor_tabs.read(cx).tab_paths();
+                let active = self.editor_tabs.read(cx).active_path().map(str::to_owned);
+                self.instance_tabs.insert(old_id.clone(), (paths, active));
+            }
+            // Restore incoming instance's tabs (or clear)
+            if let Some((paths, active)) = focused_id
+                .as_ref()
+                .and_then(|id| self.instance_tabs.get(id))
+                .cloned()
+            {
+                self.editor_tabs.update(cx, |tabs, _| {
+                    tabs.restore_tabs(&paths, active.as_deref());
+                });
+                if let Some(path) = self.editor_tabs.read(cx).active_path().map(str::to_owned) {
+                    self.code_editor.update(cx, |v, cx| v.open_file(&path, cx));
+                } else {
+                    self.code_editor.update(cx, CodeEditor::close_file);
+                }
+            } else {
+                self.editor_tabs.update(cx, |tabs, _| {
+                    tabs.restore_tabs(&[], None);
+                });
+                self.code_editor.update(cx, CodeEditor::close_file);
+            }
+
+            // Update project_id on editor_tabs and restore scratch files for new instance
+            let project_id = focused_id.as_ref().and_then(|fid| {
+                let state = self.app_state.read(cx);
+                state
+                    .instance_list
+                    .read(cx)
+                    .find_by_id(fid, cx)
+                    .and_then(|e| e.read(cx).instance.project_id.clone())
+            });
+            self.editor_tabs.update(cx, |tabs, _| {
+                tabs.current_project_id.clone_from(&project_id);
+                tabs.init_counter_from_scratch_dir(project_id.as_deref());
+            });
+
+            // Update git store with project path for the new instance
+            {
+                let git_store = self.app_state.read(cx).git_store.clone();
+                let project_path = project_id.as_ref().and_then(|pid| {
+                    self.app_state
+                        .read(cx)
+                        .project_store
+                        .read(cx)
+                        .get(pid)
+                        .map(|p| p.path.clone())
+                });
+                git_store.update(cx, |store, cx| {
+                    store.set_project(project_path.as_deref(), cx);
+                });
+            }
+
+            // Clear diff viewer on instance switch
+            self.diff_viewer.update(cx, DiffViewer::clear);
+
+            // Restore scratch files for the new instance's project
+            if focused_id.is_some() {
+                let scratch_dir =
+                    conescope_core::settings::SettingsJson::scratch_dir(project_id.as_deref());
+                if let Ok(entries) = std::fs::read_dir(&scratch_dir) {
+                    let existing: std::collections::HashSet<String> =
+                        self.editor_tabs.read(cx).tab_paths().into_iter().collect();
+                    let mut paths: Vec<String> = entries
+                        .filter_map(std::result::Result::ok)
+                        .filter(|e| e.file_name().to_string_lossy().starts_with("Untitled-"))
+                        .map(|e| e.path().to_string_lossy().to_string())
+                        .filter(|p| !existing.contains(p))
+                        .collect();
+                    paths.sort();
+                    for p in paths {
+                        self.editor_tabs
+                            .update(cx, |tabs, cx| tabs.open_tab(&p, cx));
+                    }
+                }
+            }
+
+            self.last_focused_id.clone_from(&focused_id);
+        }
+
         let state = self.app_state.read(cx);
-        let focused_id = state.focused_instance_id(cx);
-
         let theme = state.theme().clone();
+        let sidebar_tab = state.sidebar_tab(cx);
 
-        let Some(id) = focused_id else {
+        let Some(id) = focused_id.as_deref() else {
             return div()
                 .size_full()
                 .flex()
@@ -471,7 +708,8 @@ impl Render for FocusView {
 
         // Terminal instances: force-hide sidebar and editor (no project root / code)
         let sidebar_visible = !is_terminal && state.sidebar_visible(cx);
-        let editor_visible = !is_terminal && state.editor_visible(cx);
+        let editor_visible =
+            !is_terminal && state.editor_visible(cx) && self.editor_tabs.read(cx).tab_count() > 0;
         let terminal_visible = is_terminal || state.terminal_visible(cx);
         let terminal_view = inst.active_terminal_view().cloned();
         let click_focus_handle = inst.active_focus_handle().cloned();
@@ -533,7 +771,10 @@ impl Render for FocusView {
                         .flex()
                         .flex_col()
                         .bg(theme.panel)
-                        .child(self.file_tree.clone()),
+                        .child(match sidebar_tab {
+                            SidebarTab::Files => self.file_tree.clone().into_any_element(),
+                            SidebarTab::Git => self.git_panel.clone().into_any_element(),
+                        }),
                 )
                 .child(render_divider(
                     Axis::Horizontal,
