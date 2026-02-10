@@ -482,6 +482,7 @@ fn render_terminal_pane(
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
                     .px(px(2.))
                     .font_family(SharedString::from(font_family.to_owned()))
                     .text_size(px(font_size))
@@ -489,7 +490,7 @@ fn render_terminal_pane(
                     .child(tv.clone()),
             );
         if fill_height {
-            base.flex_1()
+            base.flex_1().min_h_0()
         } else {
             base.h(px(height))
         }
@@ -502,6 +503,7 @@ fn render_terminal_pane(
             .child(
                 div()
                     .flex_1()
+                    .min_h_0()
                     .flex()
                     .items_center()
                     .justify_center()
@@ -509,7 +511,7 @@ fn render_terminal_pane(
                     .child("Terminal not attached"),
             );
         if fill_height {
-            base.flex_1()
+            base.flex_1().min_h_0()
         } else {
             base.h(px(height))
         }
@@ -805,6 +807,7 @@ impl Render for FocusView {
                         .h_full()
                         .flex()
                         .flex_col()
+                        .overflow_hidden()
                         .bg(theme.panel)
                         .child(match sidebar_tab {
                             SidebarTab::Files => self.file_tree.clone().into_any_element(),

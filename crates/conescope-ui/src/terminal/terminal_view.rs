@@ -192,6 +192,7 @@ impl TerminalView {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        cx.stop_propagation();
         let lh = self.font_size * self.line_height_ratio;
         let delta = event.delta.pixel_delta(px(lh));
         let lines = -(f32::from(delta.y) / lh) as i32;

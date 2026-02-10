@@ -1330,6 +1330,7 @@ impl Render for FileTree {
             .relative()
             .size_full()
             .min_h_0()
+            .overflow_hidden()
             .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_new_folder))
             .on_action(cx.listener(Self::on_reveal_in_finder))
