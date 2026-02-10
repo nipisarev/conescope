@@ -4,8 +4,8 @@ use tracing::info;
 
 use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
-    CancelRename, CloseSettings, CloseTab, CopyPath, CopyRelativePath, FileCopy, FileCut,
-    FileDelete, FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
+    CancelRename, CloseTab, CopyPath, CopyRelativePath, FileCopy, FileCut, FileDelete,
+    FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
     FocusInstance3, FocusInstance4, FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8,
     FocusInstance9, NewFile, NewFolder, NewInstance, OpenSettings, Quit, ReturnToOverview,
     RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar, ToggleTerminal,
@@ -111,7 +111,8 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-t", ToggleTerminal, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
-        KeyBinding::new("escape", CloseSettings, Some("AppView")),
+        // Escape for CloseSettings handled via on_key_down in SettingsView
+        // to avoid capturing escape from Terminal key_context.
     ]);
 
     // FileTree-scoped keybindings (active only when file tree is focused)

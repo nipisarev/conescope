@@ -321,6 +321,11 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .bg(theme.background)
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
+                if event.keystroke.key == "escape" {
+                    this.app_state.update(cx, AppState::close_settings);
+                }
+            }))
             .child(
                 div()
                     .id("settings-scroll")
