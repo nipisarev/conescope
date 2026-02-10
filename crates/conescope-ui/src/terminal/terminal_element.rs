@@ -180,6 +180,12 @@ impl Element for TerminalElement {
             }
         }
 
+        // Offset grid-absolute line coordinates to viewport-relative.
+        // Alacritty's display_iter yields grid coordinates (negative for history lines),
+        // but we need viewport-relative y positions for rendering.
+        #[allow(clippy::cast_possible_wrap)]
+        let display_offset = content.display_offset as i32;
+
         for line in &line_cells {
             if line.is_empty() {
                 continue;
@@ -191,7 +197,7 @@ impl Element for TerminalElement {
             let mut run_style: Option<RunStyle> = None;
             let row = line[0].point.line.0;
             #[allow(clippy::cast_precision_loss)]
-            let y = px(f32::from(line_height) * row as f32);
+            let y = px(f32::from(line_height) * (row + display_offset) as f32);
 
             for cell in line {
                 let (fg, bg) = resolve_cell_colors(cell, &content, &self.colors);
@@ -288,11 +294,12 @@ impl Element for TerminalElement {
             }
         }
 
-        // Cursor rect.
+        // Cursor rect — also offset by display_offset for viewport-relative position.
         #[allow(clippy::cast_precision_loss)]
         let cursor_rect = if content.cursor.visible && self.focused {
             let cursor_x = px(f32::from(cell_width) * content.cursor.point.column.0 as f32);
-            let cursor_y = px(f32::from(line_height) * content.cursor.point.line.0 as f32);
+            let cursor_y =
+                px(f32::from(line_height) * (content.cursor.point.line.0 + display_offset) as f32);
             Some((
                 Bounds::new(
                     bounds.origin + Point::new(cursor_x, cursor_y),

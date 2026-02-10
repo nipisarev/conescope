@@ -8,7 +8,7 @@ use alacritty_terminal::term::TermMode;
 use gpui::prelude::*;
 use gpui::{
     ClipboardItem, CursorStyle, FocusHandle, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, SharedString, actions, div, px,
+    MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, SharedString, actions, div, px, rgba,
 };
 
 use super::terminal::{Terminal, TerminalColors};
@@ -44,6 +44,10 @@ pub struct TerminalView {
     cached_cell_width: f32,
     /// Shared state for deferred resize from Element prepaint → View render.
     pending_resize: PendingResize,
+    /// Cached scroll state for scrollbar rendering (updated via observer + `on_scroll`).
+    cached_display_offset: usize,
+    cached_history_size: usize,
+    cached_screen_lines: usize,
 }
 
 impl std::fmt::Debug for TerminalView {
@@ -65,8 +69,20 @@ impl TerminalView {
         font_size: f32,
         line_height_ratio: f32,
         colors: TerminalColors,
+        cx: &mut gpui::Context<Self>,
     ) -> Self {
         let bg_color = colors.bg;
+        let screen_lines = terminal.read(cx).screen_lines();
+
+        // Observe terminal for content changes (feed_bytes triggers notify).
+        cx.observe(&terminal, |this: &mut Self, terminal, cx| {
+            let t = terminal.read(cx);
+            this.cached_display_offset = t.display_offset();
+            this.cached_history_size = t.history_size();
+            this.cached_screen_lines = t.screen_lines();
+        })
+        .detach();
+
         Self {
             terminal,
             focus_handle,
@@ -79,6 +95,9 @@ impl TerminalView {
             selecting: false,
             cached_cell_width: 8.0,
             pending_resize: Rc::new(Cell::new(None)),
+            cached_display_offset: 0,
+            cached_history_size: 0,
+            cached_screen_lines: screen_lines,
         }
     }
 
@@ -193,15 +212,16 @@ impl TerminalView {
         cx: &mut gpui::Context<Self>,
     ) {
         cx.stop_propagation();
-        let lh = self.font_size * self.line_height_ratio;
-        let delta = event.delta.pixel_delta(px(lh));
-        let lines = -(f32::from(delta.y) / lh) as i32;
-        if lines != 0 {
-            self.terminal.update(cx, |term, _| {
-                term.scroll(lines);
-            });
-            cx.notify();
-        }
+        let line_height = gpui::px(self.font_size * self.line_height_ratio);
+        self.terminal.update(cx, |term, _| {
+            term.scroll_wheel(event, line_height);
+        });
+        // Refresh cached scroll state for scrollbar (scroll_wheel doesn't notify Terminal).
+        let t = self.terminal.read(cx);
+        self.cached_display_offset = t.display_offset();
+        self.cached_history_size = t.history_size();
+        self.cached_screen_lines = t.screen_lines();
+        cx.notify();
     }
 
     fn copy(&mut self, _: &Copy, _window: &mut gpui::Window, cx: &mut gpui::Context<Self>) {
@@ -307,8 +327,42 @@ impl Render for TerminalView {
         let font_size = px(self.font_size);
         let pending_resize = self.pending_resize.clone();
 
-        div()
+        // Compute scrollbar thumb from cached scroll state.
+        let scrollbar = if self.cached_history_size > 0 {
+            let line_height = self.font_size * self.line_height_ratio;
+            #[allow(clippy::cast_precision_loss)]
+            let viewport_h = self.cached_screen_lines as f32 * line_height;
+            #[allow(clippy::cast_precision_loss)]
+            let total_h =
+                (self.cached_screen_lines + self.cached_history_size) as f32 * line_height;
+            let visible_fraction = viewport_h / total_h;
+            let thumb_h = (visible_fraction * viewport_h).max(20.0);
+            #[allow(clippy::cast_precision_loss)]
+            let scroll_fraction = (self.cached_history_size - self.cached_display_offset) as f32
+                / self.cached_history_size as f32;
+            let scrollable_track = viewport_h - thumb_h;
+            let thumb_top = scroll_fraction * scrollable_track;
+
+            Some(
+                div()
+                    .absolute()
+                    .right(px(1.))
+                    .top(px(thumb_top))
+                    .w(px(6.))
+                    .h(px(thumb_h))
+                    .rounded(px(3.))
+                    .bg(rgba(0x8080_8088))
+                    .opacity(0.)
+                    .group_hover("terminal-scroll", |s| s.opacity(0.7)),
+            )
+        } else {
+            None
+        };
+
+        let mut container = div()
+            .group("terminal-scroll")
             .size_full()
+            .relative()
             .cursor(CursorStyle::IBeam)
             .track_focus(&self.focus_handle)
             .key_context("Terminal")
@@ -333,7 +387,13 @@ impl Render for TerminalView {
                 pending_resize,
                 self.bg_color,
                 self.colors.clone(),
-            ))
+            ));
+
+        if let Some(sb) = scrollbar {
+            container = container.child(sb);
+        }
+
+        container
     }
 }
 

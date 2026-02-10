@@ -8,6 +8,7 @@ use alacritty_terminal::term::cell::{Cell, Flags as CellFlags};
 use alacritty_terminal::term::{Config as TermConfig, Term, TermMode};
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle, Processor};
 use gpui::Rgba;
+use gpui::{Pixels, ScrollWheelEvent, TouchPhase, px};
 
 /// Collected events from alacritty Term callbacks.
 #[derive(Clone, Debug)]
@@ -158,6 +159,8 @@ pub struct Terminal {
     pty_writer: std::sync::mpsc::Sender<Vec<u8>>,
     /// Title set by OSC escape sequence.
     pub title: Option<String>,
+    /// Accumulated scroll pixels for sub-line trackpad deltas (Zed pattern).
+    scroll_px: Pixels,
 }
 
 impl std::fmt::Debug for Terminal {
@@ -200,6 +203,7 @@ impl Terminal {
             },
             pty_writer,
             title: None,
+            scroll_px: px(0.),
         }
     }
 
@@ -268,6 +272,24 @@ impl Terminal {
         let _ = self.pty_writer.send(bytes.to_vec());
     }
 
+    /// Get live display offset (how many lines scrolled up from bottom).
+    #[must_use]
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
+    }
+
+    /// Get number of lines in scrollback history.
+    #[must_use]
+    pub fn history_size(&self) -> usize {
+        self.term.history_size()
+    }
+
+    /// Get number of visible screen lines.
+    #[must_use]
+    pub fn screen_lines(&self) -> usize {
+        self.term.screen_lines()
+    }
+
     /// Resize the terminal grid.
     pub fn resize(&mut self, cols: usize, lines: usize) {
         let dims = TermDimensions { cols, lines };
@@ -276,9 +298,69 @@ impl Terminal {
         self.last_content.lines = lines;
     }
 
-    /// Scroll the terminal viewport.
-    pub fn scroll(&mut self, delta: i32) {
-        self.term.scroll_display(Scroll::Delta(delta));
+    /// Handle scroll wheel event (Zed pattern).
+    ///
+    /// `line_height` is the rendered line height in pixels (from the view layer).
+    ///
+    /// Handles two modes:
+    /// - Alt screen + alternate scroll: sends arrow escape sequences to PTY
+    /// - Normal: scrolls the terminal viewport via `scroll_display`
+    pub fn scroll_wheel(&mut self, event: &ScrollWheelEvent, line_height: Pixels) {
+        if let Some(scroll_lines) = self.determine_scroll_lines(event, line_height) {
+            if scroll_lines == 0 {
+                return;
+            }
+            // Alt screen + alternate scroll: send arrow key escapes (for less, man, etc.)
+            if self
+                .last_content
+                .mode
+                .contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL)
+            {
+                let cmd = if scroll_lines > 0 { b'A' } else { b'B' };
+                let mut bytes = Vec::with_capacity(scroll_lines.unsigned_abs() as usize * 3);
+                for _ in 0..scroll_lines.abs() {
+                    bytes.push(0x1b); // ESC
+                    bytes.push(b'O');
+                    bytes.push(cmd);
+                }
+                self.input(&bytes);
+            } else {
+                self.term.scroll_display(Scroll::Delta(scroll_lines));
+            }
+        }
+    }
+
+    /// Convert scroll wheel event to line count using pixel accumulation.
+    ///
+    /// Accumulates sub-pixel trackpad deltas across events. Only produces
+    /// lines when enough pixels have accumulated to cross a line boundary.
+    /// Follows Zed's `determine_scroll_lines` algorithm exactly.
+    fn determine_scroll_lines(
+        &mut self,
+        event: &ScrollWheelEvent,
+        line_height: Pixels,
+    ) -> Option<i32> {
+        match event.touch_phase {
+            TouchPhase::Started => {
+                self.scroll_px = px(0.);
+                None
+            }
+            TouchPhase::Moved => {
+                let old_offset = (self.scroll_px / line_height) as i32;
+                self.scroll_px += event.delta.pixel_delta(line_height).y;
+                let new_offset = (self.scroll_px / line_height) as i32;
+
+                // Wrap at terminal height to stay responsive to direction changes.
+                #[allow(clippy::cast_precision_loss)]
+                let term_height = line_height * self.last_content.lines;
+                if term_height > px(0.) {
+                    self.scroll_px = px(f32::from(self.scroll_px) % f32::from(term_height));
+                }
+
+                Some(new_offset - old_offset)
+            }
+            TouchPhase::Ended => None,
+        }
     }
 
     /// Get selected text from the terminal.

@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use gpui::prelude::*;
 use gpui::{
-    ClipboardItem, Entity, EventEmitter, FocusHandle, Hsla, ListSizingBehavior, MouseButton,
-    Pixels, Point, ScrollHandle, UniformListScrollHandle, div, px, rgba, svg, uniform_list,
+    ClipboardItem, Entity, EventEmitter, FocusHandle, Hsla, MouseButton, Pixels, Point,
+    ScrollHandle, UniformListScrollHandle, div, px, rgba, svg, uniform_list,
 };
 
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -1319,18 +1319,51 @@ impl Render for FileTree {
                     .collect()
             }),
         )
-        .with_sizing_behavior(ListSizingBehavior::Infer)
+        .size_full()
         .track_scroll(&self.scroll_handle);
+
+        // Compute scrollbar thumb from uniform_list scroll state (previous frame).
+        let scrollbar = {
+            let state = self.scroll_handle.0.borrow();
+            let handle = &state.base_handle;
+            let offset_y = f32::from(handle.offset().y);
+            let max_y = f32::from(handle.max_offset().height);
+            let viewport_h = f32::from(handle.bounds().size.height);
+            drop(state);
+
+            if max_y > 0.0 && viewport_h > 0.0 {
+                let content_h = viewport_h + max_y;
+                let visible_fraction = viewport_h / content_h;
+                let thumb_h = (visible_fraction * viewport_h).max(20.0);
+                let scroll_fraction = (-offset_y) / max_y;
+                let scrollable_track = viewport_h - thumb_h;
+                let thumb_top = scroll_fraction * scrollable_track;
+
+                Some(
+                    div()
+                        .absolute()
+                        .right(px(1.))
+                        .top(px(thumb_top))
+                        .w(px(6.))
+                        .h(px(thumb_h))
+                        .rounded(px(3.))
+                        .bg(rgba(0x8080_8088))
+                        .opacity(0.)
+                        .group_hover("file-tree-scroll", |s| s.opacity(0.7)),
+                )
+            } else {
+                None
+            }
+        };
 
         let mut root = div()
             .id("file-tree-container")
+            .group("file-tree-scroll")
             .key_context("FileTree")
             .track_focus(&self.focus_handle)
             .track_scroll(&self.root_handle)
-            .relative()
             .size_full()
-            .min_h_0()
-            .overflow_hidden()
+            .relative()
             .on_action(cx.listener(Self::on_new_file))
             .on_action(cx.listener(Self::on_new_folder))
             .on_action(cx.listener(Self::on_reveal_in_finder))
@@ -1347,6 +1380,10 @@ impl Render for FileTree {
             .on_action(cx.listener(Self::on_cancel_rename))
             .on_key_down(cx.listener(Self::on_key_nav))
             .child(list);
+
+        if let Some(sb) = scrollbar {
+            root = root.child(sb);
+        }
 
         // Context menu
         if let Some(ref menu) = self.context_menu {
@@ -1442,6 +1479,7 @@ fn render_row(
 
     let row = div()
         .id(ix)
+        .w_full()
         .pl(indent)
         .pr(px(8.))
         .h(px(ROW_HEIGHT))

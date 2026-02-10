@@ -171,6 +171,7 @@ pub fn spawn_terminal_pane(
             13.0,
             line_height_ratio,
             colors,
+            cx,
         )
     });
 
