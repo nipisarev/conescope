@@ -1,11 +1,11 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, ScrollHandle, div, px, rgba};
+use gpui::{Entity, MouseButton, ScrollHandle, div, px};
 
 use conescope_core::question::QuestionWithContext;
 
 use crate::state::app_state::AppState;
 use crate::theme::Theme;
-use crate::views::colors::hex_to_rgba;
+use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::scrollbar::{self, ScrollbarCallbacks, ScrollbarState};
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ fn render_question_card(
     let project_color = q
         .project_color
         .as_deref()
-        .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba);
+        .map_or_else(default_instance_color, hex_to_rgba);
     let project_label = q.project_name.clone().unwrap_or_default();
 
     let element_id = format!("question-{}", q.question.id);

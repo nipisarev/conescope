@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::{AppContext, Entity, MouseButton, PathPromptOptions, ScrollHandle, div, px};
 
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType};
-use conescope_core::project::Project;
+use conescope_core::project::{PROJECT_COLORS, Project};
 
 use crate::state::app_state::AppState;
 use crate::state::instance_entry::InstanceEntry;
@@ -52,6 +52,22 @@ fn create_instance_at(
     let id = uuid::Uuid::new_v4().to_string();
     let started_at = chrono::Utc::now().to_rfc3339();
 
+    // Derive color: from linked project, or cycle PROJECT_COLORS by instance count
+    let color = project_id
+        .as_deref()
+        .and_then(|pid| {
+            app_state
+                .read(cx)
+                .project_store
+                .read(cx)
+                .get(pid)
+                .map(|p| p.color.clone())
+        })
+        .unwrap_or_else(|| {
+            let count = app_state.read(cx).instance_list.read(cx).entries().len();
+            PROJECT_COLORS[count % PROJECT_COLORS.len()].to_string()
+        });
+
     let instance = Instance {
         id: id.clone(),
         project_id,
@@ -62,7 +78,7 @@ fn create_instance_at(
         started_at,
         ended_at: None,
         instance_type,
-        color: None,
+        color: Some(color),
     };
 
     app_state.read(cx).db.insert_instance(instance.clone());

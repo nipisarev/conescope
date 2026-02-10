@@ -1,11 +1,11 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, relative, rgba};
+use gpui::{Entity, MouseButton, div, px, relative};
 
 use conescope_core::instance::InstanceType;
 
 use crate::state::app_state::AppState;
 use crate::theme::Theme;
-use crate::views::colors::{hex_to_rgba, status_color};
+use crate::views::colors::{default_instance_color, hex_to_rgba, status_color};
 use crate::views::text_input::TextInput;
 
 #[derive(Debug)]
@@ -87,7 +87,7 @@ fn render_tile_header(
     let title_element: gpui::AnyElement = if let Some(input) = editing_input {
         div().flex_1().child(input.clone()).into_any_element()
     } else {
-        render_static_title(tile, app_state, theme)
+        render_static_title(tile, app_state)
     };
 
     let token_label = format_tokens_compact(tile.tokens_used);
@@ -142,11 +142,7 @@ fn render_tile_header(
         .into_any_element()
 }
 
-fn render_static_title(
-    tile: &TileData,
-    app_state: Entity<AppState>,
-    theme: &Theme,
-) -> gpui::AnyElement {
+fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::AnyElement {
     let click_id = tile.id.clone();
     let current_title = tile.title.clone();
 
@@ -154,7 +150,7 @@ fn render_static_title(
         .flex_1()
         .text_size(px(14.))
         .font_weight(gpui::FontWeight::MEDIUM)
-        .text_color(theme.text)
+        .text_color(tile.color)
         .overflow_x_hidden()
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
@@ -406,7 +402,7 @@ impl Render for OverviewGrid {
                         .instance
                         .color
                         .as_deref()
-                        .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba),
+                        .map_or_else(default_instance_color, hex_to_rgba),
                     instance_type: inst.instance_type(),
                     project_path,
                     tokens_used: inst.instance.tokens_used,

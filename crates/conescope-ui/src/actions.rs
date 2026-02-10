@@ -38,5 +38,6 @@ actions!(
         FileRename,
         FileTrash,
         FileDelete,
+        CancelRename,
     ]
 );

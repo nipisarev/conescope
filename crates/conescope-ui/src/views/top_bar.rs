@@ -1,12 +1,12 @@
 use gpui::prelude::*;
-use gpui::{Entity, Hsla, MouseButton, div, px, rgba, svg};
+use gpui::{Entity, Hsla, MouseButton, div, px, svg};
 
 use crate::actions::OpenSettings;
 use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
 use crate::theme::Theme;
-use crate::views::colors::hex_to_rgba;
+use crate::views::colors::{default_instance_color, hex_to_rgba};
 
 #[derive(Debug)]
 pub struct TopBar {
@@ -37,7 +37,7 @@ fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(usize, String, gpui
         .instance
         .color
         .as_deref()
-        .map_or_else(|| rgba(0x6464_b5f6), hex_to_rgba);
+        .map_or_else(default_instance_color, hex_to_rgba);
     Some((pos + 1, title, color))
 }
 

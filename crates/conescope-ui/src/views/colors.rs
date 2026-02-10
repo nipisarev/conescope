@@ -1,4 +1,5 @@
 use conescope_core::instance::InstanceStatus;
+use conescope_core::project::PROJECT_COLORS;
 use gpui::Rgba;
 
 /// Parse a CSS hex color string (#RRGGBB or #RGB) to GPUI `Rgba`.
@@ -24,6 +25,12 @@ pub fn hex_to_rgba(hex: &str) -> Rgba {
         b: f32::from(b) / 255.0,
         a: 1.0,
     }
+}
+
+/// Default instance color when `instance.color` is `None` (legacy data).
+#[must_use]
+pub fn default_instance_color() -> Rgba {
+    hex_to_rgba(PROJECT_COLORS[0])
 }
 
 /// Status dot color for an instance status.
@@ -69,5 +76,14 @@ mod tests {
     fn status_color_returns_valid_colors() {
         let c = status_color(InstanceStatus::Working);
         assert!(c.r > 0.0);
+    }
+
+    #[test]
+    fn default_instance_color_matches_first_project_color() {
+        let expected = hex_to_rgba(PROJECT_COLORS[0]);
+        let actual = default_instance_color();
+        assert!((actual.r - expected.r).abs() < 0.001);
+        assert!((actual.g - expected.g).abs() < 0.001);
+        assert!((actual.b - expected.b).abs() < 0.001);
     }
 }

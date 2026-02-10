@@ -13,8 +13,8 @@ use gpui_component::input::{Input, InputEvent, InputState};
 use conescope_git::status::FileStatus;
 
 use crate::actions::{
-    CopyPath, CopyRelativePath, FileCopy, FileCut, FileDelete, FileDuplicate, FilePaste,
-    FileRename, FileTrash, NewFile, NewFolder, OpenInTerminal, RevealInFinder,
+    CancelRename, CopyPath, CopyRelativePath, FileCopy, FileCut, FileDelete, FileDuplicate,
+    FilePaste, FileRename, FileTrash, NewFile, NewFolder, OpenInTerminal, RevealInFinder,
 };
 use crate::state::app_state::AppState;
 use crate::state::git_store::{GitStore, GitStoreEvent};
@@ -514,6 +514,13 @@ impl FileTree {
                 let alive = cx.update(|cx| {
                     if let Some(entity) = this.upgrade() {
                         entity.update(cx, |tree, cx| {
+                            // Skip rebuild during active rename — new entry IDs
+                            // would invalidate edit_state, causing the input to
+                            // vanish and blur-confirm prematurely. The tree will
+                            // refresh when the rename finishes.
+                            if tree.edit_state.is_some() {
+                                return;
+                            }
                             tree.rebuild_entries();
                             tree.update_git_status(cx);
                             tree.recompute_visible();
@@ -681,9 +688,11 @@ impl FileTree {
                 this.confirm_rename(cx);
             }
             InputEvent::Blur => {
-                // Cancel on blur (click away)
+                // Click-outside confirms rename (matches VSCode/Zed behavior).
+                // Escape fires CancelRename action which clears edit_state first,
+                // so this guard prevents double-action.
                 if this.edit_state.is_some() {
-                    this.cancel_rename(cx);
+                    this.confirm_rename(cx);
                 }
             }
             _ => {}
@@ -708,7 +717,7 @@ impl FileTree {
             .unwrap_or_default()
             .trim()
             .to_owned();
-        if new_name.is_empty() || new_name.contains('/') {
+        if !is_valid_rename(new_name.as_str()) {
             self.cancel_rename(cx);
             return;
         }
@@ -716,42 +725,45 @@ impl FileTree {
             self.cancel_rename(cx);
             return;
         };
+        let is_new_file = edit.is_new && !edit.is_dir;
+
         if let Some(parent) = old_path.parent() {
             let new_path = parent.join(&new_name);
+            // Safety: ensure rename stays within project root
+            if let Some(ref root) = self.root_path {
+                if !rename_stays_within_root(&new_path, Path::new(root)) {
+                    self.cancel_rename(cx);
+                    return;
+                }
+            }
             if new_path != old_path && !new_path.exists() {
                 let _ = std::fs::rename(&old_path, &new_path);
                 let new_path_str = new_path.to_string_lossy().to_string();
-                let was_new = edit.is_new;
                 self.edit_state = None;
                 self.rename_input = None;
                 self.refresh_tree(cx);
                 if let Some(new_id) = self.find_entry_id_by_path(&new_path_str) {
                     self.selected = Some(new_id);
                 }
-                if was_new {
+                if is_new_file {
                     cx.emit(FileTreeEvent::OpenFile(new_path_str));
                 }
                 return;
             }
         }
+
+        // Name unchanged or target exists — keep original, still open new files
+        let open_path = old_path.to_string_lossy().to_string();
         self.edit_state = None;
         self.rename_input = None;
         self.refresh_tree(cx);
+        if is_new_file {
+            cx.emit(FileTreeEvent::OpenFile(open_path));
+        }
     }
 
     fn cancel_rename(&mut self, cx: &mut gpui::Context<Self>) {
-        // If it was a new file/dir and user cancelled, delete it
-        if let Some(ref edit) = self.edit_state {
-            if edit.is_new {
-                if let Some(path) = self.entry_abs_path(edit.entry_id) {
-                    if path.is_dir() {
-                        let _ = std::fs::remove_dir_all(&path);
-                    } else {
-                        let _ = std::fs::remove_file(&path);
-                    }
-                }
-            }
-        }
+        // Keep the file/folder with its default name — don't delete, don't open
         self.edit_state = None;
         self.rename_input = None;
         self.refresh_tree(cx);
@@ -1033,6 +1045,17 @@ impl FileTree {
         .detach();
     }
 
+    fn on_cancel_rename(
+        &mut self,
+        _: &CancelRename,
+        _w: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if self.edit_state.is_some() {
+            self.cancel_rename(cx);
+        }
+    }
+
     // ── Click handling with multi-select ─────────────────────────
 
     fn handle_click(
@@ -1102,11 +1125,8 @@ impl FileTree {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        // During rename, only handle Escape (cancel); let Input handle rest
+        // During rename, suppress tree key nav (CancelRename action handles Escape)
         if self.edit_state.is_some() {
-            if ev.keystroke.key.as_str() == "escape" {
-                self.cancel_rename(cx);
-            }
             return;
         }
 
@@ -1305,6 +1325,7 @@ impl Render for FileTree {
             .on_action(cx.listener(Self::on_rename))
             .on_action(cx.listener(Self::on_trash))
             .on_action(cx.listener(Self::on_delete))
+            .on_action(cx.listener(Self::on_cancel_rename))
             .on_key_down(cx.listener(Self::on_key_nav))
             .child(list);
 
@@ -1851,4 +1872,108 @@ pub fn focused_project_path(app_state: &Entity<AppState>, cx: &gpui::App) -> Opt
     let pid = inst.instance.project_id.as_ref()?;
     let project = state.project_store.read(cx).get(pid)?;
     Some(project.path.clone())
+}
+
+/// Validate a rename target name. Rejects empty, path separators, and traversal.
+fn is_valid_rename(name: &str) -> bool {
+    !name.is_empty() && !name.contains('/') && !name.contains('\0') && name != "." && name != ".."
+}
+
+/// Check that `new_path` stays within `root` (no path traversal).
+/// Resolves `..` components without requiring paths to exist on disk.
+fn rename_stays_within_root(new_path: &Path, root: &Path) -> bool {
+    // Try filesystem canonicalization first (most accurate)
+    if let (Ok(resolved), Ok(root_resolved)) = (new_path.canonicalize(), root.canonicalize()) {
+        return resolved.starts_with(&root_resolved);
+    }
+    // Fallback: manually resolve `.` and `..` components
+    let normalize = |p: &Path| -> PathBuf {
+        let mut parts = Vec::new();
+        for c in p.components() {
+            match c {
+                std::path::Component::ParentDir => {
+                    parts.pop();
+                }
+                std::path::Component::CurDir => {}
+                other => parts.push(other),
+            }
+        }
+        parts.iter().collect()
+    };
+    normalize(new_path).starts_with(normalize(root))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // ── Name validation ─────────────────────────────────────────
+
+    #[test]
+    fn valid_rename_names() {
+        assert!(is_valid_rename("hello.txt"));
+        assert!(is_valid_rename("my-file"));
+        assert!(is_valid_rename(".gitignore")); // hidden files OK
+        assert!(is_valid_rename("file..txt")); // double dot in name OK
+        assert!(is_valid_rename("..."));
+        assert!(is_valid_rename("a"));
+    }
+
+    #[test]
+    fn invalid_rename_names() {
+        assert!(!is_valid_rename(""));
+        assert!(!is_valid_rename("."));
+        assert!(!is_valid_rename(".."));
+        assert!(!is_valid_rename("foo/bar")); // path separator
+        assert!(!is_valid_rename("../escape")); // traversal with slash
+        assert!(!is_valid_rename("foo\0bar")); // null byte
+    }
+
+    // ── Path traversal prevention ───────────────────────────────
+
+    #[test]
+    fn rename_path_stays_within_root() {
+        let root = Path::new("/tmp/project");
+        let good = Path::new("/tmp/project/src/file.rs");
+        let bad = Path::new("/tmp/other/file.rs");
+        let traversal = Path::new("/tmp/project/../other/file.rs");
+
+        assert!(rename_stays_within_root(good, root));
+        assert!(!rename_stays_within_root(bad, root));
+        // Raw prefix check catches obvious traversal even without canonicalize
+        assert!(!rename_stays_within_root(traversal, root));
+    }
+
+    // ── unique_path ─────────────────────────────────────────────
+
+    #[test]
+    fn unique_path_returns_original_if_not_exists() {
+        let tmp = std::env::temp_dir().join("conescope_test_unique_not_exists");
+        let _ = std::fs::remove_file(&tmp);
+        assert_eq!(FileTree::unique_path(&tmp), tmp);
+    }
+
+    #[test]
+    fn unique_path_increments_when_exists() {
+        let tmp = std::env::temp_dir().join("conescope_test_unique_exists");
+        std::fs::write(&tmp, "").unwrap();
+        let result = FileTree::unique_path(&tmp);
+        assert_ne!(result, tmp);
+        assert!(result.to_string_lossy().contains("-1"));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // ── Data isolation: rename must not cross project boundaries ─
+
+    #[test]
+    fn rename_cannot_escape_project_root() {
+        // Simulates a rename that would place a file outside the project
+        let root = Path::new("/projects/myapp");
+        let escaped = Path::new("/projects/other-app/stolen.rs");
+        assert!(
+            !rename_stays_within_root(escaped, root),
+            "rename must not allow files outside project root"
+        );
+    }
 }
