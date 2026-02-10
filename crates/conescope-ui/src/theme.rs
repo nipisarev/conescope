@@ -82,6 +82,12 @@ pub struct Theme {
     pub terminal_fg: Rgba,
     pub terminal_ansi: [Rgba; 16],
 
+    // Version control
+    pub vcs_modified: Rgba,
+    pub vcs_added: Rgba,
+    pub vcs_deleted: Rgba,
+    pub vcs_conflict: Rgba,
+
     // Tab-specific
     pub tab_active_bg: Rgba,
     pub tab_inactive_bg: Rgba,
@@ -177,6 +183,18 @@ fn dark_theme(
         terminal_bg: get("terminal.background").unwrap_or(rgba(0x2525_26ff)),
         terminal_fg: get("terminal.foreground").unwrap_or(rgba(0xd4d4_d4ff)),
         terminal_ansi: parse_ansi_colors(get, true),
+        vcs_modified: get("version_control.modified")
+            .or_else(|| get("modified"))
+            .unwrap_or(rgba(0xe0c0_46ff)),
+        vcs_added: get("version_control.created")
+            .or_else(|| get("created"))
+            .unwrap_or(rgba(0x73d2_75ff)),
+        vcs_deleted: get("version_control.deleted")
+            .or_else(|| get("deleted"))
+            .unwrap_or(rgba(0xf55c_5cff)),
+        vcs_conflict: get("version_control.conflict")
+            .or_else(|| get("conflict"))
+            .unwrap_or(rgba(0xcf8c_e3ff)),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0x2d2d_2dff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0x1e1e_1eff)),
         syntax_json,
@@ -216,6 +234,18 @@ fn light_theme(
         terminal_bg: get("terminal.background").unwrap_or(rgba(0xffff_ffff)),
         terminal_fg: get("terminal.foreground").unwrap_or(rgba(0x3333_33ff)),
         terminal_ansi: parse_ansi_colors(get, false),
+        vcs_modified: get("version_control.modified")
+            .or_else(|| get("modified"))
+            .unwrap_or(rgba(0x9498_00ff)),
+        vcs_added: get("version_control.created")
+            .or_else(|| get("created"))
+            .unwrap_or(rgba(0x107c_10ff)),
+        vcs_deleted: get("version_control.deleted")
+            .or_else(|| get("deleted"))
+            .unwrap_or(rgba(0xcd31_31ff)),
+        vcs_conflict: get("version_control.conflict")
+            .or_else(|| get("conflict"))
+            .unwrap_or(rgba(0xbc05_bcff)),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0xffff_ffff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0xecec_ecff)),
         syntax_json,

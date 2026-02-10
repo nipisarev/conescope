@@ -54,11 +54,11 @@ impl FocusView {
     #[must_use]
     #[allow(clippy::too_many_lines)]
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
-        let file_tree = cx.new(|cx| FileTree::new(app_state.clone(), cx));
+        let git_store = app_state.read(cx).git_store.clone();
+        let file_tree = cx.new(|cx| FileTree::new(app_state.clone(), Some(git_store.clone()), cx));
         let code_editor = cx.new(|_| CodeEditor::new());
         let editor_tabs = cx.new(|_| EditorTabs::new(app_state.clone()));
 
-        let git_store = app_state.read(cx).git_store.clone();
         let git_panel = cx.new(|_| GitPanel::new(app_state.clone(), git_store.clone()));
         let diff_viewer = cx.new(|_| DiffViewer::new(app_state.clone()));
 

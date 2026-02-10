@@ -23,6 +23,7 @@ unicode-segmentation.workspace = true
 gpui-component.workspace = true
 rust-embed.workspace = true
 rfd.workspace = true
+notify.workspace = true
 
 [lints]
 workspace = true
