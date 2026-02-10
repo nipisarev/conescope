@@ -1,6 +1,6 @@
 # Issues
 
-## 008: Git-aware file tree highlighting [SKIP IT]
+## 008: Git-aware file tree highlighting
 
 **Status:** Open
 

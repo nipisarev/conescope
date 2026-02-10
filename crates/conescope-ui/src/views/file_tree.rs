@@ -1400,7 +1400,15 @@ fn render_row(
         &tree.rel_path_for_entry(entry),
         theme,
     );
-    let icon_color: Hsla = if is_dir {
+    let icon_color: Hsla = if let Some(status) = entry.git_status {
+        git_status_color(status, theme).into()
+    } else if is_dir
+        && tree
+            .git_dirty_dirs
+            .contains(&tree.rel_path_for_entry(entry))
+    {
+        theme.vcs_modified.into()
+    } else if is_dir {
         theme.text_muted.into()
     } else {
         file_ext_color(&entry.name).into()
@@ -1513,11 +1521,7 @@ fn entry_color(
     if is_dir && dirty_dirs.contains(rel_path) {
         return theme.vcs_modified;
     }
-    if is_dir {
-        theme.text_muted
-    } else {
-        file_ext_color(&entry.name)
-    }
+    if is_dir { theme.text_muted } else { theme.text }
 }
 
 fn git_status_color(status: FileStatus, theme: &Theme) -> gpui::Rgba {
