@@ -51,6 +51,7 @@ pub struct TerminalElement {
     focused: bool,
     font_family: SharedString,
     font_size: Pixels,
+    line_height_ratio: f32,
     pending_resize: PendingResize,
     bg_color: Rgba,
     colors: TerminalColors,
@@ -65,6 +66,7 @@ impl TerminalElement {
         focused: bool,
         font_family: SharedString,
         font_size: Pixels,
+        line_height_ratio: f32,
         pending_resize: PendingResize,
         bg_color: Rgba,
         colors: TerminalColors,
@@ -75,6 +77,7 @@ impl TerminalElement {
             focused,
             font_family,
             font_size,
+            line_height_ratio,
             pending_resize,
             bg_color,
             colors,
@@ -132,7 +135,7 @@ impl Element for TerminalElement {
 
         // Compute cell metrics.
         let font_size = self.font_size;
-        let line_height = font_size;
+        let line_height = px(f32::from(font_size) * self.line_height_ratio);
         let cell_width = compute_cell_width(window, &self.font_family, font_size);
 
         // Compute desired cols/rows from bounds and store for deferred resize.
@@ -188,7 +191,7 @@ impl Element for TerminalElement {
             let mut run_style: Option<RunStyle> = None;
             let row = line[0].point.line.0;
             #[allow(clippy::cast_precision_loss)]
-            let y = px(f32::from(font_size) * row as f32);
+            let y = px(f32::from(line_height) * row as f32);
 
             for cell in line {
                 let (fg, bg) = resolve_cell_colors(cell, &content, &self.colors);
@@ -289,7 +292,7 @@ impl Element for TerminalElement {
         #[allow(clippy::cast_precision_loss)]
         let cursor_rect = if content.cursor.visible && self.focused {
             let cursor_x = px(f32::from(cell_width) * content.cursor.point.column.0 as f32);
-            let cursor_y = px(f32::from(font_size) * content.cursor.point.line.0 as f32);
+            let cursor_y = px(f32::from(line_height) * content.cursor.point.line.0 as f32);
             Some((
                 Bounds::new(
                     bounds.origin + Point::new(cursor_x, cursor_y),

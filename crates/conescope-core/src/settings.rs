@@ -23,6 +23,9 @@ pub struct SettingsJson {
 
     #[serde(default = "default_font_size")]
     pub terminal_font_size: i64,
+
+    #[serde(default = "default_terminal_line_height")]
+    pub terminal_line_height: f64,
 }
 
 fn default_comment_font_family() -> String {
@@ -37,6 +40,9 @@ fn default_font_family() -> String {
 fn default_font_size() -> i64 {
     13
 }
+fn default_terminal_line_height() -> f64 {
+    1.2
+}
 
 impl Default for SettingsJson {
     fn default() -> Self {
@@ -46,6 +52,7 @@ impl Default for SettingsJson {
             font_family: default_font_family(),
             editor_font_size: default_font_size(),
             terminal_font_size: default_font_size(),
+            terminal_line_height: default_terminal_line_height(),
         }
     }
 }
@@ -140,6 +147,11 @@ impl SettingsJson {
                         settings.terminal_font_size = v;
                     }
                 }
+                "terminal_line_height" => {
+                    if let Ok(v) = value.parse() {
+                        settings.terminal_line_height = v;
+                    }
+                }
                 _ => {} // skip session_state, questions_panel_visible, etc.
             }
         }
@@ -167,6 +179,7 @@ mod tests {
         assert_eq!(s.font_family, "Menlo");
         assert_eq!(s.editor_font_size, 13);
         assert_eq!(s.terminal_font_size, 13);
+        assert!((s.terminal_line_height - 1.2).abs() < f64::EPSILON);
     }
 
     #[test]

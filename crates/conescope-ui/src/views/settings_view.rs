@@ -12,6 +12,7 @@ pub struct SettingsView {
     font_family_input: Entity<TextInput>,
     editor_font_size_input: Entity<TextInput>,
     terminal_font_size_input: Entity<TextInput>,
+    terminal_line_height_input: Entity<TextInput>,
 }
 
 impl std::fmt::Debug for SettingsView {
@@ -35,6 +36,8 @@ impl SettingsView {
             cx.new(|cx| TextInput::new(&settings.editor_font_size.to_string(), cx));
         let terminal_font_size_input =
             cx.new(|cx| TextInput::new(&settings.terminal_font_size.to_string(), cx));
+        let terminal_line_height_input =
+            cx.new(|cx| TextInput::new(&settings.terminal_line_height.to_string(), cx));
 
         // Save on Enter in any input
         cx.subscribe(&font_family_input, |this: &mut Self, _, _, cx| {
@@ -46,6 +49,10 @@ impl SettingsView {
         })
         .detach();
         cx.subscribe(&terminal_font_size_input, |this: &mut Self, _, _, cx| {
+            this.save_all(cx);
+        })
+        .detach();
+        cx.subscribe(&terminal_line_height_input, |this: &mut Self, _, _, cx| {
             this.save_all(cx);
         })
         .detach();
@@ -64,6 +71,7 @@ impl SettingsView {
             font_family_input,
             editor_font_size_input,
             terminal_font_size_input,
+            terminal_line_height_input,
         }
     }
 
@@ -82,6 +90,8 @@ impl SettingsView {
             cx.new(|cx| TextInput::new(&settings.editor_font_size.to_string(), cx));
         self.terminal_font_size_input =
             cx.new(|cx| TextInput::new(&settings.terminal_font_size.to_string(), cx));
+        self.terminal_line_height_input =
+            cx.new(|cx| TextInput::new(&settings.terminal_line_height.to_string(), cx));
 
         cx.subscribe(&self.font_family_input, |this: &mut Self, _, _, cx| {
             this.save_all(cx);
@@ -93,6 +103,13 @@ impl SettingsView {
         .detach();
         cx.subscribe(
             &self.terminal_font_size_input,
+            |this: &mut Self, _, _, cx| {
+                this.save_all(cx);
+            },
+        )
+        .detach();
+        cx.subscribe(
+            &self.terminal_line_height_input,
             |this: &mut Self, _, _, cx| {
                 this.save_all(cx);
             },
@@ -117,6 +134,12 @@ impl SettingsView {
             .content()
             .parse::<i64>()
             .unwrap_or(13);
+        let terminal_line_height = self
+            .terminal_line_height_input
+            .read(cx)
+            .content()
+            .parse::<f64>()
+            .unwrap_or(1.2);
 
         // Read current theme from settings_store (theme is applied live via toggle)
         let theme = self
@@ -133,6 +156,7 @@ impl SettingsView {
             font_family,
             editor_font_size,
             terminal_font_size,
+            terminal_line_height,
             ..Default::default()
         };
 
@@ -339,6 +363,12 @@ impl Render for SettingsView {
                                         "Terminal Font Size",
                                         "Font size for terminal panes in pixels",
                                         self.terminal_font_size_input.clone(),
+                                        &theme,
+                                    ))
+                                    .child(render_setting_row(
+                                        "Terminal Line Height",
+                                        "Line height multiplier for terminals (e.g. 1.0, 1.2, 1.5)",
+                                        self.terminal_line_height_input.clone(),
                                         &theme,
                                     )),
                             ),

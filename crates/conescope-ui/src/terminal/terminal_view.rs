@@ -31,6 +31,7 @@ pub struct TerminalView {
     focus_handle: FocusHandle,
     font_family: SharedString,
     font_size: f32,
+    line_height_ratio: f32,
     /// Terminal background color (painted by `TerminalElement`).
     bg_color: gpui::Rgba,
     /// Terminal color palette (from theme).
@@ -56,11 +57,13 @@ impl std::fmt::Debug for TerminalView {
 
 impl TerminalView {
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         terminal: gpui::Entity<Terminal>,
         focus_handle: FocusHandle,
         font_family: SharedString,
         font_size: f32,
+        line_height_ratio: f32,
         colors: TerminalColors,
     ) -> Self {
         let bg_color = colors.bg;
@@ -69,6 +72,7 @@ impl TerminalView {
             focus_handle,
             font_family,
             font_size,
+            line_height_ratio,
             bg_color,
             colors,
             _pending_output: Vec::new(),
@@ -103,6 +107,11 @@ impl TerminalView {
     pub fn set_font(&mut self, font: gpui::Font) {
         self.font_family = font.family;
         // Font size is controlled separately via text_size cascade.
+    }
+
+    /// Update the terminal line-height ratio.
+    pub fn set_line_height_ratio(&mut self, ratio: f32) {
+        self.line_height_ratio = ratio;
     }
 
     fn on_key_down(
@@ -183,8 +192,9 @@ impl TerminalView {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let delta = event.delta.pixel_delta(px(self.font_size));
-        let lines = -(f32::from(delta.y) / self.font_size) as i32;
+        let lh = self.font_size * self.line_height_ratio;
+        let delta = event.delta.pixel_delta(px(lh));
+        let lines = -(f32::from(delta.y) / lh) as i32;
         if lines != 0 {
             self.terminal.update(cx, |term, _| {
                 term.scroll(lines);
@@ -252,7 +262,7 @@ impl TerminalView {
         _window: &mut gpui::Window,
     ) -> (AlacPoint, Side) {
         let cell_width = self.cached_cell_width.max(1.0);
-        let line_height = self.font_size.max(1.0);
+        let line_height = (self.font_size * self.line_height_ratio).max(1.0);
 
         #[allow(clippy::cast_sign_loss)]
         let col = (f32::from(position.x) / cell_width).floor().max(0.0) as usize;
@@ -318,6 +328,7 @@ impl Render for TerminalView {
                 focused,
                 font_family,
                 font_size,
+                self.line_height_ratio,
                 pending_resize,
                 self.bg_color,
                 self.colors.clone(),

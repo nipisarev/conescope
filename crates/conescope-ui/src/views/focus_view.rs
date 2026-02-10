@@ -431,7 +431,13 @@ impl FocusView {
                         .clone(),
                 );
                 let tc = app_state_for_add.read(cx).theme().terminal_colors();
-                let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), &tc, window, cx);
+                let lhr = app_state_for_add
+                    .read(cx)
+                    .settings_store
+                    .read(cx)
+                    .settings()
+                    .terminal_line_height as f32;
+                let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), lhr, &tc, window, cx);
                 entry_for_add.update(cx, |e, cx| {
                     let (id, rx) = e.add_shell_tab(pane, cx);
                     e.start_shell_output_polling(id, rx, cx);
@@ -866,11 +872,13 @@ fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut 
         content_height = this.terminal_height(cx) - TERMINAL_TABS_HEIGHT - DIVIDER_SIZE;
     }
 
+    let settings = this.settings_store.read(cx).settings().clone();
     #[allow(clippy::cast_precision_loss)]
-    let term_font_size = this.settings_store.read(cx).settings().terminal_font_size as f32;
-    let font_family = Some(this.settings_store.read(cx).settings().font_family.clone());
+    let term_font_size = settings.terminal_font_size as f32;
+    let font_family = Some(settings.font_family.clone());
+    let lhr = settings.terminal_line_height as f32;
     let Some((cell_width, cell_height)) =
-        compute_cell_metrics(window, Some(term_font_size), font_family.as_deref())
+        compute_cell_metrics(window, Some(term_font_size), font_family.as_deref(), lhr)
     else {
         return;
     };

@@ -15,6 +15,9 @@ use terminal::Terminal;
 pub use terminal::TerminalColors;
 use terminal_view::TerminalView;
 
+/// Default line-height multiplier relative to font size.
+pub const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
+
 /// All state needed for a single terminal pane.
 pub struct TerminalPane {
     pub view: gpui::Entity<TerminalView>,
@@ -74,9 +77,11 @@ pub fn default_terminal_font_features() -> gpui::FontFeatures {
 ///
 /// Panics if the PTY system fails to open, the shell fails to spawn,
 /// or the virtual terminal fails to initialize.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_terminal_pane(
     cwd: Option<&str>,
     font_family: Option<&str>,
+    line_height_ratio: f32,
     colors: &TerminalColors,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
@@ -159,7 +164,14 @@ pub fn spawn_terminal_pane(
         let term =
             cx.new(|_cx| Terminal::new(initial_cols as usize, initial_rows as usize, stdin_tx));
 
-        TerminalView::new(term, focus_handle, font_family_str, 13.0, colors)
+        TerminalView::new(
+            term,
+            focus_handle,
+            font_family_str,
+            13.0,
+            line_height_ratio,
+            colors,
+        )
     });
 
     TerminalPane {
@@ -179,6 +191,7 @@ pub fn compute_cell_metrics(
     window: &mut gpui::Window,
     custom_font_size: Option<f32>,
     custom_font_family: Option<&str>,
+    line_height_ratio: f32,
 ) -> Option<(f32, f32)> {
     let mut style = window.text_style();
     let font = default_terminal_font();
@@ -193,8 +206,7 @@ pub fn compute_cell_metrics(
     let rem_size = window.rem_size();
     let font_size = custom_font_size.map_or_else(|| style.font_size.to_pixels(rem_size), gpui::px);
     style.font_size = font_size.into();
-    // Terminal line_height = 1.0 (no extra leading) so half-block chars tile seamlessly.
-    let line_height = font_size;
+    let line_height = gpui::px(f32::from(font_size) * line_height_ratio);
 
     let run = style.to_run(1);
     let lines = window

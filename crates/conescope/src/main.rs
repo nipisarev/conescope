@@ -166,13 +166,15 @@ fn load_data_async(
             let settings_for_restore = settings_store.clone();
             let app_state_for_restore = app_state.clone();
             let _ = cx.update_window(window_handle, |_view, window, cx| {
-                let font_family =
-                    Some(settings_for_restore.read(cx).settings().font_family.clone());
+                let settings = settings_for_restore.read(cx).settings().clone();
+                let font_family = Some(settings.font_family.clone());
+                let lhr = settings.terminal_line_height as f32;
                 let colors = app_state_for_restore.read(cx).theme().terminal_colors();
                 instance_list.update(cx, |list, cx| {
                     list.restore_terminals(
                         &project_store_for_restore,
                         font_family.as_deref(),
+                        lhr,
                         &colors,
                         window,
                         cx,

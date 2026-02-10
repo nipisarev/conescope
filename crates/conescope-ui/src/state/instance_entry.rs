@@ -203,6 +203,22 @@ impl InstanceEntry {
         }
     }
 
+    /// Update terminal line-height ratio on all terminal views.
+    pub fn update_line_height(&mut self, ratio: f32, cx: &mut gpui::Context<Self>) {
+        if let Some(ref tv) = self.terminal_view {
+            tv.update(cx, |v, cx| {
+                v.set_line_height_ratio(ratio);
+                cx.notify();
+            });
+        }
+        for tab in &self.shell_tabs {
+            tab.terminal_view.update(cx, |v, cx| {
+                v.set_line_height_ratio(ratio);
+                cx.notify();
+            });
+        }
+    }
+
     /// Update terminal color palette on all terminal views.
     pub fn update_colors(
         &mut self,

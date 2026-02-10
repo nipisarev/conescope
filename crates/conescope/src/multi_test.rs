@@ -39,7 +39,16 @@ fn main() {
             |window, cx| {
                 let tc = conescope_ui::terminal::TerminalColors::default();
                 let panes: Vec<_> = (0..4)
-                    .map(|_| spawn_terminal_pane(None, None, &tc, window, cx))
+                    .map(|_| {
+                        spawn_terminal_pane(
+                            None,
+                            None,
+                            conescope_ui::terminal::DEFAULT_LINE_HEIGHT_RATIO,
+                            &tc,
+                            window,
+                            cx,
+                        )
+                    })
                     .collect();
 
                 let views = [
@@ -64,9 +73,12 @@ fn main() {
                         let width = f32::from(size.width);
                         let height = f32::from(size.height);
 
-                        let Some((cell_width, cell_height)) =
-                            compute_cell_metrics(window, None, None)
-                        else {
+                        let Some((cell_width, cell_height)) = compute_cell_metrics(
+                            window,
+                            None,
+                            None,
+                            conescope_ui::terminal::DEFAULT_LINE_HEIGHT_RATIO,
+                        ) else {
                             return;
                         };
 

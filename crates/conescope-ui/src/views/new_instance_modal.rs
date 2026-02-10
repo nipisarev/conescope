@@ -93,7 +93,13 @@ fn create_instance_at(
             .clone(),
     );
     let tc = app_state.read(cx).theme().terminal_colors();
-    let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), &tc, window, cx);
+    let lhr = app_state
+        .read(cx)
+        .settings_store
+        .read(cx)
+        .settings()
+        .terminal_line_height as f32;
+    let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), lhr, &tc, window, cx);
     let is_project = instance_type == InstanceType::Project;
 
     let entry = cx.new(|cx| {

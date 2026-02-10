@@ -56,7 +56,9 @@ impl AppView {
         let settings_store = app_state.read(cx).settings_store.clone();
         let app_state_for_font = app_state.clone();
         cx.observe(&settings_store, move |_this, store, cx| {
-            let font_family = store.read(cx).settings().font_family.clone();
+            let settings = store.read(cx).settings().clone();
+            let font_family = settings.font_family.clone();
+            let lhr = settings.terminal_line_height as f32;
             let colors = app_state_for_font.read(cx).theme().terminal_colors();
             let entries: Vec<_> = app_state_for_font
                 .read(cx)
@@ -67,6 +69,7 @@ impl AppView {
             for entry in entries {
                 entry.update(cx, |e, cx| {
                     e.update_font(&font_family, cx);
+                    e.update_line_height(lhr, cx);
                     e.update_colors(&colors, cx);
                 });
             }
