@@ -146,6 +146,9 @@ pub struct FileTree {
 
     // FS watcher
     fs_watcher: Option<FsWatcherHandle>,
+
+    // Per-project expanded dirs cache (keyed by root_path)
+    expanded_cache: HashMap<String, HashSet<String>>,
 }
 
 impl FileTree {
@@ -190,6 +193,7 @@ impl FileTree {
             git_status_map: HashMap::new(),
             git_dirty_dirs: HashSet::new(),
             fs_watcher: None,
+            expanded_cache: HashMap::new(),
         }
     }
 
@@ -199,8 +203,22 @@ impl FileTree {
         if self.root_path == path {
             return;
         }
+        // Cache expanded dirs for the old root before switching.
+        if let Some(ref old_root) = self.root_path {
+            if self.expanded.is_empty() {
+                self.expanded_cache.remove(old_root);
+            } else {
+                self.expanded_cache
+                    .insert(old_root.clone(), self.expanded.clone());
+            }
+        }
         self.root_path = path;
-        self.expanded.clear();
+        // Restore cached expanded dirs for the new root, or start fresh.
+        self.expanded = self
+            .root_path
+            .as_ref()
+            .and_then(|p| self.expanded_cache.remove(p))
+            .unwrap_or_default();
         self.unfolded_dir_ids.clear();
         self.rebuild_entries();
         self.update_git_status(cx);
