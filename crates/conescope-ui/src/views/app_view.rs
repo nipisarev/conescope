@@ -58,6 +58,8 @@ impl AppView {
         cx.observe(&settings_store, move |_this, store, cx| {
             let settings = store.read(cx).settings().clone();
             let font_family = settings.font_family.clone();
+            #[allow(clippy::cast_precision_loss)]
+            let font_size = settings.terminal_font_size as f32;
             let lhr = settings.terminal_line_height as f32;
             let colors = app_state_for_font.read(cx).theme().terminal_colors();
             let entries: Vec<_> = app_state_for_font
@@ -69,6 +71,7 @@ impl AppView {
             for entry in entries {
                 entry.update(cx, |e, cx| {
                     e.update_font(&font_family, cx);
+                    e.update_font_size(font_size, cx);
                     e.update_line_height(lhr, cx);
                     e.update_colors(&colors, cx);
                 });

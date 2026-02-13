@@ -281,7 +281,13 @@ impl Render for EditorTabs {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let theme = self.app_state.read(cx).theme().clone();
+        let state = self.app_state.read(cx);
+        let theme = state.theme().clone();
+        let font_size = state
+            .settings_store
+            .read(cx)
+            .settings()
+            .ui_editor_font_size();
 
         if self.tabs.is_empty() {
             // Empty bar: full bottom border baseline, click to create untitled
@@ -323,6 +329,7 @@ impl Render for EditorTabs {
                 active,
                 active_bg,
                 inactive_bg,
+                font_size,
                 &theme,
                 cx,
             ));
@@ -353,6 +360,7 @@ fn render_tab(
     active: bool,
     active_bg: gpui::Rgba,
     inactive_bg: gpui::Rgba,
+    font_size: f32,
     theme: &Theme,
     cx: &mut gpui::Context<EditorTabs>,
 ) -> gpui::Div {
@@ -375,7 +383,7 @@ fn render_tab(
         .gap(px(4.))
         .h_full()
         .px(px(12.))
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .text_color(fg)
         .bg(bg)
         .cursor_pointer()
@@ -390,7 +398,7 @@ fn render_tab(
         .child(label)
         .child(
             div()
-                .text_size(px(10.))
+                .text_size(px(font_size - 2.0))
                 .text_color(theme.text_faint)
                 .cursor_pointer()
                 .hover(|s| s.text_color(rgba(0xcccc_ccff)))

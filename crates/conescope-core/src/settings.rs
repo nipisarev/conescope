@@ -57,7 +57,27 @@ impl Default for SettingsJson {
     }
 }
 
+/// Maximum font size for UI chrome (tabs, file tree, git panel, overview tiles).
+/// Terminal and editor content use the uncapped value.
+const MAX_UI_FONT_SIZE: f32 = 20.0;
+const MIN_UI_FONT_SIZE: f32 = 10.0;
+
 impl SettingsJson {
+    /// Font size for UI chrome elements, clamped to a readable range.
+    /// Terminal/editor content should use the raw `terminal_font_size`/`editor_font_size`.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn ui_font_size(&self) -> f32 {
+        (self.terminal_font_size as f32).clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
+    }
+
+    /// Editor chrome font size (tabs), clamped to a readable range.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn ui_editor_font_size(&self) -> f32 {
+        (self.editor_font_size as f32).clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE)
+    }
+
     /// Returns `$HOME/.conescope`.
     #[must_use]
     pub fn settings_dir() -> PathBuf {

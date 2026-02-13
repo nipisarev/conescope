@@ -50,6 +50,7 @@ impl Render for TopBar {
         let state = self.app_state.read(cx);
         let theme = state.theme().clone();
         let view_mode = state.view_mode(cx);
+        let font_size = state.settings_store.read(cx).settings().ui_font_size();
 
         let (center_text, title_color) = match view_mode {
             ViewMode::Overview => ("CONESCOPE".to_string(), theme.text_muted),
@@ -68,19 +69,22 @@ impl Render for TopBar {
 
         let right_section = match view_mode {
             ViewMode::Focus => {
-                render_focus_buttons(app_state_for_back, app_state_for_close, &theme)
+                render_focus_buttons(app_state_for_back, app_state_for_close, font_size, &theme)
             }
-            ViewMode::Overview => render_overview_buttons(&self.app_state, &theme),
-            ViewMode::Settings => render_settings_buttons(&self.app_state, &theme),
+            ViewMode::Overview => render_overview_buttons(&self.app_state, font_size, &theme),
+            ViewMode::Settings => render_settings_buttons(&self.app_state, font_size, &theme),
         };
+
+        let bar_height = px(font_size * 2.0 + 10.0);
 
         div()
             .id("top-bar")
-            .h(px(36.))
+            .h(bar_height)
             .w_full()
             .flex()
             .flex_row()
             .items_center()
+            .text_size(px(font_size))
             .bg(theme.panel)
             .border_b_1()
             .border_color(theme.border)
@@ -104,13 +108,18 @@ impl Render for TopBar {
     }
 }
 
-fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui::Div {
+fn render_overview_buttons(
+    app_state: &Entity<AppState>,
+    font_size: f32,
+    theme: &Theme,
+) -> gpui::Div {
     let app_state_new = app_state.clone();
     let app_state_q = app_state.clone();
     let text_muted: Hsla = theme.text_muted.into();
     let text: Hsla = theme.text.into();
     let border = theme.border;
     let border_variant = theme.border_variant;
+    let icon_size = px(font_size + 1.0);
 
     div()
         .flex()
@@ -131,7 +140,7 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
                 .border_1()
                 .border_color(theme.text_disabled)
                 .cursor_pointer()
-                .text_size(px(12.))
+                .text_size(px(font_size))
                 .text_color(text_muted)
                 .hover(move |s| {
                     s.bg(border).border_color(border_variant).text_color(text)
@@ -142,7 +151,7 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
                 .child(
                     svg()
                         .path(icons::ICON_PLUS)
-                        .size(px(14.))
+                        .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),
                 )
@@ -159,7 +168,7 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
                 .child(
                     svg()
                         .path(icons::ICON_QUESTION)
-                        .size(px(14.))
+                        .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),
                 )
@@ -178,7 +187,7 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
                 .child(
                     svg()
                         .path(icons::ICON_SETTINGS)
-                        .size(px(14.))
+                        .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),
                 )
@@ -188,7 +197,11 @@ fn render_overview_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
         )
 }
 
-fn render_settings_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui::Div {
+fn render_settings_buttons(
+    app_state: &Entity<AppState>,
+    font_size: f32,
+    theme: &Theme,
+) -> gpui::Div {
     let text_muted: Hsla = theme.text_muted.into();
     let text: Hsla = theme.text.into();
     let border = theme.border;
@@ -213,7 +226,7 @@ fn render_settings_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
                 .border_1()
                 .border_color(theme.text_disabled)
                 .cursor_pointer()
-                .text_size(px(11.))
+                .text_size(px(font_size - 1.0))
                 .text_color(text_muted)
                 .hover(move |s| s.bg(border).border_color(border_variant).text_color(text))
                 .on_click(move |_, _, cx| {
@@ -226,11 +239,13 @@ fn render_settings_buttons(app_state: &Entity<AppState>, theme: &Theme) -> gpui:
 fn render_focus_buttons(
     app_state_for_back: Entity<AppState>,
     app_state_for_close: Entity<AppState>,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let text_muted: Hsla = theme.text_muted.into();
     let text: Hsla = theme.text.into();
     let destructive_hover: Hsla = theme.destructive_hover.into();
+    let icon_size = px(font_size + 1.0);
 
     div()
         .flex()
@@ -248,7 +263,7 @@ fn render_focus_buttons(
                 .child(
                     svg()
                         .path(icons::ICON_BACK)
-                        .size(px(14.))
+                        .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),
                 )
@@ -267,7 +282,7 @@ fn render_focus_buttons(
                 .child(
                     svg()
                         .path(icons::ICON_CLOSE_CIRCLE)
-                        .size(px(14.))
+                        .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),
                 )

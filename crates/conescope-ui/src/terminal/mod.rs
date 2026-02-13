@@ -81,6 +81,7 @@ pub fn default_terminal_font_features() -> gpui::FontFeatures {
 pub fn spawn_terminal_pane(
     cwd: Option<&str>,
     font_family: Option<&str>,
+    font_size: f32,
     line_height_ratio: f32,
     colors: &TerminalColors,
     window: &mut gpui::Window,
@@ -168,7 +169,7 @@ pub fn spawn_terminal_pane(
             term,
             focus_handle,
             font_family_str,
-            13.0,
+            font_size,
             line_height_ratio,
             colors,
             cx,

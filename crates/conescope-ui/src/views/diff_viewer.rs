@@ -72,7 +72,11 @@ impl Render for DiffViewer {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let theme = self.app_state.read(cx).theme().clone();
+        let state = self.app_state.read(cx);
+        let theme = state.theme().clone();
+        let settings = state.settings_store.read(cx).settings().clone();
+        #[allow(clippy::cast_precision_loss)]
+        let font_size = settings.editor_font_size as f32;
 
         let Some(ref file_path) = self.file_path else {
             return div()
@@ -80,20 +84,13 @@ impl Render for DiffViewer {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(12.))
+                .text_size(px(font_size))
                 .text_color(theme.text_disabled)
                 .child("No diff selected")
                 .into_any_element();
         };
 
-        let font_family = self
-            .app_state
-            .read(cx)
-            .settings_store
-            .read(cx)
-            .settings()
-            .font_family
-            .clone();
+        let font_family = settings.font_family;
 
         let staged_label = if self.staged {
             "(staged)"
@@ -112,7 +109,7 @@ impl Render for DiffViewer {
             .border_b_1()
             .border_color(theme.border)
             .bg(theme.background)
-            .text_size(px(12.))
+            .text_size(px(font_size))
             .child(div().text_color(theme.text).child(file_path.clone()))
             .child(div().text_color(theme.text_muted).child(staged_label));
 
@@ -127,7 +124,7 @@ impl Render for DiffViewer {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(12.))
+                .text_size(px(font_size))
                 .text_color(theme.text_disabled)
                 .child("No changes in this file")
         } else {
@@ -139,7 +136,7 @@ impl Render for DiffViewer {
                 .track_scroll(&self.scroll_handle)
                 .bg(theme.editor_bg)
                 .font_family(SharedString::from(font_family))
-                .text_size(px(13.));
+                .text_size(px(font_size));
 
             for hunk in &self.hunks {
                 // Hunk header
@@ -149,14 +146,14 @@ impl Render for DiffViewer {
                         .px(px(8.))
                         .py(px(2.))
                         .bg(rgba(0x2222_44ff))
-                        .text_size(px(11.))
+                        .text_size(px(font_size - 2.0))
                         .text_color(theme.text_faint)
                         .child(hunk.header.clone()),
                 );
 
                 // Diff lines
                 for line in &hunk.lines {
-                    content_div = content_div.child(render_diff_line(line, &theme));
+                    content_div = content_div.child(render_diff_line(line, font_size, &theme));
                 }
             }
 
@@ -174,7 +171,7 @@ impl Render for DiffViewer {
 }
 
 /// Render a single diff line with line number gutters and content.
-fn render_diff_line(line: &DiffLine, theme: &Theme) -> impl IntoElement {
+fn render_diff_line(line: &DiffLine, font_size: f32, theme: &Theme) -> impl IntoElement {
     let (bg, prefix, text_color) = match line.origin {
         LineOrigin::Addition => (rgba(0x2a3a_2aff), "+", rgba(0x98c3_79ff)),
         LineOrigin::Deletion => (rgba(0x3a2a_2aff), "-", rgba(0xe06c_75ff)),
@@ -196,7 +193,7 @@ fn render_diff_line(line: &DiffLine, theme: &Theme) -> impl IntoElement {
             div()
                 .w(px(36.))
                 .flex_shrink_0()
-                .text_size(px(10.))
+                .text_size(px(font_size - 3.0))
                 .text_color(theme.text_faint)
                 .text_right()
                 .px(px(4.))
@@ -207,7 +204,7 @@ fn render_diff_line(line: &DiffLine, theme: &Theme) -> impl IntoElement {
             div()
                 .w(px(36.))
                 .flex_shrink_0()
-                .text_size(px(10.))
+                .text_size(px(font_size - 3.0))
                 .text_color(theme.text_faint)
                 .text_right()
                 .px(px(4.))

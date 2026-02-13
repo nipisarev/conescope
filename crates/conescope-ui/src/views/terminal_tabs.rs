@@ -28,6 +28,7 @@ pub fn render_tab_bar(
     on_click_shell: &ShellTabCb,
     on_close_shell: &ShellTabCb,
     on_click_add: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let active_bg = theme.terminal_bg;
@@ -54,6 +55,7 @@ pub fn render_tab_bar(
         false, // no close on primary
         on_click_primary,
         None::<Box<dyn Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App)>>,
+        font_size,
         active_bg,
         inactive_bg,
     ));
@@ -80,6 +82,7 @@ pub fn render_tab_bar(
                     on_close(id, ev, window, cx);
                 },
             ),
+            font_size,
             active_bg,
             inactive_bg,
         ));
@@ -114,7 +117,7 @@ pub fn render_tab_bar(
                     .px(px(6.))
                     .py(px(2.))
                     .cursor_pointer()
-                    .text_size(px(14.))
+                    .text_size(px(font_size + 2.0))
                     .text_color(rgba(0x6666_66ff))
                     .hover(|s| s.text_color(rgba(0xffff_ffff)).bg(rgba(0x3c3c_3cff)))
                     .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
@@ -137,6 +140,7 @@ fn render_tab(
     closeable: bool,
     on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     on_close: Option<impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static>,
+    font_size: f32,
     active_bg: gpui::Rgba,
     inactive_bg: gpui::Rgba,
 ) -> gpui::Div {
@@ -155,7 +159,7 @@ fn render_tab(
         .flex()
         .items_center()
         .px(px(12.))
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .text_color(fg)
         .bg(bg)
         .cursor_pointer()
@@ -169,7 +173,7 @@ fn render_tab(
                 div()
                     .id(SharedString::from(format!("close-tab-{label}")))
                     .ml(px(6.))
-                    .text_size(px(10.))
+                    .text_size(px(font_size - 2.0))
                     .text_color(rgba(0x6666_66ff))
                     .hover(|s| s.text_color(rgba(0xffff_ffff)))
                     .cursor_pointer()

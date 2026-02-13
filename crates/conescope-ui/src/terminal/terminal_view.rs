@@ -128,6 +128,11 @@ impl TerminalView {
         // Font size is controlled separately via text_size cascade.
     }
 
+    /// Update the terminal font size.
+    pub fn set_font_size(&mut self, size: f32) {
+        self.font_size = size;
+    }
+
     /// Update the terminal line-height ratio.
     pub fn set_line_height_ratio(&mut self, ratio: f32) {
         self.line_height_ratio = ratio;

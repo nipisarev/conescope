@@ -169,12 +169,15 @@ fn load_data_async(
             let _ = cx.update_window(window_handle, |_view, window, cx| {
                 let settings = settings_for_restore.read(cx).settings().clone();
                 let font_family = Some(settings.font_family.clone());
+                #[allow(clippy::cast_precision_loss)]
+                let tfs = settings.terminal_font_size as f32;
                 let lhr = settings.terminal_line_height as f32;
                 let colors = app_state_for_restore.read(cx).theme().terminal_colors();
                 instance_list.update(cx, |list, cx| {
                     list.restore_terminals(
                         &project_store_for_restore,
                         font_family.as_deref(),
+                        tfs,
                         lhr,
                         &colors,
                         window,

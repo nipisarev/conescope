@@ -93,18 +93,23 @@ fn create_instance_at(
             .clone(),
     );
     let tc = app_state.read(cx).theme().terminal_colors();
-    let lhr = app_state
+    let settings = app_state
         .read(cx)
         .settings_store
         .read(cx)
         .settings()
-        .terminal_line_height as f32;
-    let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), lhr, &tc, window, cx);
+        .clone();
+    #[allow(clippy::cast_precision_loss)]
+    let tfs = settings.terminal_font_size as f32;
+    let lhr = settings.terminal_line_height as f32;
+    let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), tfs, lhr, &tc, window, cx);
     let is_project = instance_type == InstanceType::Project;
 
+    let cwd_owned = cwd.to_owned();
     let entry = cx.new(|cx| {
         let mut e = InstanceEntry::from_instance(instance);
         e.attach_terminal(pane, cx);
+        e.refresh_git_summary(&cwd_owned, cx);
         e
     });
 

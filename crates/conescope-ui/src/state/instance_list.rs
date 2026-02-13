@@ -78,6 +78,7 @@ impl InstanceList {
         &mut self,
         project_store: &Entity<ProjectStore>,
         font_family: Option<&str>,
+        font_size: f32,
         line_height_ratio: f32,
         colors: &crate::terminal::TerminalColors,
         window: &mut gpui::Window,
@@ -102,6 +103,7 @@ impl InstanceList {
             let pane = crate::terminal::spawn_terminal_pane(
                 Some(&cwd),
                 font_family,
+                font_size,
                 line_height_ratio,
                 colors,
                 window,
@@ -110,6 +112,7 @@ impl InstanceList {
             entry.update(cx, |e, cx| {
                 e.attach_terminal(pane, cx);
                 e.start_output_polling(cx);
+                e.refresh_git_summary(&cwd, cx);
             });
 
             if is_project {

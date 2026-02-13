@@ -56,7 +56,7 @@ impl FocusView {
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
         let git_store = app_state.read(cx).git_store.clone();
         let file_tree = cx.new(|cx| FileTree::new(app_state.clone(), Some(git_store.clone()), cx));
-        let code_editor = cx.new(|_| CodeEditor::new());
+        let code_editor = cx.new(|_| CodeEditor::new(app_state.clone()));
         let editor_tabs = cx.new(|_| EditorTabs::new(app_state.clone()));
 
         let git_panel = cx.new(|_| GitPanel::new(app_state.clone(), git_store.clone()));
@@ -359,6 +359,7 @@ impl FocusView {
     fn build_tab_bar(
         &self,
         entry: &gpui::Entity<crate::state::instance_entry::InstanceEntry>,
+        font_size: f32,
         theme: &Theme,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
@@ -431,13 +432,17 @@ impl FocusView {
                         .clone(),
                 );
                 let tc = app_state_for_add.read(cx).theme().terminal_colors();
-                let lhr = app_state_for_add
+                let s = app_state_for_add
                     .read(cx)
                     .settings_store
                     .read(cx)
                     .settings()
-                    .terminal_line_height as f32;
-                let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), lhr, &tc, window, cx);
+                    .clone();
+                #[allow(clippy::cast_precision_loss)]
+                let tfs = s.terminal_font_size as f32;
+                let lhr = s.terminal_line_height as f32;
+                let pane =
+                    spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), tfs, lhr, &tc, window, cx);
                 entry_for_add.update(cx, |e, cx| {
                     let (id, rx) = e.add_shell_tab(pane, cx);
                     e.start_shell_output_polling(id, rx, cx);
@@ -448,6 +453,7 @@ impl FocusView {
                     fh.focus(window, cx);
                 }
             }),
+            font_size,
             theme,
         )
     }
@@ -518,11 +524,13 @@ fn render_terminal_pane(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_editor_area(
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
     diff_viewer: &Entity<DiffViewer>,
     active_diff_mode: Option<bool>,
+    editor_font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     div()
@@ -531,6 +539,7 @@ fn render_editor_area(
         .flex()
         .flex_col()
         .bg(theme.editor_bg)
+        .text_size(px(editor_font_size))
         .child(editor_tabs.clone())
         .child(
             div()
@@ -558,6 +567,7 @@ fn render_main_area(
     tab_bar: gpui::Div,
     terminal_height: f32,
     terminal_font_size: f32,
+    editor_font_size: f32,
     font_family: &str,
     dragging_terminal: bool,
     drag_listener: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
@@ -571,6 +581,7 @@ fn render_main_area(
             code_editor,
             diff_viewer,
             active_diff_mode,
+            editor_font_size,
             theme,
         ));
     }
@@ -743,8 +754,10 @@ impl Render for FocusView {
         let terminal_view = inst.active_terminal_view().cloned();
         let click_focus_handle = inst.active_focus_handle().cloned();
 
+        let settings = state.settings_store.read(cx).settings().clone();
         #[allow(clippy::cast_precision_loss)]
-        let terminal_font_size = state.settings_store.read(cx).settings().terminal_font_size as f32;
+        let terminal_font_size = settings.terminal_font_size as f32;
+        let ui_font_size = settings.ui_font_size();
 
         let font_family = state.settings_store.read(cx).settings().font_family.clone();
 
@@ -763,7 +776,13 @@ impl Render for FocusView {
             .active_tab()
             .and_then(|t| t.diff_mode);
 
-        let tab_bar = self.build_tab_bar(&entry, &theme, cx);
+        let editor_font_size = state
+            .settings_store
+            .read(cx)
+            .settings()
+            .ui_editor_font_size();
+
+        let tab_bar = self.build_tab_bar(&entry, ui_font_size, &theme, cx);
 
         let main_area = render_main_area(
             editor_visible,
@@ -777,6 +796,7 @@ impl Render for FocusView {
             tab_bar,
             terminal_height,
             terminal_font_size,
+            editor_font_size,
             &font_family,
             dragging_terminal,
             cx.listener(|this, event: &gpui::MouseDownEvent, _window, _cx| {

@@ -63,6 +63,7 @@ impl GitPanel {
     fn render_sections(
         &self,
         entries: &[GitFileEntry],
+        font_size: f32,
         theme: &Theme,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
@@ -90,6 +91,7 @@ impl GitPanel {
                 cx.listener(|this, _, _, _| {
                     this.staged_expanded = !this.staged_expanded;
                 }),
+                font_size,
                 theme,
             ));
             if self.staged_expanded {
@@ -97,6 +99,7 @@ impl GitPanel {
                     scroll_div = scroll_div.child(render_file_entry(
                         entry,
                         self.selected.as_ref(),
+                        font_size,
                         theme,
                         cx,
                     ));
@@ -112,6 +115,7 @@ impl GitPanel {
                 cx.listener(|this, _, _, _| {
                     this.unstaged_expanded = !this.unstaged_expanded;
                 }),
+                font_size,
                 theme,
             ));
             if self.unstaged_expanded {
@@ -119,6 +123,7 @@ impl GitPanel {
                     scroll_div = scroll_div.child(render_file_entry(
                         entry,
                         self.selected.as_ref(),
+                        font_size,
                         theme,
                         cx,
                     ));
@@ -137,7 +142,9 @@ impl Render for GitPanel {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let store = self.git_store.read(cx);
-        let theme = self.app_state.read(cx).theme().clone();
+        let state = self.app_state.read(cx);
+        let theme = state.theme().clone();
+        let font_size = state.settings_store.read(cx).settings().ui_font_size();
 
         // No repo
         if !store.has_repo() {
@@ -146,7 +153,7 @@ impl Render for GitPanel {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(11.))
+                .text_size(px(font_size))
                 .text_color(theme.text_disabled)
                 .child("Not a git repository")
                 .into_any_element();
@@ -161,21 +168,21 @@ impl Render for GitPanel {
                 .size_full()
                 .flex()
                 .flex_col()
-                .child(render_header_bar(&branch, &theme, cx))
+                .child(render_header_bar(&branch, font_size, &theme, cx))
                 .child(
                     div()
                         .flex_1()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(11.))
+                        .text_size(px(font_size))
                         .text_color(theme.text_disabled)
                         .child("No changes"),
                 )
                 .into_any_element();
         }
 
-        let scroll_div = self.render_sections(&entries, &theme, cx);
+        let scroll_div = self.render_sections(&entries, font_size, &theme, cx);
 
         let mut root = div()
             .id("git-panel-root")
@@ -185,7 +192,7 @@ impl Render for GitPanel {
             .flex()
             .flex_col()
             .min_h_0()
-            .child(render_header_bar(&branch, &theme, cx))
+            .child(render_header_bar(&branch, font_size, &theme, cx))
             .child(scroll_div);
 
         // Context menu overlay
@@ -214,7 +221,7 @@ impl Render for GitPanel {
                     ),
             );
             // The actual menu
-            root = root.child(render_context_menu(menu, &theme, cx));
+            root = root.child(render_context_menu(menu, font_size, &theme, cx));
         }
 
         root.into_any_element()
@@ -224,6 +231,7 @@ impl Render for GitPanel {
 /// Render the context menu as an absolute-positioned overlay.
 fn render_context_menu(
     menu: &ContextMenuState,
+    font_size: f32,
     theme: &Theme,
     cx: &mut gpui::Context<GitPanel>,
 ) -> impl IntoElement {
@@ -241,7 +249,7 @@ fn render_context_menu(
         .border_color(theme.border)
         .rounded(px(4.))
         .py(px(4.))
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .shadow_md()
         .children(items)
 }
@@ -378,7 +386,12 @@ fn context_menu_item(
 }
 
 /// Top bar: "Git: {branch}" + refresh button.
-fn render_header_bar(branch: &str, theme: &Theme, cx: &mut gpui::Context<GitPanel>) -> gpui::Div {
+fn render_header_bar(
+    branch: &str,
+    font_size: f32,
+    theme: &Theme,
+    cx: &mut gpui::Context<GitPanel>,
+) -> gpui::Div {
     div()
         .flex()
         .flex_row()
@@ -388,7 +401,7 @@ fn render_header_bar(branch: &str, theme: &Theme, cx: &mut gpui::Context<GitPane
         .py(px(6.))
         .border_b_1()
         .border_color(theme.border)
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .child(
             div()
                 .text_color(theme.text_muted)
@@ -410,11 +423,13 @@ fn render_header_bar(branch: &str, theme: &Theme, cx: &mut gpui::Context<GitPane
 }
 
 /// Collapsible section header (e.g. "Staged (3)").
+#[allow(clippy::too_many_arguments)]
 fn render_section_header(
     title: &str,
     count: usize,
     expanded: bool,
     on_click: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let arrow = if expanded { "\u{25be}" } else { "\u{25b8}" }; // ▾ / ▸
@@ -426,7 +441,7 @@ fn render_section_header(
         .px(px(8.))
         .py(px(4.))
         .bg(theme.background)
-        .text_size(px(11.))
+        .text_size(px(font_size - 1.0))
         .text_color(theme.text_muted)
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, on_click)
@@ -438,6 +453,7 @@ fn render_section_header(
 fn render_file_entry(
     entry: &GitFileEntry,
     selected: Option<&(String, StageStatus)>,
+    font_size: f32,
     theme: &Theme,
     cx: &mut gpui::Context<GitPanel>,
 ) -> gpui::Div {
@@ -479,7 +495,7 @@ fn render_file_entry(
         .gap(px(6.))
         .px(px(12.))
         .py(px(3.))
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .bg(bg)
         .cursor_pointer()
         .hover(move |s| s.bg(surface))
@@ -516,7 +532,7 @@ fn render_file_entry(
         .child(
             div()
                 .text_color(status_color)
-                .text_size(px(10.))
+                .text_size(px(font_size - 2.0))
                 .w(px(18.))
                 .flex_shrink_0()
                 .child(status_label),
@@ -529,14 +545,13 @@ fn render_file_entry(
                 .child(
                     div()
                         .text_color(theme.text)
-                        .text_size(px(12.))
                         .whitespace_nowrap()
                         .child(file_name),
                 )
                 .child(
                     div()
                         .text_color(theme.text_faint)
-                        .text_size(px(10.))
+                        .text_size(px(font_size - 2.0))
                         .whitespace_nowrap()
                         .child(path),
                 ),

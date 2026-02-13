@@ -164,7 +164,10 @@ impl SettingsView {
         let _ = new_settings.save_to_file(&dir);
 
         let store = self.app_state.read(cx).settings_store.clone();
-        store.update(cx, |s, _| s.load_settings(new_settings));
+        store.update(cx, |s, cx| {
+            s.load_settings(new_settings);
+            cx.notify();
+        });
     }
 }
 

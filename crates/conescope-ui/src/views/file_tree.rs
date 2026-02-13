@@ -1275,7 +1275,9 @@ impl Render for FileTree {
             self.set_root(root, cx);
         }
 
-        let theme = self.app_state.read(cx).theme().clone();
+        let state = self.app_state.read(cx);
+        let theme = state.theme().clone();
+        let font_size = state.settings_store.read(cx).settings().ui_font_size();
 
         if self.visible_entries.is_empty() {
             return div()
@@ -1283,7 +1285,7 @@ impl Render for FileTree {
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(11.))
+                .text_size(px(font_size - 2.0))
                 .text_color(theme.text_disabled)
                 .child("No project folder")
                 .into_any_element();
@@ -1296,7 +1298,9 @@ impl Render for FileTree {
             "file-tree-list",
             item_count,
             cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
-                let theme = this.app_state.read(cx).theme().clone();
+                let state = this.app_state.read(cx);
+                let theme = state.theme().clone();
+                let fs = state.settings_store.read(cx).settings().ui_font_size();
                 let context_menu_open = this.context_menu.is_some();
                 let edit_entry_id = this.edit_state.as_ref().map(|e| e.entry_id);
                 let rename_input = this.rename_input.clone();
@@ -1306,13 +1310,13 @@ impl Render for FileTree {
                         let ve = &this.visible_entries[ix];
                         if edit_entry_id == Some(ve.entry_id) {
                             if let Some(ref input_state) = rename_input {
-                                render_rename_row(ve, input_state, &theme)
+                                render_rename_row(ve, input_state, fs, &theme)
                             } else {
-                                render_row(this, ve, ix, context_menu_open, &theme, cx)
+                                render_row(this, ve, ix, context_menu_open, fs, &theme, cx)
                                     .into_any_element()
                             }
                         } else {
-                            render_row(this, ve, ix, context_menu_open, &theme, cx)
+                            render_row(this, ve, ix, context_menu_open, fs, &theme, cx)
                                 .into_any_element()
                         }
                     })
@@ -1410,7 +1414,13 @@ impl Render for FileTree {
                             cx.notify();
                         }),
                     )
-                    .child(render_context_menu(menu, has_clipboard, &theme, cx)),
+                    .child(render_context_menu(
+                        menu,
+                        has_clipboard,
+                        font_size,
+                        &theme,
+                        cx,
+                    )),
             );
         }
 
@@ -1426,6 +1436,7 @@ fn render_row(
     ve: &VisibleEntry,
     ix: usize,
     context_menu_open: bool,
+    font_size: f32,
     theme: &Theme,
     cx: &mut gpui::Context<FileTree>,
 ) -> gpui::AnyElement {
@@ -1485,7 +1496,7 @@ fn render_row(
         .h(px(ROW_HEIGHT))
         .flex()
         .items_center()
-        .text_size(px(13.))
+        .text_size(px(font_size))
         .text_color(fg)
         .bg(bg)
         .cursor_pointer();
@@ -1540,6 +1551,7 @@ fn render_row(
 fn render_rename_row(
     ve: &VisibleEntry,
     input_state: &Entity<InputState>,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::AnyElement {
     #[allow(clippy::cast_precision_loss)]
@@ -1552,13 +1564,14 @@ fn render_rename_row(
         .w_full()
         .flex()
         .items_center()
-        .text_size(px(13.))
+        .text_size(px(font_size))
         .bg(theme.element_selected)
         .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .child(Input::new(input_state).appearance(true).text_size(px(12.))),
+            div().flex_1().min_w_0().child(
+                Input::new(input_state)
+                    .appearance(true)
+                    .text_size(px(font_size - 1.0)),
+            ),
         )
         .into_any_element()
 }
@@ -1613,6 +1626,7 @@ fn file_ext_color(name: &str) -> gpui::Rgba {
 fn render_context_menu(
     menu: &ContextMenuState,
     has_clipboard: bool,
+    font_size: f32,
     theme: &Theme,
     cx: &mut gpui::Context<FileTree>,
 ) -> impl IntoElement {
@@ -1841,7 +1855,7 @@ fn render_context_menu(
         .border_color(theme.border)
         .rounded(px(4.))
         .py(px(4.))
-        .text_size(px(12.))
+        .text_size(px(font_size))
         .shadow_md()
         .children(items)
 }
@@ -1869,12 +1883,7 @@ fn ctx_item(
             handler(ev, win, cx);
         })
         .child(label.to_owned())
-        .child(
-            div()
-                .text_color(theme.text_faint)
-                .text_size(px(11.))
-                .child(sc),
-        )
+        .child(div().text_color(theme.text_faint).child(sc))
 }
 
 fn ctx_item_disabled(label: &str, shortcut: &str, theme: &Theme) -> gpui::AnyElement {
@@ -1890,7 +1899,6 @@ fn ctx_item_disabled(label: &str, shortcut: &str, theme: &Theme) -> gpui::AnyEle
         .child(
             div()
                 .text_color(theme.text_disabled)
-                .text_size(px(11.))
                 .child(shortcut.to_owned()),
         )
         .into_any_element()

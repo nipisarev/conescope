@@ -199,6 +199,25 @@ impl GitRepo {
         Ok(hunks)
     }
 
+    /// Total insertions and deletions across all changes (staged + unstaged).
+    pub fn diff_stats(&self) -> Result<(usize, usize)> {
+        let unstaged = self.repo.diff_index_to_workdir(None, None)?;
+        let us = unstaged.stats()?;
+        let mut insertions = us.insertions();
+        let mut deletions = us.deletions();
+
+        if let Ok(head_tree) = self.repo.head().and_then(|r| r.peel_to_tree()) {
+            if let Ok(staged) = self.repo.diff_tree_to_index(Some(&head_tree), None, None) {
+                if let Ok(ss) = staged.stats() {
+                    insertions += ss.insertions();
+                    deletions += ss.deletions();
+                }
+            }
+        }
+
+        Ok((insertions, deletions))
+    }
+
     pub fn stage(&self, paths: &[&str]) -> Result<()> {
         self.cli.stage(paths)
     }

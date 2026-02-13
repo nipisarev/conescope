@@ -43,6 +43,7 @@ fn main() {
                         spawn_terminal_pane(
                             None,
                             None,
+                            13.0,
                             conescope_ui::terminal::DEFAULT_LINE_HEIGHT_RATIO,
                             &tc,
                             window,

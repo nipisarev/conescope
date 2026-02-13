@@ -29,6 +29,14 @@ pub struct ShellTab {
     pub alive: bool,
 }
 
+/// Cached git summary for an instance's project directory.
+#[derive(Debug, Clone, Default)]
+pub struct GitSummary {
+    pub branch: Option<String>,
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
 pub struct InstanceEntry {
     pub instance: Instance,
     /// Primary terminal (Claude CLI for Project, shell for Terminal).
@@ -43,6 +51,8 @@ pub struct InstanceEntry {
     pub shell_tabs: Vec<ShellTab>,
     shell_next_id: usize,
     pub active_tab: TerminalTab,
+    /// Cached git info for the project directory.
+    pub git_summary: GitSummary,
 }
 
 impl std::fmt::Debug for InstanceEntry {
@@ -74,6 +84,7 @@ impl InstanceEntry {
             shell_tabs: Vec::new(),
             shell_next_id: 0,
             active_tab: TerminalTab::Primary,
+            git_summary: GitSummary::default(),
         }
     }
 
@@ -203,6 +214,22 @@ impl InstanceEntry {
         }
     }
 
+    /// Update font size on all terminal views.
+    pub fn update_font_size(&mut self, size: f32, cx: &mut gpui::Context<Self>) {
+        if let Some(ref tv) = self.terminal_view {
+            tv.update(cx, |v, cx| {
+                v.set_font_size(size);
+                cx.notify();
+            });
+        }
+        for tab in &self.shell_tabs {
+            tab.terminal_view.update(cx, |v, cx| {
+                v.set_font_size(size);
+                cx.notify();
+            });
+        }
+    }
+
     /// Update terminal line-height ratio on all terminal views.
     pub fn update_line_height(&mut self, ratio: f32, cx: &mut gpui::Context<Self>) {
         if let Some(ref tv) = self.terminal_view {
@@ -233,6 +260,38 @@ impl InstanceEntry {
             let c = colors.clone();
             tab.terminal_view.update(cx, |v, _| v.set_colors(c));
         }
+    }
+
+    /// Refresh cached git summary (branch + diff stats) for the given project path.
+    pub fn refresh_git_summary(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        let path = path.to_owned();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let repo =
+                        conescope_git::repository::GitRepo::open(std::path::Path::new(&path))
+                            .ok()?;
+                    let branch = repo.head_branch();
+                    let (ins, del) = repo.diff_stats().unwrap_or((0, 0));
+                    Some(GitSummary {
+                        branch,
+                        insertions: ins,
+                        deletions: del,
+                    })
+                })
+                .await;
+
+            cx.update(|cx| {
+                if let Some(entry) = this.upgrade() {
+                    entry.update(cx, |e, cx| {
+                        e.git_summary = result.unwrap_or_default();
+                        cx.notify();
+                    });
+                }
+            });
+        })
+        .detach();
     }
 
     pub fn resize_pty(&self, cols: u16, rows: u16) {

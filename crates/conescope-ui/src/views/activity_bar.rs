@@ -20,6 +20,7 @@ impl Render for InstanceTooltip {
         _window: &mut gpui::Window,
         _cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        // Tooltip uses fixed sizes (rendered as popup, not in main UI flow)
         div()
             .bg(rgba(0x3333_33ff))
             .border_1()
@@ -69,6 +70,7 @@ struct InstanceButton {
 fn render_instance_button(
     btn: &InstanceButton,
     app_state: &Entity<AppState>,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
     let app_state_btn = app_state.clone();
@@ -78,6 +80,7 @@ fn render_instance_button(
 
     let accent = theme.accent;
     let element_hover = theme.element_hover;
+    let icon_size = px(font_size - 2.0);
 
     div()
         .id(element_id)
@@ -85,7 +88,7 @@ fn render_instance_button(
         .py(px(1.))
         .rounded(px(3.))
         .cursor_pointer()
-        .text_size(px(11.))
+        .text_size(px(font_size - 1.0))
         .flex()
         .flex_row()
         .items_center()
@@ -98,7 +101,7 @@ fn render_instance_button(
         .child(
             svg()
                 .path(icons::ICON_COMMAND)
-                .size(px(10.))
+                .size(icon_size)
                 .flex_shrink_0(),
         )
         .child(format!("{}", btn.num))
@@ -118,11 +121,13 @@ fn render_instance_button(
 }
 
 /// Render a panel toggle icon for the activity bar.
+#[allow(clippy::too_many_arguments)]
 fn render_panel_toggle(
     icon_path: &'static str,
     active: bool,
     app_state: Entity<AppState>,
     toggle_fn: fn(&mut AppState, &mut gpui::Context<AppState>),
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let fg: Hsla = if active {
@@ -144,7 +149,7 @@ fn render_panel_toggle(
         .child(
             svg()
                 .path(icon_path)
-                .size(px(14.))
+                .size(px(font_size + 1.0))
                 .text_color(fg)
                 .flex_shrink_0(),
         )
@@ -206,6 +211,7 @@ fn build_left_section(
     buttons: &[InstanceButton],
     panels: &PanelState,
     app_state: &Entity<AppState>,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let app_state_grid = app_state.clone();
@@ -222,6 +228,8 @@ fn build_left_section(
         (icons::ICON_CONESCOPE_OUTLINE, text_faint.into())
     };
     let hover_color: Hsla = text.into();
+    let logo_size = px(font_size + 3.0);
+    let separator_h = px(font_size + 3.0);
 
     let mut left = div()
         .flex_1()
@@ -242,7 +250,7 @@ fn build_left_section(
                 .child(
                     svg()
                         .path(icon_path)
-                        .size(px(16.))
+                        .size(logo_size)
                         .text_color(icon_color)
                         .flex_shrink_0(),
                 )
@@ -258,13 +266,14 @@ fn build_left_section(
     match view_mode {
         ViewMode::Focus => {
             if focused_type != Some(InstanceType::Terminal) {
-                left = left.child(div().w(px(1.)).h(px(16.)).mx(px(4.)).bg(theme.border));
+                left = left.child(div().w(px(1.)).h(separator_h).mx(px(4.)).bg(theme.border));
                 left = left
                     .child(render_panel_toggle(
                         icons::ICON_SIDEBAR,
                         panels.sidebar && panels.sidebar_tab == SidebarTab::Files,
                         app_state.clone(),
                         AppState::toggle_sidebar,
+                        font_size,
                         theme,
                     ))
                     .child(render_panel_toggle(
@@ -272,6 +281,7 @@ fn build_left_section(
                         panels.sidebar && panels.sidebar_tab == SidebarTab::Git,
                         app_state.clone(),
                         AppState::toggle_git_panel,
+                        font_size,
                         theme,
                     ))
                     .child(render_panel_toggle(
@@ -279,6 +289,7 @@ fn build_left_section(
                         panels.editor,
                         app_state.clone(),
                         AppState::toggle_editor,
+                        font_size,
                         theme,
                     ))
                     .child(render_panel_toggle(
@@ -286,13 +297,14 @@ fn build_left_section(
                         panels.terminal,
                         app_state.clone(),
                         AppState::toggle_terminal,
+                        font_size,
                         theme,
                     ));
             }
         }
         ViewMode::Overview => {
             for btn in buttons {
-                left = left.child(render_instance_button(btn, app_state, theme));
+                left = left.child(render_instance_button(btn, app_state, font_size, theme));
             }
         }
         ViewMode::Settings => {
@@ -315,6 +327,7 @@ impl Render for ActivityBar {
         let sidebar_tab = state.sidebar_tab(cx);
         let editor_visible = state.editor_visible(cx);
         let terminal_visible = state.terminal_visible(cx);
+        let font_size = state.settings_store.read(cx).settings().ui_font_size();
 
         // Determine focused instance type (for hiding panel toggles on Terminal)
         let focused_type = state.focused_instance_id(cx).and_then(|id| {
@@ -344,11 +357,14 @@ impl Render for ActivityBar {
             &buttons,
             &panels,
             &self.app_state,
+            font_size,
             &theme,
         );
 
+        let bar_height = px(font_size * 2.0 + 4.0);
+
         div()
-            .h(px(28.))
+            .h(bar_height)
             .w_full()
             .flex()
             .flex_row()
@@ -364,7 +380,7 @@ impl Render for ActivityBar {
                     .flex_row()
                     .gap(px(12.))
                     .text_color(theme.text_faint)
-                    .text_size(px(11.))
+                    .text_size(px(font_size - 1.0))
                     .child(token_text)
                     .child(cost_text),
             )

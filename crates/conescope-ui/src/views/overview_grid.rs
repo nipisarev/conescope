@@ -1,8 +1,9 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, relative};
+use gpui::{Entity, MouseButton, div, px, relative, svg};
 
 use conescope_core::instance::InstanceType;
 
+use crate::icons;
 use crate::state::app_state::AppState;
 use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba, status_color};
@@ -60,9 +61,9 @@ fn render_tile(
             status_rgba,
             app_state.clone(),
             editing_input,
+            terminal_font_size,
             theme,
         ))
-        .child(render_tile_meta(tile, theme))
         .child(render_tile_body(
             tile,
             app_state,
@@ -73,11 +74,13 @@ fn render_tile(
         .into_any_element()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tile_header(
     tile: &TileData,
     status_rgba: gpui::Rgba,
     app_state: Entity<AppState>,
     editing_input: Option<&Entity<TextInput>>,
+    font_size: f32,
     theme: &Theme,
 ) -> gpui::AnyElement {
     let close_id = tile.id.clone();
@@ -85,15 +88,98 @@ fn render_tile_header(
     let close_state = app_state.clone();
 
     let title_element: gpui::AnyElement = if let Some(input) = editing_input {
-        div().flex_1().child(input.clone()).into_any_element()
+        div().child(input.clone()).into_any_element()
     } else {
-        render_static_title(tile, app_state)
+        render_static_title(tile, app_state, font_size)
     };
 
-    let token_label = format_tokens_compact(tile.tokens_used);
-    let text_faint = theme.text_faint;
-    let text = theme.text;
+    let path_text = tile.project_path.as_deref().map_or_else(
+        || match tile.instance_type {
+            InstanceType::Project => "Claude Project".to_owned(),
+            InstanceType::Terminal => "~".to_owned(),
+        },
+        shorten_path,
+    );
 
+    let token_label = format_tokens_compact(tile.tokens_used);
+    let icon_size = px(font_size);
+    let secondary_size = px(font_size - 1.0);
+
+    // Group 1: [cmd icon] [number] [title]
+    let group1 = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(3.))
+        .flex_shrink_0()
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(1.))
+                .text_size(px(font_size))
+                .font_weight(gpui::FontWeight::BOLD)
+                .text_color(tile.color)
+                .child(
+                    svg()
+                        .path(icons::ICON_COMMAND_REG)
+                        .size(icon_size)
+                        .text_color(tile.color)
+                        .flex_shrink_0(),
+                )
+                .child(format!("{}", tile.num)),
+        )
+        .child(title_element);
+
+    // Group 2: [folder icon] [path]
+    let group2 = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(2.))
+        .min_w(px(20.))
+        .text_size(secondary_size)
+        .text_color(theme.text)
+        .overflow_x_hidden()
+        .child(
+            svg()
+                .path(icons::ICON_FOLDER_REG)
+                .size(icon_size)
+                .text_color(theme.text)
+                .flex_shrink_0(),
+        )
+        .child(path_text);
+
+    // Group 3: [git-branch icon] [branch] [+N -N]  (only if git)
+    let group3 = render_git_badge(tile, theme, icon_size, secondary_size);
+
+    // Left side: three groups with wider spacing between them
+    let mut left = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(10.))
+        .overflow_x_hidden()
+        .child(group1)
+        .child(group2);
+
+    if let Some(badge) = group3 {
+        left = left.child(badge);
+    }
+
+    let right = render_tile_controls(
+        status_rgba,
+        &token_label,
+        icon_size,
+        secondary_size,
+        close_state,
+        close_id,
+        close_title,
+        theme,
+    );
+
+    // Full header: left ... spacer ... right
     div()
         .px(px(4.))
         .pt(px(2.))
@@ -101,15 +187,32 @@ fn render_tile_header(
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(6.))
-        .child(
-            div()
-                .text_size(px(14.))
-                .font_weight(gpui::FontWeight::BOLD)
-                .text_color(tile.color)
-                .child(format!("#{}", tile.num)),
-        )
-        .child(title_element)
+        .gap(px(4.))
+        .child(left)
+        .child(div().flex_1()) // spacer
+        .child(right)
+        .into_any_element()
+}
+
+/// Right side controls: status dot, token count, close button.
+#[allow(clippy::too_many_arguments)]
+fn render_tile_controls(
+    status_rgba: gpui::Rgba,
+    token_label: &str,
+    icon_size: gpui::Pixels,
+    secondary_size: gpui::Pixels,
+    close_state: Entity<AppState>,
+    close_id: String,
+    close_title: String,
+    theme: &Theme,
+) -> gpui::Div {
+    let text_color = theme.text;
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(4.))
+        .flex_shrink_0()
         .child(
             div()
                 .w(px(8.))
@@ -118,39 +221,43 @@ fn render_tile_header(
                 .bg(status_rgba)
                 .flex_shrink_0(),
         )
-        // Token count
         .child(
             div()
-                .text_size(px(11.))
-                .text_color(theme.text_disabled)
-                .child(token_label),
+                .text_size(secondary_size)
+                .text_color(text_color)
+                .child(token_label.to_owned()),
         )
         .child(
             div()
-                .ml(px(2.))
                 .cursor_pointer()
-                .text_size(px(12.))
-                .text_color(text_faint)
-                .hover(move |s| s.text_color(text))
-                .child("\u{00d7}")
+                .text_color(text_color)
+                .child(
+                    svg()
+                        .path(icons::ICON_CLOSE_REG)
+                        .size(icon_size)
+                        .text_color(text_color),
+                )
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     close_state.update(cx, |s, cx| {
                         s.request_close_instance(&close_id, &close_title, cx);
                     });
                 }),
         )
-        .into_any_element()
 }
 
-fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::AnyElement {
+fn render_static_title(
+    tile: &TileData,
+    app_state: Entity<AppState>,
+    font_size: f32,
+) -> gpui::AnyElement {
     let click_id = tile.id.clone();
     let current_title = tile.title.clone();
 
     div()
-        .flex_1()
-        .text_size(px(14.))
+        .text_size(px(font_size))
         .font_weight(gpui::FontWeight::MEDIUM)
         .text_color(tile.color)
+        .flex_shrink_0()
         .overflow_x_hidden()
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, move |_, window, cx| {
@@ -166,37 +273,51 @@ fn render_static_title(tile: &TileData, app_state: Entity<AppState>) -> gpui::An
         .into_any_element()
 }
 
-fn render_tile_meta(tile: &TileData, theme: &Theme) -> gpui::Div {
-    let path_text = tile.project_path.as_deref().map_or_else(
-        || match tile.instance_type {
-            InstanceType::Project => "Claude Project".to_owned(),
-            InstanceType::Terminal => "~".to_owned(),
-        },
-        shorten_path,
-    );
-    let stats_text = format_stats(tile.tokens_used, tile.cost_estimate);
+/// Git branch icon, branch name, and +/- diff stats as standalone div.
+fn render_git_badge(
+    tile: &TileData,
+    theme: &Theme,
+    icon_size: gpui::Pixels,
+    secondary_size: gpui::Pixels,
+) -> Option<gpui::Div> {
+    let branch = tile.git_branch.as_ref()?;
 
-    div()
-        .px(px(4.))
-        .pb(px(2.))
+    let green = gpui::rgba(0x4ec9_4eff);
+    let red = gpui::rgba(0xf851_49ff);
+
+    let mut badge = div()
         .flex()
         .flex_row()
         .items_center()
-        .gap(px(6.))
+        .gap(px(3.))
+        .text_size(secondary_size)
+        .text_color(theme.text_muted)
+        .flex_shrink_0()
         .child(
-            div()
-                .flex_1()
-                .text_size(px(11.))
+            svg()
+                .path(icons::ICON_GIT_REG)
+                .size(icon_size)
                 .text_color(theme.text_muted)
-                .overflow_x_hidden()
-                .child(path_text),
+                .flex_shrink_0(),
         )
-        .child(
+        .child(branch.clone());
+
+    if tile.git_insertions > 0 {
+        badge = badge.child(
             div()
-                .text_size(px(11.))
-                .text_color(theme.text_disabled)
-                .child(stats_text),
-        )
+                .text_color(green)
+                .child(format!("+{}", tile.git_insertions)),
+        );
+    }
+    if tile.git_deletions > 0 {
+        badge = badge.child(
+            div()
+                .text_color(red)
+                .child(format!("-{}", tile.git_deletions)),
+        );
+    }
+
+    Some(badge)
 }
 
 /// Shorten a path for display (replace $HOME with ~).
@@ -216,45 +337,6 @@ fn shorten_path(path: &str) -> String {
 fn format_tokens_compact(tokens: i64) -> String {
     let k = tokens as f64 / 1_000.0;
     format!("{k:.1}k")
-}
-
-/// Format token count for compact display.
-#[allow(clippy::cast_precision_loss)]
-fn format_tokens(tokens: i64) -> String {
-    if tokens >= 1_000_000 {
-        format!("{:.1}M", tokens as f64 / 1_000_000.0)
-    } else if tokens >= 1_000 {
-        format!("{:.1}K", tokens as f64 / 1_000.0)
-    } else {
-        format!("{tokens}")
-    }
-}
-
-/// Format cost for compact display.
-fn format_cost(cost: f64) -> String {
-    if cost >= 0.01 {
-        format!("${cost:.2}")
-    } else if cost > 0.0 {
-        format!("${cost:.3}")
-    } else {
-        String::new()
-    }
-}
-
-/// Combined stats string for tile metadata.
-fn format_stats(tokens: i64, cost: f64) -> String {
-    let tokens_str = if tokens > 0 {
-        format_tokens(tokens)
-    } else {
-        String::new()
-    };
-    let cost_str = format_cost(cost);
-    match (tokens_str.is_empty(), cost_str.is_empty()) {
-        (true, true) => String::new(),
-        (false, true) => format!("{tokens_str} tok"),
-        (true, false) => cost_str,
-        (false, false) => format!("{tokens_str} tok \u{00b7} {cost_str}"),
-    }
 }
 
 /// Tile body: terminal preview + click-to-focus handler.
@@ -371,8 +453,7 @@ impl Render for OverviewGrid {
         let editing_tile_id = state.editing_tile_id.clone();
         let editing_input = state.editing_input.clone();
 
-        #[allow(clippy::cast_precision_loss)]
-        let terminal_font_size = state.settings_store.read(cx).settings().terminal_font_size as f32;
+        let terminal_font_size = state.settings_store.read(cx).settings().ui_font_size();
 
         let font_family = state.settings_store.read(cx).settings().font_family.clone();
 
@@ -388,15 +469,24 @@ impl Render for OverviewGrid {
                     .as_ref()
                     .and_then(|pid| ps.get(pid))
                     .map(|p| p.path.clone());
+                let git = &inst.git_summary;
+                let title = inst
+                    .instance
+                    .title
+                    .as_deref()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| {
+                        // Fallback: last folder name from project path
+                        project_path
+                            .as_deref()
+                            .and_then(|p| p.rsplit('/').find(|s| !s.is_empty()))
+                            .unwrap_or("Untitled")
+                    })
+                    .to_owned();
                 TileData {
                     id: inst.id().to_owned(),
                     num: i + 1,
-                    title: inst
-                        .instance
-                        .title
-                        .as_deref()
-                        .unwrap_or("Untitled")
-                        .to_owned(),
+                    title,
                     status: inst.status(),
                     color: inst
                         .instance
@@ -406,9 +496,11 @@ impl Render for OverviewGrid {
                     instance_type: inst.instance_type(),
                     project_path,
                     tokens_used: inst.instance.tokens_used,
-                    cost_estimate: inst.instance.cost_estimate,
                     terminal_view: inst.terminal_view.clone(),
                     focus_handle: inst.focus_handle.clone(),
+                    git_branch: git.branch.clone(),
+                    git_insertions: git.insertions,
+                    git_deletions: git.deletions,
                 }
             })
             .collect();
@@ -447,7 +539,9 @@ struct TileData {
     instance_type: InstanceType,
     project_path: Option<String>,
     tokens_used: i64,
-    cost_estimate: f64,
     terminal_view: Option<gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<gpui::FocusHandle>,
+    git_branch: Option<String>,
+    git_insertions: usize,
+    git_deletions: usize,
 }

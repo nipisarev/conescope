@@ -1,8 +1,97 @@
 use gpui::prelude::*;
-use gpui::{Entity, EventEmitter, div, px, rgba};
+use gpui::{
+    AnyElement, App, Bounds, Entity, EventEmitter, GlobalElementId, InspectorElementId, LayoutId,
+    Pixels, Window, div, px, rgba,
+};
 use gpui_component::input::{Input, InputEvent, InputState};
 
+use crate::state::app_state::AppState;
+
 const MAX_FILE_SIZE: u64 = 10 * 1_024 * 1_024; // 10 MB (ropey handles large files)
+
+/// Wrapper element that overrides the window's rem size for its child subtree.
+/// This allows gpui-component's Input (which uses `Rems(1.25)` for line height)
+/// to scale proportionally with the configured font size instead of using the
+/// fixed default rem size (16px).
+struct WithRemSize {
+    child: Option<AnyElement>,
+    rem_size: Pixels,
+}
+
+impl WithRemSize {
+    fn new(rem_size: f32, child: impl IntoElement) -> Self {
+        Self {
+            child: Some(child.into_any_element()),
+            rem_size: px(rem_size),
+        }
+    }
+}
+
+impl gpui::Element for WithRemSize {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let old = window.rem_size();
+        window.set_rem_size(self.rem_size);
+        let layout_id = self.child.as_mut().unwrap().request_layout(window, cx);
+        window.set_rem_size(old);
+        (layout_id, ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let old = window.rem_size();
+        window.set_rem_size(self.rem_size);
+        self.child.as_mut().unwrap().prepaint(window, cx);
+        window.set_rem_size(old);
+    }
+
+    fn paint(
+        &mut self,
+        _id: Option<&GlobalElementId>,
+        _inspector_id: Option<&InspectorElementId>,
+        _bounds: Bounds<Pixels>,
+        _request_layout: &mut (),
+        _prepaint: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let old = window.rem_size();
+        window.set_rem_size(self.rem_size);
+        self.child.as_mut().unwrap().paint(window, cx);
+        window.set_rem_size(old);
+    }
+}
+
+impl IntoElement for WithRemSize {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum CodeEditorEvent {
@@ -13,6 +102,7 @@ pub enum CodeEditorEvent {
 impl EventEmitter<CodeEditorEvent> for CodeEditor {}
 
 pub struct CodeEditor {
+    app_state: Entity<AppState>,
     file_path: Option<String>,
     editor_state: Option<Entity<InputState>>,
     /// Pending file to open once the editor state is initialized.
@@ -27,16 +117,11 @@ impl std::fmt::Debug for CodeEditor {
     }
 }
 
-impl Default for CodeEditor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CodeEditor {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(app_state: Entity<AppState>) -> Self {
         Self {
+            app_state,
             file_path: None,
             editor_state: None,
             pending_open: None,
@@ -240,26 +325,37 @@ impl Render for CodeEditor {
             self.load_file_into_state(&path, &state, window, cx);
         }
 
+        let settings = self.app_state.read(cx).settings_store.read(cx).settings();
+        let ui_font_size = settings.ui_editor_font_size();
+        #[allow(clippy::cast_precision_loss)]
+        let raw_font_size = settings.editor_font_size as f32;
+
         if self.file_path.is_none() {
             return div()
                 .size_full()
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(12.))
+                .text_size(px(ui_font_size))
                 .text_color(rgba(0x5555_55ff))
                 .child("No file open")
                 .into_any_element();
         }
 
+        // Wrap Input in WithRemSize so that the Input widget's hardcoded
+        // LINE_HEIGHT = Rems(1.25) resolves to 1.25 * font_size instead of
+        // 1.25 * 16px (the default rem size), preventing line overlap at
+        // large font sizes.
         div()
             .size_full()
-            .child(
+            .child(WithRemSize::new(
+                raw_font_size,
                 Input::new(&state)
                     .h_full()
                     .appearance(false)
-                    .focus_bordered(false),
-            )
+                    .focus_bordered(false)
+                    .text_size(px(raw_font_size)),
+            ))
             .into_any_element()
     }
 }
