@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{Entity, Hsla, MouseButton, SharedString, div, px, rgba, svg};
+use gpui::{Entity, Hsla, MouseButton, div, px, svg};
 
 use conescope_core::instance::InstanceType;
 
@@ -7,44 +7,6 @@ use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::{SidebarTab, ViewMode};
 use crate::theme::Theme;
-use crate::views::colors::{default_instance_color, hex_to_rgba};
-
-struct InstanceTooltip {
-    title: SharedString,
-    status: SharedString,
-}
-
-impl Render for InstanceTooltip {
-    fn render(
-        &mut self,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<Self>,
-    ) -> impl IntoElement {
-        // Tooltip uses fixed sizes (rendered as popup, not in main UI flow)
-        div()
-            .bg(rgba(0x3333_33ff))
-            .border_1()
-            .border_color(rgba(0x5555_55ff))
-            .rounded(px(4.))
-            .px(px(8.))
-            .py(px(4.))
-            .flex()
-            .flex_col()
-            .gap(px(2.))
-            .child(
-                div()
-                    .text_color(rgba(0xdddd_ddff))
-                    .text_size(px(12.))
-                    .child(self.title.clone()),
-            )
-            .child(
-                div()
-                    .text_color(rgba(0x8888_88ff))
-                    .text_size(px(11.))
-                    .child(self.status.clone()),
-            )
-    }
-}
 
 #[derive(Debug)]
 pub struct ActivityBar {
@@ -56,68 +18,6 @@ impl ActivityBar {
     pub fn new(app_state: Entity<AppState>) -> Self {
         Self { app_state }
     }
-}
-
-struct InstanceButton {
-    id: String,
-    num: usize,
-    color: gpui::Rgba,
-    is_focused: bool,
-    title: String,
-    status: String,
-}
-
-fn render_instance_button(
-    btn: &InstanceButton,
-    app_state: &Entity<AppState>,
-    font_size: f32,
-    theme: &Theme,
-) -> gpui::Stateful<gpui::Div> {
-    let app_state_btn = app_state.clone();
-    let tooltip_title: SharedString = btn.title.clone().into();
-    let tooltip_status: SharedString = btn.status.clone().into();
-    let element_id: SharedString = format!("inst-btn-{}", btn.num).into();
-
-    let accent = theme.accent;
-    let element_hover = theme.element_hover;
-    let icon_size = px(font_size - 2.0);
-
-    div()
-        .id(element_id)
-        .px(px(4.))
-        .py(px(1.))
-        .rounded(px(3.))
-        .cursor_pointer()
-        .text_size(px(font_size - 1.0))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(2.))
-        .when(btn.is_focused, move |el| el.bg(accent))
-        .when(!btn.is_focused, move |el| {
-            el.hover(move |s| s.bg(element_hover))
-        })
-        .text_color(btn.color)
-        .child(
-            svg()
-                .path(icons::ICON_COMMAND)
-                .size(icon_size)
-                .flex_shrink_0(),
-        )
-        .child(format!("{}", btn.num))
-        .on_click({
-            let id = btn.id.clone();
-            move |_, _, cx| {
-                app_state_btn.update(cx, |s, cx| s.focus_instance(&id, cx));
-            }
-        })
-        .tooltip(move |_window, cx| {
-            cx.new(|_| InstanceTooltip {
-                title: tooltip_title.clone(),
-                status: tooltip_status.clone(),
-            })
-            .into()
-        })
 }
 
 /// Render a panel toggle icon for the activity bar.
@@ -155,45 +55,19 @@ fn render_panel_toggle(
         )
 }
 
-/// Collect instance buttons and aggregate token/cost stats.
-fn collect_instance_data(
-    app_state: &Entity<AppState>,
-    cx: &gpui::App,
-) -> (Vec<InstanceButton>, i64, f64) {
+/// Aggregate token/cost stats across all instances.
+fn collect_token_stats(app_state: &Entity<AppState>, cx: &gpui::App) -> (i64, f64) {
     let state = app_state.read(cx);
     let il = state.instance_list.read(cx);
-    let focused_id = state.focused_instance_id(cx).map(str::to_owned);
-    let mut buttons = Vec::new();
     let mut total_tokens: i64 = 0;
     let mut total_cost: f64 = 0.0;
 
-    for (i, entry) in il.entries().iter().enumerate() {
+    for entry in il.entries() {
         let inst = entry.read(cx);
-        let num = i + 1;
-        let color = inst
-            .instance
-            .color
-            .as_deref()
-            .map_or_else(default_instance_color, hex_to_rgba);
-        let is_focused = focused_id.as_deref() == Some(inst.id());
-        let title = inst
-            .instance
-            .title
-            .clone()
-            .unwrap_or_else(|| format!("Instance {num}"));
-        let status = inst.status().as_str().to_owned();
-        buttons.push(InstanceButton {
-            id: inst.id().to_owned(),
-            num,
-            color,
-            is_focused,
-            title,
-            status,
-        });
         total_tokens += inst.instance.tokens_used;
         total_cost += inst.instance.cost_estimate;
     }
-    (buttons, total_tokens, total_cost)
+    (total_tokens, total_cost)
 }
 
 struct PanelState {
@@ -208,7 +82,6 @@ struct PanelState {
 fn build_left_section(
     view_mode: ViewMode,
     focused_type: Option<InstanceType>,
-    buttons: &[InstanceButton],
     panels: &PanelState,
     app_state: &Entity<AppState>,
     font_size: f32,
@@ -302,13 +175,8 @@ fn build_left_section(
                     ));
             }
         }
-        ViewMode::Overview => {
-            for btn in buttons {
-                left = left.child(render_instance_button(btn, app_state, font_size, theme));
-            }
-        }
-        ViewMode::Settings => {
-            // No instance buttons or panel toggles in settings mode
+        ViewMode::Overview | ViewMode::Settings => {
+            // No instance buttons or panel toggles outside focus mode
         }
     }
 
@@ -340,7 +208,7 @@ impl Render for ActivityBar {
 
         let theme = state.theme().clone();
 
-        let (buttons, total_tokens, total_cost) = collect_instance_data(&self.app_state, cx);
+        let (total_tokens, total_cost) = collect_token_stats(&self.app_state, cx);
 
         let token_text = format!("{}k tokens", total_tokens / 1000);
         let cost_text = format!("${total_cost:.2}");
@@ -354,7 +222,6 @@ impl Render for ActivityBar {
         let left = build_left_section(
             view_mode,
             focused_type,
-            &buttons,
             &panels,
             &self.app_state,
             font_size,
