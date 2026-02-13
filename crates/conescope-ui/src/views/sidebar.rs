@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, ScrollHandle, SharedString, div, px, svg};
+use gpui::{Entity, MouseButton, ScrollHandle, SharedString, div, px, rgba, svg};
 
 use crate::icons;
 use crate::state::app_state::AppState;
@@ -32,6 +32,9 @@ struct SidebarEntry {
     path: String,
     color: gpui::Rgba,
     is_focused: bool,
+    git_branch: Option<String>,
+    git_insertions: usize,
+    git_deletions: usize,
 }
 
 fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<SidebarEntry> {
@@ -69,6 +72,7 @@ fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<
                     })
                     .unwrap_or("~"),
             );
+            let git = &inst.git_summary;
             SidebarEntry {
                 id: inst.id().to_owned(),
                 num,
@@ -76,6 +80,9 @@ fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<
                 path,
                 color,
                 is_focused: focused_id.as_deref() == Some(inst.id()),
+                git_branch: git.branch.clone(),
+                git_insertions: git.insertions,
+                git_deletions: git.deletions,
             }
         })
         .collect()
@@ -102,9 +109,10 @@ fn render_instance_row(
     let app_state_click = app_state.clone();
     let id = entry.id.clone();
     let element_id: SharedString = format!("sidebar-row-{}", entry.num).into();
-    let accent = theme.accent;
+    let element_selected = theme.element_selected;
     let element_hover = theme.element_hover;
     let text_muted = theme.text_muted;
+    let destructive_hover: gpui::Hsla = theme.destructive_hover.into();
     let icon_size = px(font_size - 2.0);
 
     div()
@@ -116,14 +124,14 @@ fn render_instance_row(
         .flex()
         .flex_col()
         .gap(px(1.))
-        .when(entry.is_focused, move |el| el.bg(accent))
+        .when(entry.is_focused, move |el| el.bg(element_selected))
         .when(!entry.is_focused, move |el| {
             el.hover(move |s| s.bg(element_hover))
         })
         .on_click(move |_, _, cx| {
             app_state_click.update(cx, |s, cx| s.focus_instance(&id, cx));
         })
-        // Line 1: command-num + title
+        // Line 1: command-num + title + close button
         .child(
             div()
                 .flex()
@@ -143,6 +151,7 @@ fn render_instance_row(
                             svg()
                                 .path(icons::ICON_COMMAND)
                                 .size(icon_size)
+                                .text_color(entry.color)
                                 .flex_shrink_0(),
                         )
                         .child(format!("{}", entry.num)),
@@ -177,7 +186,17 @@ fn render_instance_row(
                         })
                         .child(entry.title.clone())
                         .into_any_element()
-                }),
+                })
+                // Spacer to push close button right
+                .child(div().flex_1())
+                // Close button
+                .child(render_close_button(
+                    app_state,
+                    entry,
+                    font_size,
+                    text_muted,
+                    destructive_hover,
+                )),
         )
         // Line 2: shortened path
         .child(
@@ -188,6 +207,80 @@ fn render_instance_row(
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .child(entry.path.clone()),
+        )
+        // Line 3: git badge (optional)
+        .when(entry.git_branch.is_some(), |el| {
+            el.child(render_git_badge(entry, font_size, text_muted))
+        })
+}
+
+fn render_git_badge(entry: &SidebarEntry, font_size: f32, text_muted: gpui::Rgba) -> gpui::Div {
+    let green: gpui::Rgba = rgba(0x4ec9_4eff);
+    let red: gpui::Rgba = rgba(0xf851_49ff);
+    let git_icon_size = px(font_size - 3.0);
+
+    let mut badge = div()
+        .pl(px(4.))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(3.))
+        .text_size(px(font_size - 2.0))
+        .text_color(text_muted)
+        .child(
+            svg()
+                .path(icons::ICON_GIT)
+                .size(git_icon_size)
+                .text_color(text_muted)
+                .flex_shrink_0(),
+        )
+        .child(entry.git_branch.as_deref().unwrap_or("").to_owned());
+
+    if entry.git_insertions > 0 {
+        badge = badge.child(
+            div()
+                .text_color(green)
+                .child(format!("+{}", entry.git_insertions)),
+        );
+    }
+    if entry.git_deletions > 0 {
+        badge = badge.child(
+            div()
+                .text_color(red)
+                .child(format!("-{}", entry.git_deletions)),
+        );
+    }
+    badge
+}
+
+fn render_close_button(
+    app_state: &Entity<AppState>,
+    entry: &SidebarEntry,
+    font_size: f32,
+    text_muted: gpui::Rgba,
+    destructive_hover: gpui::Hsla,
+) -> gpui::Div {
+    let app_state_close = app_state.clone();
+    let close_id = entry.id.clone();
+    let close_title = entry.title.clone();
+
+    div()
+        .px(px(2.))
+        .rounded(px(2.))
+        .cursor_pointer()
+        .hover(move |s| s.text_color(destructive_hover))
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            cx.stop_propagation();
+            app_state_close.update(cx, |s, cx| {
+                s.request_close_instance(&close_id, &close_title, cx);
+            });
+        })
+        .child(
+            svg()
+                .path(icons::ICON_CLOSE)
+                .size(px(font_size - 3.0))
+                .text_color(text_muted)
+                .flex_shrink_0(),
         )
 }
 
@@ -249,6 +342,7 @@ fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &T
                             svg()
                                 .path(icons::ICON_COMMAND)
                                 .size(cmd_icon_size)
+                                .text_color(text_faint)
                                 .flex_shrink_0(),
                         )
                         .child("N"),

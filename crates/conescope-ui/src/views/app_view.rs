@@ -8,7 +8,7 @@ use crate::actions::{
     ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::AppState;
-use crate::state::settings_store::{SidebarMode, ViewMode};
+use crate::state::settings_store::ViewMode;
 
 use super::activity_bar::ActivityBar;
 use super::confirm_modal::ConfirmModal;
@@ -260,7 +260,6 @@ impl Render for AppView {
         let questions_open = state.questions_queue_open;
         let error_open = state.error_message.is_some();
         let sidebar_open = state.sidebar_open(cx);
-        let sidebar_mode = state.sidebar_mode(cx);
         let sidebar_overlay_visible = state.sidebar_overlay_visible;
 
         let theme = state.theme();
@@ -281,8 +280,8 @@ impl Render for AppView {
                     .min_h_0()
                     .flex()
                     .flex_row()
-                    // Pinned sidebar (when open and mode == Pinned)
-                    .when(sidebar_open && sidebar_mode == SidebarMode::Pinned, |el| {
+                    // Pinned sidebar (when toggle is on)
+                    .when(sidebar_open, |el| {
                         el.child(self.sidebar.clone())
                     })
                     // Content area
@@ -307,7 +306,7 @@ impl Render for AppView {
             )
             // Overlay sidebar (absolute positioned, shown on hover near left edge)
             .when(
-                sidebar_open && sidebar_mode == SidebarMode::Overlay && sidebar_overlay_visible,
+                !sidebar_open && sidebar_overlay_visible,
                 |el| {
                     let app_state_dismiss = self.app_state.clone();
                     el.child(
@@ -340,7 +339,7 @@ impl Render for AppView {
             )
             // Hover trigger strip (left edge, 8px wide)
             .when(
-                sidebar_open && sidebar_mode == SidebarMode::Overlay && !sidebar_overlay_visible,
+                !sidebar_open && !sidebar_overlay_visible,
                 |el| {
                     let app_state_hover = self.app_state.clone();
                     el.child(
