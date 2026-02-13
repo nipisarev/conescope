@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, div};
+use gpui::{AppContext, Entity, MouseButton, div, px};
 
 use crate::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
@@ -247,6 +247,7 @@ fn with_action_handlers(
 }
 
 impl Render for AppView {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         _window: &mut gpui::Window,
@@ -260,6 +261,7 @@ impl Render for AppView {
         let error_open = state.error_message.is_some();
         let sidebar_open = state.sidebar_open(cx);
         let sidebar_mode = state.sidebar_mode(cx);
+        let sidebar_overlay_visible = state.sidebar_overlay_visible;
 
         let theme = state.theme();
         let root = div()
@@ -302,6 +304,62 @@ impl Render for AppView {
                             .child(self.settings_view.clone())
                             .into_any_element(),
                     }),
+            )
+            // Overlay sidebar (absolute positioned, shown on hover near left edge)
+            .when(
+                sidebar_open && sidebar_mode == SidebarMode::Overlay && sidebar_overlay_visible,
+                |el| {
+                    let app_state_dismiss = self.app_state.clone();
+                    el.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .w_full()
+                            .h_full()
+                            // Transparent backdrop — click to dismiss
+                            .child(
+                                div()
+                                    .size_full()
+                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        app_state_dismiss
+                                            .update(cx, AppState::hide_sidebar_overlay);
+                                    }),
+                            )
+                            // Sidebar panel (overlays content)
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .h_full()
+                                    .child(self.sidebar.clone()),
+                            ),
+                    )
+                },
+            )
+            // Hover trigger strip (left edge, 8px wide)
+            .when(
+                sidebar_open && sidebar_mode == SidebarMode::Overlay && !sidebar_overlay_visible,
+                |el| {
+                    let app_state_hover = self.app_state.clone();
+                    el.child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .left_0()
+                            .w(px(8.))
+                            .h_full()
+                            .on_mouse_move(move |_, _, cx| {
+                                app_state_hover.update(cx, |s, cx| {
+                                    if !s.sidebar_overlay_visible {
+                                        s.sidebar_overlay_visible = true;
+                                        cx.notify();
+                                    }
+                                });
+                            }),
+                    )
+                },
             )
             // Activity bar (bottom)
             .child(self.activity_bar.clone())
