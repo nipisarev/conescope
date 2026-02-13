@@ -222,15 +222,27 @@ impl FocusView {
         })
         .detach();
 
-        // Set initial project path on git store
-        if let Some(ref pid) = initial_project_id {
-            let project_path = app_state
-                .read(cx)
-                .project_store
-                .read(cx)
-                .get(pid)
-                .map(|p| p.path.clone());
-            if let Some(path) = project_path {
+        // Set initial git store path: prefer live CWD, fall back to project path
+        {
+            let focused_cwd = app_state.read(cx).focused_instance_id(cx).and_then(|fid| {
+                app_state
+                    .read(cx)
+                    .instance_list
+                    .read(cx)
+                    .find_by_id(fid, cx)
+                    .and_then(|e| e.read(cx).current_cwd.clone())
+            });
+            let git_path = focused_cwd.or_else(|| {
+                initial_project_id.as_ref().and_then(|pid| {
+                    app_state
+                        .read(cx)
+                        .project_store
+                        .read(cx)
+                        .get(pid)
+                        .map(|p| p.path.clone())
+                })
+            });
+            if let Some(path) = git_path {
                 git_store.update(cx, |store, cx| {
                     store.set_project(Some(&path), cx);
                 });
@@ -665,19 +677,31 @@ impl Render for FocusView {
                 tabs.init_counter_from_scratch_dir(project_id.as_deref());
             });
 
-            // Update git store with project path for the new instance
+            // Update git store: prefer live CWD, fall back to project path
             {
                 let git_store = self.app_state.read(cx).git_store.clone();
-                let project_path = project_id.as_ref().and_then(|pid| {
-                    self.app_state
-                        .read(cx)
-                        .project_store
-                        .read(cx)
-                        .get(pid)
-                        .map(|p| p.path.clone())
-                });
+                let git_path = focused_id
+                    .as_ref()
+                    .and_then(|fid| {
+                        let state = self.app_state.read(cx);
+                        state
+                            .instance_list
+                            .read(cx)
+                            .find_by_id(fid, cx)
+                            .and_then(|e| e.read(cx).current_cwd.clone())
+                    })
+                    .or_else(|| {
+                        project_id.as_ref().and_then(|pid| {
+                            self.app_state
+                                .read(cx)
+                                .project_store
+                                .read(cx)
+                                .get(pid)
+                                .map(|p| p.path.clone())
+                        })
+                    });
                 git_store.update(cx, |store, cx| {
-                    store.set_project(project_path.as_deref(), cx);
+                    store.set_project(git_path.as_deref(), cx);
                 });
             }
 

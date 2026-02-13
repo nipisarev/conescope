@@ -12,6 +12,7 @@ use crate::terminal::{TerminalPane, terminal_font};
 #[derive(Debug, Clone)]
 pub enum InstanceEvent {
     StatusChanged(InstanceStatus),
+    CwdChanged(String),
     Exited,
 }
 
@@ -53,6 +54,10 @@ pub struct InstanceEntry {
     pub active_tab: TerminalTab,
     /// Cached git info for the project directory.
     pub git_summary: GitSummary,
+    /// PID of the child shell process (for CWD detection).
+    pub child_pid: Option<u32>,
+    /// Last known CWD (updated by background polling).
+    pub current_cwd: Option<String>,
 }
 
 impl std::fmt::Debug for InstanceEntry {
@@ -72,6 +77,7 @@ impl InstanceEntry {
     /// Create from a DB-loaded instance (no PTY attached yet).
     #[must_use]
     pub fn from_instance(instance: Instance) -> Self {
+        let current_cwd = instance.current_cwd.clone();
         Self {
             instance,
             terminal_view: None,
@@ -85,6 +91,8 @@ impl InstanceEntry {
             shell_next_id: 0,
             active_tab: TerminalTab::Primary,
             git_summary: GitSummary::default(),
+            child_pid: None,
+            current_cwd,
         }
     }
 
@@ -95,6 +103,7 @@ impl InstanceEntry {
         self.stdout_rx = Some(pane.stdout_rx);
         self.stdin_tx = Some(pane.stdin_tx);
         self.master_pty = Some(pane.master);
+        self.child_pid = pane.child_pid;
         self.alive = true;
 
         // Subscribe to container-driven resizes so PTY stays in sync.
@@ -260,6 +269,54 @@ impl InstanceEntry {
             let c = colors.clone();
             tab.terminal_view.update(cx, |v, _| v.set_colors(c));
         }
+    }
+
+    /// Start periodic polling: detect CWD changes (every 3s) and refresh git summary.
+    pub fn start_background_polling(&mut self, cx: &mut gpui::Context<Self>) {
+        let pid = self.child_pid;
+        let weak = cx.weak_entity();
+
+        cx.spawn(async move |_this, cx| {
+            let mut tick: u32 = 0;
+            loop {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
+
+                // Detect CWD from child PID
+                let new_cwd = pid.and_then(conescope_core::process::get_process_cwd);
+
+                let alive = cx.update(|cx| {
+                    let Some(entry) = weak.upgrade() else {
+                        return false;
+                    };
+                    entry.update(cx, |e, cx| {
+                        let cwd_changed =
+                            new_cwd.is_some() && new_cwd.as_ref() != e.current_cwd.as_ref();
+
+                        if cwd_changed {
+                            e.current_cwd.clone_from(&new_cwd);
+                            if let Some(ref cwd) = new_cwd {
+                                cx.emit(InstanceEvent::CwdChanged(cwd.clone()));
+                            }
+                            cx.notify();
+                        }
+
+                        // Refresh git: on CWD change or every 3rd tick (~9s)
+                        if cwd_changed || tick % 3 == 0 {
+                            if let Some(cwd) = e.current_cwd.clone() {
+                                e.refresh_git_summary(&cwd, cx);
+                            }
+                        }
+                    });
+                    true
+                });
+
+                if !alive {
+                    break;
+                }
+                tick = tick.wrapping_add(1);
+            }
+        })
+        .detach();
     }
 
     /// Refresh cached git summary (branch + diff stats) for the given project path.
@@ -495,6 +552,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Terminal,
             color: None,
+            current_cwd: None,
         }
     }
 

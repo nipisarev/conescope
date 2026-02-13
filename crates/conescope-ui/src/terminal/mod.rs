@@ -25,6 +25,7 @@ pub struct TerminalPane {
     pub master: Arc<dyn MasterPty + Send>,
     pub stdout_rx: mpsc::Receiver<Vec<u8>>,
     pub stdin_tx: mpsc::Sender<Vec<u8>>,
+    pub child_pid: Option<u32>,
 }
 
 impl std::fmt::Debug for TerminalPane {
@@ -119,6 +120,8 @@ pub fn spawn_terminal_pane(
         .spawn_command(cmd)
         .expect("spawn shell failed");
 
+    let child_pid = child.process_id();
+
     thread::spawn(move || {
         let _ = child.wait();
     });
@@ -182,6 +185,7 @@ pub fn spawn_terminal_pane(
         master,
         stdout_rx,
         stdin_tx: stdin_tx_for_pane,
+        child_pid,
     }
 }
 

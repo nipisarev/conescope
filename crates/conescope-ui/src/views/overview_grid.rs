@@ -101,7 +101,6 @@ fn render_tile_header(
         shorten_path,
     );
 
-    let token_label = format_tokens_compact(tile.tokens_used);
     let icon_size = px(font_size);
     let secondary_size = px(font_size - 1.0);
 
@@ -170,9 +169,7 @@ fn render_tile_header(
 
     let right = render_tile_controls(
         status_rgba,
-        &token_label,
         icon_size,
-        secondary_size,
         close_state,
         close_id,
         close_title,
@@ -194,13 +191,11 @@ fn render_tile_header(
         .into_any_element()
 }
 
-/// Right side controls: status dot, token count, close button.
+/// Right side controls: status dot + close button.
 #[allow(clippy::too_many_arguments)]
 fn render_tile_controls(
     status_rgba: gpui::Rgba,
-    token_label: &str,
     icon_size: gpui::Pixels,
-    secondary_size: gpui::Pixels,
     close_state: Entity<AppState>,
     close_id: String,
     close_title: String,
@@ -220,12 +215,6 @@ fn render_tile_controls(
                 .rounded(px(4.))
                 .bg(status_rgba)
                 .flex_shrink_0(),
-        )
-        .child(
-            div()
-                .text_size(secondary_size)
-                .text_color(text_color)
-                .child(token_label.to_owned()),
         )
         .child(
             div()
@@ -330,13 +319,6 @@ fn shorten_path(path: &str) -> String {
         return format!("~{}", &path[home.len()..]);
     }
     path.to_owned()
-}
-
-/// Format token count for tile header (always shows, e.g. "0.0k").
-#[allow(clippy::cast_precision_loss)]
-fn format_tokens_compact(tokens: i64) -> String {
-    let k = tokens as f64 / 1_000.0;
-    format!("{k:.1}k")
 }
 
 /// Tile body: terminal preview + click-to-focus handler.
@@ -463,12 +445,14 @@ impl Render for OverviewGrid {
             .enumerate()
             .map(|(i, entry)| {
                 let inst = entry.read(cx);
-                let project_path = inst
-                    .instance
-                    .project_id
-                    .as_ref()
-                    .and_then(|pid| ps.get(pid))
-                    .map(|p| p.path.clone());
+                // Prefer live CWD, fall back to project path
+                let project_path = inst.current_cwd.clone().or_else(|| {
+                    inst.instance
+                        .project_id
+                        .as_ref()
+                        .and_then(|pid| ps.get(pid))
+                        .map(|p| p.path.clone())
+                });
                 let git = &inst.git_summary;
                 let title = inst
                     .instance
@@ -495,7 +479,6 @@ impl Render for OverviewGrid {
                         .map_or_else(default_instance_color, hex_to_rgba),
                     instance_type: inst.instance_type(),
                     project_path,
-                    tokens_used: inst.instance.tokens_used,
                     terminal_view: inst.terminal_view.clone(),
                     focus_handle: inst.focus_handle.clone(),
                     git_branch: git.branch.clone(),
@@ -538,7 +521,6 @@ struct TileData {
     color: gpui::Rgba,
     instance_type: InstanceType,
     project_path: Option<String>,
-    tokens_used: i64,
     terminal_view: Option<gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<gpui::FocusHandle>,
     git_branch: Option<String>,

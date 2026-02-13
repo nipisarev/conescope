@@ -90,12 +90,16 @@ impl InstanceList {
             // Extract values while holding the read borrow, then release it
             let (cwd, is_project) = {
                 let inst = entry.read(cx);
-                let cwd = inst
-                    .instance
-                    .project_id
-                    .as_ref()
-                    .and_then(|pid| project_store.read(cx).get(pid).map(|p| p.path.clone()))
-                    .unwrap_or_else(|| home.clone());
+                // Prefer persisted current_cwd, fall back to project path, then HOME
+                let cwd =
+                    inst.current_cwd
+                        .clone()
+                        .or_else(|| {
+                            inst.instance.project_id.as_ref().and_then(|pid| {
+                                project_store.read(cx).get(pid).map(|p| p.path.clone())
+                            })
+                        })
+                        .unwrap_or_else(|| home.clone());
                 let is_project = inst.instance_type() == InstanceType::Project;
                 (cwd, is_project)
             };
@@ -112,7 +116,13 @@ impl InstanceList {
             entry.update(cx, |e, cx| {
                 e.attach_terminal(pane, cx);
                 e.start_output_polling(cx);
-                e.refresh_git_summary(&cwd, cx);
+                // Set initial CWD if not already persisted
+                if e.current_cwd.is_none() {
+                    e.current_cwd = Some(cwd.clone());
+                }
+                let git_path = e.current_cwd.clone().unwrap_or_else(|| cwd.clone());
+                e.refresh_git_summary(&git_path, cx);
+                e.start_background_polling(cx);
             });
 
             if is_project {
@@ -138,6 +148,10 @@ impl InstanceList {
                             ..Default::default()
                         },
                     );
+                }
+                InstanceEvent::CwdChanged(cwd) => {
+                    this.db
+                        .update_instance_cwd(inst.id().to_owned(), cwd.clone());
                 }
                 InstanceEvent::Exited => {
                     let ended = Utc::now().to_rfc3339();

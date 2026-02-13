@@ -92,6 +92,8 @@ pub struct Instance {
     pub ended_at: Option<String>,
     pub instance_type: InstanceType,
     pub color: Option<String>,
+    /// Last known CWD of the shell process (updated in real-time, persisted).
+    pub current_cwd: Option<String>,
 }
 
 #[cfg(test)]
@@ -149,6 +151,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Project,
             color: None,
+            current_cwd: None,
         };
         // If someone re-adds instance_number, this test won't compile
         // due to missing field (struct literal without `..` requires all fields).

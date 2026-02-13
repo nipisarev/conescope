@@ -79,6 +79,7 @@ fn create_instance_at(
         ended_at: None,
         instance_type,
         color: Some(color),
+        current_cwd: Some(params.cwd.to_owned()),
     };
 
     app_state.read(cx).db.insert_instance(instance.clone());
@@ -114,6 +115,7 @@ fn create_instance_at(
     });
 
     entry.update(cx, InstanceEntry::start_output_polling);
+    entry.update(cx, InstanceEntry::start_background_polling);
 
     if is_project {
         entry.read(cx).send_input(b"claude\r");

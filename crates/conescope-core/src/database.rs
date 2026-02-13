@@ -9,46 +9,49 @@ use crate::project::Project;
 use crate::question::{Question, QuestionWithContext};
 use crate::settings;
 
-const MIGRATIONS: &[M<'_>] = &[M::up(
-    "CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        path TEXT UNIQUE NOT NULL,
-        display_name TEXT NOT NULL,
-        color TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        last_used_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS instances (
-        id TEXT PRIMARY KEY,
-        project_id TEXT,
-        title TEXT,
-        status TEXT NOT NULL DEFAULT 'starting',
-        instance_number INTEGER,
-        tokens_used INTEGER DEFAULT 0,
-        cost_estimate REAL DEFAULT 0,
-        started_at TEXT NOT NULL,
-        ended_at TEXT,
-        terminal_history TEXT,
-        type TEXT NOT NULL DEFAULT 'project',
-        color TEXT,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS questions (
-        id TEXT PRIMARY KEY,
-        instance_id TEXT NOT NULL,
-        question_text TEXT NOT NULL,
-        context TEXT,
-        asked_at TEXT NOT NULL,
-        answered_at TEXT,
-        answer TEXT,
-        snoozed_until TEXT,
-        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-    );",
-)];
+const MIGRATIONS: &[M<'_>] = &[
+    M::up(
+        "CREATE TABLE IF NOT EXISTS projects (
+            id TEXT PRIMARY KEY,
+            path TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            color TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            last_used_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS instances (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            title TEXT,
+            status TEXT NOT NULL DEFAULT 'starting',
+            instance_number INTEGER,
+            tokens_used INTEGER DEFAULT 0,
+            cost_estimate REAL DEFAULT 0,
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            terminal_history TEXT,
+            type TEXT NOT NULL DEFAULT 'project',
+            color TEXT,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS questions (
+            id TEXT PRIMARY KEY,
+            instance_id TEXT NOT NULL,
+            question_text TEXT NOT NULL,
+            context TEXT,
+            asked_at TEXT NOT NULL,
+            answered_at TEXT,
+            answer TEXT,
+            snoozed_until TEXT,
+            FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );",
+    ),
+    M::up("ALTER TABLE instances ADD COLUMN current_cwd TEXT;"),
+];
 
 #[derive(Debug)]
 pub struct Database {
@@ -166,7 +169,7 @@ impl Database {
 
     pub fn get_all_instances(&self) -> Result<Vec<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd
              FROM instances WHERE ended_at IS NULL ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -185,6 +188,7 @@ impl Database {
                 instance_type: InstanceType::from_str_opt(&type_str)
                     .unwrap_or(InstanceType::Project),
                 color: row.get(9)?,
+                current_cwd: row.get(10)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -193,7 +197,7 @@ impl Database {
 
     pub fn get_instance(&self, id: &str) -> Result<Option<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd
              FROM instances WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -212,6 +216,7 @@ impl Database {
                 instance_type: InstanceType::from_str_opt(&type_str)
                     .unwrap_or(InstanceType::Project),
                 color: row.get(9)?,
+                current_cwd: row.get(10)?,
             })
         })?;
         match rows.next() {
@@ -258,8 +263,8 @@ impl Database {
 
     pub fn insert_instance(&self, inst: &Instance) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO instances (id, project_id, title, status, tokens_used, cost_estimate, started_at, type, color)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO instances (id, project_id, title, status, tokens_used, cost_estimate, started_at, type, color, current_cwd)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 inst.id,
                 inst.project_id,
@@ -270,7 +275,16 @@ impl Database {
                 inst.started_at,
                 inst.instance_type.as_str(),
                 inst.color,
+                inst.current_cwd,
             ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_instance_cwd(&self, id: &str, cwd: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE instances SET current_cwd = ?1 WHERE id = ?2",
+            params![cwd, id],
         )?;
         Ok(())
     }
@@ -466,6 +480,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Terminal,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -500,6 +515,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Terminal,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
         db.save_terminal_history("i2", r#"["hello","world"]"#)
@@ -552,6 +568,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Project,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -593,6 +610,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Terminal,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -620,6 +638,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Project,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -696,6 +715,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Project,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -757,6 +777,7 @@ mod tests {
             ended_at: None,
             instance_type: InstanceType::Project,
             color: None,
+            current_cwd: None,
         };
         db.insert_instance(&inst).unwrap();
         assert_eq!(db.get_all_instances().unwrap().len(), 1);

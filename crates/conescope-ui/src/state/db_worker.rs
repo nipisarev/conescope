@@ -26,6 +26,10 @@ pub enum DbCommand {
         ended_at: String,
         reply: flume::Sender<Result<()>>,
     },
+    UpdateInstanceCwd {
+        id: String,
+        cwd: String,
+    },
     // Project ops
     GetAllProjects {
         reply: flume::Sender<Result<Vec<Project>>>,
@@ -77,6 +81,9 @@ impl std::fmt::Debug for DbCommand {
             Self::InsertInstance { .. } => write!(f, "InsertInstance"),
             Self::UpdateInstance { id, .. } => write!(f, "UpdateInstance({id})"),
             Self::EndInstance { id, .. } => write!(f, "EndInstance({id})"),
+            Self::UpdateInstanceCwd { id, .. } => {
+                write!(f, "UpdateInstanceCwd({id})")
+            }
             Self::GetAllProjects { .. } => write!(f, "GetAllProjects"),
             Self::InsertProject { .. } => write!(f, "InsertProject"),
             Self::UpdateProjectLastUsed { id, .. } => {
@@ -144,6 +151,9 @@ impl DbHandle {
                     reply,
                 } => {
                     let _ = reply.send(db.end_instance(&id, &ended_at));
+                }
+                DbCommand::UpdateInstanceCwd { id, cwd } => {
+                    let _ = db.update_instance_cwd(&id, &cwd);
                 }
                 DbCommand::GetAllProjects { reply } => {
                     let _ = reply.send(db.get_all_projects());
@@ -218,6 +228,10 @@ impl DbHandle {
             updates,
             reply: tx,
         });
+    }
+
+    pub fn update_instance_cwd(&self, id: String, cwd: String) {
+        let _ = self.tx.send(DbCommand::UpdateInstanceCwd { id, cwd });
     }
 
     pub fn end_instance(&self, id: String, ended_at: String) {
@@ -357,6 +371,7 @@ mod tests {
             ended_at: None,
             instance_type: conescope_core::instance::InstanceType::Terminal,
             color: None,
+            current_cwd: None,
         };
         handle.insert_instance(inst);
 
