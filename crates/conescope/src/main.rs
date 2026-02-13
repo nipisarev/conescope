@@ -8,7 +8,8 @@ use conescope_ui::actions::{
     FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
     FocusInstance3, FocusInstance4, FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8,
     FocusInstance9, NewFile, NewFolder, NewInstance, OpenSettings, Quit, ReturnToOverview,
-    RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar, ToggleTerminal,
+    RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleOverviewSidebar, ToggleSidebar,
+    ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -93,7 +94,7 @@ fn bind_keys(cx: &mut gpui::App) {
     text_input::register_key_bindings(cx);
 
     cx.bind_keys([
-        KeyBinding::new("cmd-n", NewInstance, Some("Overview")),
+        KeyBinding::new("cmd-n", NewInstance, None),
         KeyBinding::new("cmd-w", CloseTab, None),
         KeyBinding::new("cmd-0", ReturnToOverview, None),
         KeyBinding::new("cmd-1", FocusInstance1, None),
@@ -107,6 +108,7 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-9", FocusInstance9, None),
         KeyBinding::new("cmd-s", SaveFile, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
+        KeyBinding::new("cmd-shift-b", ToggleOverviewSidebar, None),
         KeyBinding::new("cmd-shift-g", ToggleGitPanel, None),
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-t", ToggleTerminal, None),
