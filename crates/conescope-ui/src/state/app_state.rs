@@ -454,6 +454,7 @@ pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
     gc_theme.colors.foreground = Hsla::from(theme.text);
     gc_theme.colors.muted_foreground = Hsla::from(theme.text_faint);
     gc_theme.colors.border = Hsla::from(theme.border);
+    gc_theme.colors.selection = Hsla::from(theme.selection);
 
     // Update highlight theme: gutter bg + line number + syntax colors
     let old_ht = &gc_theme.highlight_theme;
@@ -461,6 +462,7 @@ pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
     new_style.editor_background = Some(editor_bg);
     new_style.editor_line_number = Some(text_muted);
     new_style.editor_active_line_number = Some(Hsla::from(theme.text));
+    new_style.editor_active_line = Some(Hsla::from(theme.element_selected));
 
     // Parse syntax colors from the Zed theme JSON into gpui-component's SyntaxColors.
     if let Ok(syntax) = serde_json::from_value::<gpui_component::highlighter::SyntaxColors>(
