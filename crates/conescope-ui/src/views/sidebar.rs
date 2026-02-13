@@ -7,7 +7,7 @@ use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::text_input::TextInput;
 
-pub const SIDEBAR_WIDTH: f32 = 220.0;
+pub const SIDEBAR_WIDTH: f32 = 260.0;
 
 #[derive(Debug)]
 pub struct Sidebar {

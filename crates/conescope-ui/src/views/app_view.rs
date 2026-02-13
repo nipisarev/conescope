@@ -273,13 +273,18 @@ impl Render for AppView {
         with_action_handlers(root, &self.app_state, &self.focus_view, &self.settings_view)
             // Top bar
             .child(self.top_bar.clone())
-            // Main content area (horizontal: optional pinned sidebar + content)
-            .child(
+            // Main content area (relative container for overlay positioning)
+            .child({
+                let app_state_dismiss = self.app_state.clone();
+                let app_state_hover = self.app_state.clone();
+                let shadow_color = theme.backdrop;
+
                 div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_row()
+                    .relative()
                     // Pinned sidebar (when toggle is on)
                     .when(sidebar_open, |el| {
                         el.child(self.sidebar.clone())
@@ -302,64 +307,58 @@ impl Render for AppView {
                             .min_h_0()
                             .child(self.settings_view.clone())
                             .into_any_element(),
-                    }),
-            )
-            // Overlay sidebar (absolute positioned, shown on hover near left edge)
-            .when(
-                !sidebar_open && sidebar_overlay_visible,
-                |el| {
-                    let app_state_dismiss = self.app_state.clone();
-                    el.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .w_full()
-                            .h_full()
-                            // Transparent backdrop — click to dismiss
-                            .child(
-                                div()
-                                    .size_full()
-                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                        app_state_dismiss
-                                            .update(cx, AppState::hide_sidebar_overlay);
-                                    }),
-                            )
-                            // Sidebar panel (overlays content)
-                            .child(
-                                div()
-                                    .absolute()
-                                    .top_0()
-                                    .left_0()
-                                    .h_full()
-                                    .child(self.sidebar.clone()),
-                            ),
-                    )
-                },
-            )
-            // Hover trigger strip (left edge, 8px wide)
-            .when(
-                !sidebar_open && !sidebar_overlay_visible,
-                |el| {
-                    let app_state_hover = self.app_state.clone();
-                    el.child(
-                        div()
-                            .absolute()
-                            .top_0()
-                            .left_0()
-                            .w(px(8.))
-                            .h_full()
-                            .on_mouse_move(move |_, _, cx| {
-                                app_state_hover.update(cx, |s, cx| {
-                                    if !s.sidebar_overlay_visible {
-                                        s.sidebar_overlay_visible = true;
-                                        cx.notify();
-                                    }
-                                });
-                            }),
-                    )
-                },
-            )
+                    })
+                    // Overlay sidebar (absolute within content area, below top bar)
+                    .when(!sidebar_open && sidebar_overlay_visible, |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .w_full()
+                                .h_full()
+                                // Semi-transparent backdrop — click to dismiss
+                                .child(
+                                    div()
+                                        .size_full()
+                                        .bg(shadow_color)
+                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                            app_state_dismiss
+                                                .update(cx, AppState::hide_sidebar_overlay);
+                                        }),
+                                )
+                                // Sidebar panel with shadow
+                                .child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left_0()
+                                        .h_full()
+                                        .shadow_lg()
+                                        .child(self.sidebar.clone()),
+                                ),
+                        )
+                    })
+                    // Hover trigger strip (left edge, 12px wide)
+                    .when(!sidebar_open && !sidebar_overlay_visible, |el| {
+                        el.child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .w(px(12.))
+                                .h_full()
+                                .on_mouse_move(move |_, _, cx| {
+                                    app_state_hover.update(cx, |s, cx| {
+                                        if !s.sidebar_overlay_visible {
+                                            s.sidebar_overlay_visible = true;
+                                            cx.notify();
+                                        }
+                                    });
+                                }),
+                        )
+                    })
+            })
             // Activity bar (bottom)
             .child(self.activity_bar.clone())
             // Modal overlays (conditionally rendered)
