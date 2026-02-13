@@ -4,11 +4,11 @@ use gpui::{AppContext, Entity, div};
 use crate::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleSidebar,
-    ToggleTerminal,
+    OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleOverviewSidebar,
+    ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::AppState;
-use crate::state::settings_store::ViewMode;
+use crate::state::settings_store::{SidebarMode, ViewMode};
 
 use super::activity_bar::ActivityBar;
 use super::confirm_modal::ConfirmModal;
@@ -18,12 +18,14 @@ use super::new_instance_modal::NewInstanceModal;
 use super::overview_grid::OverviewGrid;
 use super::questions_panel::QuestionsPanel;
 use super::settings_view::SettingsView;
+use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
 
 pub struct AppView {
     pub app_state: Entity<AppState>,
     pub top_bar: Entity<TopBar>,
     pub activity_bar: Entity<ActivityBar>,
+    pub sidebar: Entity<Sidebar>,
     pub overview_grid: Entity<OverviewGrid>,
     pub focus_view: Entity<FocusView>,
     pub new_instance_modal: Entity<NewInstanceModal>,
@@ -44,6 +46,7 @@ impl AppView {
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
         let top_bar = cx.new(|_| TopBar::new(app_state.clone()));
         let activity_bar = cx.new(|_| ActivityBar::new(app_state.clone()));
+        let sidebar = cx.new(|_| Sidebar::new(app_state.clone()));
         let overview_grid = cx.new(|_| OverviewGrid::new(app_state.clone()));
         let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
@@ -83,6 +86,7 @@ impl AppView {
             app_state,
             top_bar,
             activity_bar,
+            sidebar,
             overview_grid,
             focus_view,
             new_instance_modal,
@@ -192,6 +196,12 @@ fn with_action_handlers(
         })
         .on_action({
             let app_state = app_state.clone();
+            move |_: &ToggleOverviewSidebar, _window, cx| {
+                app_state.update(cx, AppState::toggle_sidebar_open);
+            }
+        })
+        .on_action({
+            let app_state = app_state.clone();
             let settings_view = settings_view.clone();
             move |_: &OpenSettings, _window, cx| {
                 let view_mode = app_state.read(cx).view_mode(cx);
@@ -248,6 +258,8 @@ impl Render for AppView {
         let confirm_open = state.confirm_action.is_some();
         let questions_open = state.questions_queue_open;
         let error_open = state.error_message.is_some();
+        let sidebar_open = state.sidebar_open(cx);
+        let sidebar_mode = state.sidebar_mode(cx);
 
         let theme = state.theme();
         let root = div()
@@ -260,25 +272,37 @@ impl Render for AppView {
         with_action_handlers(root, &self.app_state, &self.focus_view, &self.settings_view)
             // Top bar
             .child(self.top_bar.clone())
-            // Main content area
-            .child(match view_mode {
-                ViewMode::Overview => div()
-                    .key_context("Overview")
+            // Main content area (horizontal: optional pinned sidebar + content)
+            .child(
+                div()
                     .flex_1()
                     .min_h_0()
-                    .child(self.overview_grid.clone())
-                    .into_any_element(),
-                ViewMode::Focus => div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.focus_view.clone())
-                    .into_any_element(),
-                ViewMode::Settings => div()
-                    .flex_1()
-                    .min_h_0()
-                    .child(self.settings_view.clone())
-                    .into_any_element(),
-            })
+                    .flex()
+                    .flex_row()
+                    // Pinned sidebar (when open and mode == Pinned)
+                    .when(sidebar_open && sidebar_mode == SidebarMode::Pinned, |el| {
+                        el.child(self.sidebar.clone())
+                    })
+                    // Content area
+                    .child(match view_mode {
+                        ViewMode::Overview => div()
+                            .key_context("Overview")
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.overview_grid.clone())
+                            .into_any_element(),
+                        ViewMode::Focus => div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.focus_view.clone())
+                            .into_any_element(),
+                        ViewMode::Settings => div()
+                            .flex_1()
+                            .min_h_0()
+                            .child(self.settings_view.clone())
+                            .into_any_element(),
+                    }),
+            )
             // Activity bar (bottom)
             .child(self.activity_bar.clone())
             // Modal overlays (conditionally rendered)
