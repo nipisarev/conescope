@@ -32,7 +32,7 @@ fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(usize, String, gpui
         .title
         .as_deref()
         .unwrap_or("Untitled")
-        .to_uppercase();
+        .to_owned();
     let color = inst
         .instance
         .color
@@ -51,21 +51,24 @@ impl Render for TopBar {
         let theme = state.theme().clone();
         let view_mode = state.view_mode(cx);
         let font_size = state.settings_store.read(cx).settings().ui_font_size();
+        let sidebar_open = state.sidebar_open(cx);
 
-        let (center_text, title_color) = match view_mode {
-            ViewMode::Overview => ("CONESCOPE".to_string(), theme.text_muted),
+        // In Focus mode, title goes in left section; center is empty.
+        let (left_title, center_text, title_color) = match view_mode {
+            ViewMode::Overview => (None, String::new(), theme.text_muted),
             ViewMode::Focus => {
                 if let Some((num, title, color)) = focused_info(state, cx) {
-                    (format!("\u{2318}{num} {title}"), color)
+                    (Some(format!("\u{2318}{num} {title}")), String::new(), color)
                 } else {
-                    ("CONESCOPE".into(), theme.text_muted)
+                    (None, String::new(), theme.text_muted)
                 }
             }
-            ViewMode::Settings => ("SETTINGS".to_string(), theme.text_muted),
+            ViewMode::Settings => (None, "SETTINGS".to_string(), theme.text_muted),
         };
 
         let app_state_for_close = self.app_state.clone();
         let app_state_for_back = self.app_state.clone();
+        let app_state_for_sidebar = self.app_state.clone();
 
         let right_section = match view_mode {
             ViewMode::Focus => {
@@ -76,6 +79,43 @@ impl Render for TopBar {
         };
 
         let bar_height = px(font_size * 2.0 + 10.0);
+        let icon_size = px(font_size + 1.0);
+        let sidebar_icon_color: Hsla = if sidebar_open {
+            theme.accent.into()
+        } else {
+            theme.text_muted.into()
+        };
+        let sidebar_hover: Hsla = theme.text.into();
+
+        // Left section: traffic light spacer + sidebar toggle + optional focused title
+        let mut left_section = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .child(div().w(px(76.)))
+            .child(
+                div()
+                    .px(px(6.))
+                    .py(px(4.))
+                    .rounded(px(4.))
+                    .cursor_pointer()
+                    .hover(move |s| s.text_color(sidebar_hover))
+                    .child(
+                        svg()
+                            .path(icons::ICON_SIDEBAR)
+                            .size(icon_size)
+                            .text_color(sidebar_icon_color)
+                            .flex_shrink_0(),
+                    )
+                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                        app_state_for_sidebar.update(cx, AppState::toggle_sidebar_open);
+                    }),
+            );
+
+        if let Some(title_text) = left_title {
+            left_section =
+                left_section.child(div().ml(px(8.)).text_color(title_color).child(title_text));
+        }
 
         div()
             .id("top-bar")
@@ -93,8 +133,8 @@ impl Render for TopBar {
                     window.titlebar_double_click();
                 }
             })
-            // Left padding for macOS traffic lights
-            .child(div().w(px(76.)))
+            // Left section: traffic lights + sidebar toggle + optional title
+            .child(left_section)
             // Center title
             .child(
                 div()
@@ -113,12 +153,9 @@ fn render_overview_buttons(
     font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
-    let app_state_new = app_state.clone();
     let app_state_q = app_state.clone();
     let text_muted: Hsla = theme.text_muted.into();
     let text: Hsla = theme.text.into();
-    let border = theme.border;
-    let border_variant = theme.border_variant;
     let icon_size = px(font_size + 1.0);
 
     div()
@@ -127,36 +164,6 @@ fn render_overview_buttons(
         .items_center()
         .gap(px(8.))
         .pr(px(12.))
-        // "+ New Window" pill button
-        .child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap(px(4.))
-                .px(px(10.))
-                .py(px(3.))
-                .rounded(px(16.))
-                .border_1()
-                .border_color(theme.text_disabled)
-                .cursor_pointer()
-                .text_size(px(font_size))
-                .text_color(text_muted)
-                .hover(move |s| {
-                    s.bg(border).border_color(border_variant).text_color(text)
-                })
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    app_state_new.update(cx, AppState::toggle_new_instance_modal);
-                })
-                .child(
-                    svg()
-                        .path(icons::ICON_PLUS)
-                        .size(icon_size)
-                        .text_color(text_muted)
-                        .flex_shrink_0(),
-                )
-                .child("New Window"),
-        )
         // Questions button
         .child(
             div()

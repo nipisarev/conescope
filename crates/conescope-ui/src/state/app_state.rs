@@ -5,7 +5,7 @@ use super::db_worker::DbHandle;
 use super::git_store::GitStore;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
-use super::settings_store::{SettingsStore, SidebarTab, ViewMode};
+use super::settings_store::{SettingsStore, SidebarMode, SidebarTab, ViewMode};
 use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::{TextInput, TextInputEvent};
 
@@ -33,6 +33,8 @@ pub struct AppState {
     pub editing_input: Option<Entity<TextInput>>,
     /// Active color theme.
     theme: Theme,
+    /// Whether the overlay sidebar is currently visible (transient, not persisted).
+    pub sidebar_overlay_visible: bool,
 }
 
 impl std::fmt::Debug for AppState {
@@ -68,6 +70,7 @@ impl AppState {
                 editing_tile_id: None,
                 editing_input: None,
                 theme: Theme::load_builtin(ThemeMode::Light),
+                sidebar_overlay_visible: false,
             }
         })
     }
@@ -395,6 +398,42 @@ impl AppState {
         session.window_height = Some(bounds.height);
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
+    }
+
+    // --- Sidebar mode ---
+
+    #[must_use]
+    pub fn sidebar_mode(&self, cx: &gpui::App) -> SidebarMode {
+        self.settings_store.read(cx).session().sidebar_mode
+    }
+
+    #[must_use]
+    pub fn sidebar_open(&self, cx: &gpui::App) -> bool {
+        self.settings_store.read(cx).session().sidebar_open
+    }
+
+    pub fn toggle_sidebar_open(&mut self, cx: &mut gpui::Context<Self>) {
+        let mut session = self.settings_store.read(cx).session().clone();
+        session.sidebar_open = !session.sidebar_open;
+        self.settings_store
+            .update(cx, |store, _| store.save_session(session));
+        cx.notify();
+    }
+
+    pub fn toggle_sidebar_mode(&mut self, cx: &mut gpui::Context<Self>) {
+        let mut session = self.settings_store.read(cx).session().clone();
+        session.sidebar_mode = match session.sidebar_mode {
+            SidebarMode::Pinned => SidebarMode::Overlay,
+            SidebarMode::Overlay => SidebarMode::Pinned,
+        };
+        self.settings_store
+            .update(cx, |store, _| store.save_session(session));
+        cx.notify();
+    }
+
+    pub fn hide_sidebar_overlay(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sidebar_overlay_visible = false;
+        cx.notify();
     }
 }
 

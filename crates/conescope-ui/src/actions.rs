@@ -39,5 +39,6 @@ actions!(
         FileTrash,
         FileDelete,
         CancelRename,
+        ToggleOverviewSidebar,
     ]
 );

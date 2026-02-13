@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, MouseButton, PathPromptOptions, ScrollHandle, div, px};
+use gpui::{Entity, MouseButton, PathPromptOptions, ScrollHandle, div, px, svg};
 
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType};
 use conescope_core::project::{PROJECT_COLORS, Project};
@@ -150,6 +150,7 @@ fn create_terminal(app_state: &Entity<AppState>, window: &mut gpui::Window, cx: 
     );
 }
 
+#[allow(dead_code)]
 fn create_project_at_home(
     app_state: &Entity<AppState>,
     window: &mut gpui::Window,
@@ -204,13 +205,12 @@ fn shorten_path(path: &str) -> String {
 
 fn render_modal_body(
     app_state: &Entity<AppState>,
-    recent_projects_section: Option<gpui::Stateful<gpui::Div>>,
+    recent_projects_section: gpui::Div,
+    browse_section: gpui::Div,
+    terminal_section: gpui::Div,
     theme: &Theme,
 ) -> gpui::Stateful<gpui::Div> {
     let app_state_close = app_state.clone();
-    let app_state_terminal = app_state.clone();
-    let app_state_project = app_state.clone();
-    let app_state_browse = app_state.clone();
 
     div()
         .id("new-instance-modal")
@@ -227,35 +227,10 @@ fn render_modal_body(
             cx.stop_propagation();
         })
         .child(modal_header(app_state_close, theme))
-        .child(
-            div()
-                .p(px(16.))
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(modal_button(
-                    "New Terminal",
-                    "Open a shell terminal",
-                    app_state_terminal,
-                    ActionKind::Terminal,
-                    theme,
-                ))
-                .child(modal_button(
-                    "New Project (~/)",
-                    "Launch Claude Code in home directory",
-                    app_state_project,
-                    ActionKind::ProjectHome,
-                    theme,
-                ))
-                .child(modal_button(
-                    "Browse...",
-                    "Choose a project directory",
-                    app_state_browse,
-                    ActionKind::Browse,
-                    theme,
-                )),
-        )
-        .children(recent_projects_section)
+        .child(recent_projects_section)
+        .child(browse_section)
+        .child(div().mx(px(16.)).my(px(8.)).h(px(1.)).bg(theme.border))
+        .child(terminal_section)
 }
 
 fn modal_header(app_state: Entity<AppState>, theme: &Theme) -> gpui::Div {
@@ -315,88 +290,165 @@ impl Render for NewInstanceModal {
             projects
         };
 
-        let recent_section = if recent_projects.is_empty() {
-            None
-        } else {
-            let list = recent_projects_list(&recent_projects, &self.app_state, &theme);
+        // -- Recent Projects section --
+        let recent_section = {
+            let section_label = div()
+                .text_size(px(11.))
+                .text_color(theme.text_faint)
+                .pb(px(4.))
+                .child("RECENT PROJECTS");
 
-            let scroll_div = div()
-                .id("recent-projects-scroll")
-                .max_h(px(200.))
-                .overflow_y_scroll()
-                .track_scroll(&self.scroll_handle)
-                .child(list);
+            let content = if recent_projects.is_empty() {
+                div().id("recent-empty").child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme.text_muted)
+                        .py(px(6.))
+                        .child("No recent projects"),
+                )
+            } else {
+                let list = recent_projects_list(&recent_projects, &self.app_state, &theme);
 
-            let scrollbar_el = scrollbar::render_scrollbar(
-                "recent-projects",
-                &self.scroll_handle,
-                &self.scrollbar_state,
-                ScrollbarCallbacks {
-                    on_thumb_hover: cx.listener(|this, hovered: &bool, _, _| {
-                        this.scrollbar_state.thumb_hovered = *hovered;
+                let scroll_div = div()
+                    .id("recent-projects-scroll")
+                    .max_h(px(200.))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll_handle)
+                    .child(list);
+
+                let scrollbar_el = scrollbar::render_scrollbar(
+                    "recent-projects",
+                    &self.scroll_handle,
+                    &self.scrollbar_state,
+                    ScrollbarCallbacks {
+                        on_thumb_hover: cx.listener(|this, hovered: &bool, _, _| {
+                            this.scrollbar_state.thumb_hovered = *hovered;
+                        }),
+                        on_track_click: cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
+                            let click_y = f32::from(ev.position.y)
+                                - f32::from(this.scroll_handle.bounds().top());
+                            scrollbar::apply_track_click(&this.scroll_handle, click_y);
+                            cx.notify();
+                        }),
+                        on_drag_start: cx.listener(|this, ev: &gpui::MouseDownEvent, _, _| {
+                            this.scrollbar_state.drag = Some(scrollbar::ScrollbarDrag {
+                                start_mouse_y: f32::from(ev.position.y),
+                                start_offset_y: f32::from(this.scroll_handle.offset().y),
+                            });
+                        }),
+                    },
+                );
+
+                div()
+                    .id("recent-scroll-container")
+                    .relative()
+                    .max_h(px(200.))
+                    .on_hover(cx.listener(|this, hovered: &bool, _, _| {
+                        this.scrollbar_state.container_hovered = *hovered;
+                    }))
+                    .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
+                        if let Some(drag) = &this.scrollbar_state.drag {
+                            let drag = *drag;
+                            scrollbar::apply_drag(
+                                &this.scroll_handle,
+                                &drag,
+                                f32::from(ev.position.y),
+                            );
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| {
+                            this.scrollbar_state.drag = None;
+                        }),
+                    )
+                    .on_mouse_up_out(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| {
+                            this.scrollbar_state.drag = None;
+                        }),
+                    )
+                    .child(scroll_div)
+                    .children(scrollbar_el)
+            };
+
+            div()
+                .px(px(16.))
+                .pt(px(8.))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(section_label)
+                .child(content)
+        };
+
+        // -- Browse section --
+        let app_state_browse = self.app_state.clone();
+        let border_bg = theme.border;
+        let border_variant_hover = theme.border_variant;
+        let browse_section = div()
+            .px(px(16.))
+            .pt(px(12.))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.text_faint)
+                    .pb(px(4.))
+                    .child("BROWSE"),
+            )
+            .child(
+                div()
+                    .px(px(12.))
+                    .py(px(8.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .bg(border_bg)
+                    .hover(move |s| s.bg(border_variant_hover))
+                    .text_color(theme.text)
+                    .text_size(px(13.))
+                    .flex()
+                    .justify_center()
+                    .child("Select Directory\u{2026}")
+                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                        browse_for_directory(&app_state_browse, window, cx);
                     }),
-                    on_track_click: cx.listener(|this, ev: &gpui::MouseDownEvent, _, cx| {
-                        let click_y =
-                            f32::from(ev.position.y) - f32::from(this.scroll_handle.bounds().top());
-                        scrollbar::apply_track_click(&this.scroll_handle, click_y);
-                        cx.notify();
-                    }),
-                    on_drag_start: cx.listener(|this, ev: &gpui::MouseDownEvent, _, _| {
-                        this.scrollbar_state.drag = Some(scrollbar::ScrollbarDrag {
-                            start_mouse_y: f32::from(ev.position.y),
-                            start_offset_y: f32::from(this.scroll_handle.offset().y),
-                        });
-                    }),
-                },
             );
 
-            let scroll_container = div()
-                .id("recent-scroll-container")
-                .relative()
-                .max_h(px(200.))
-                .on_hover(cx.listener(|this, hovered: &bool, _, _| {
-                    this.scrollbar_state.container_hovered = *hovered;
-                }))
-                .on_mouse_move(cx.listener(|this, ev: &gpui::MouseMoveEvent, _, cx| {
-                    if let Some(drag) = &this.scrollbar_state.drag {
-                        let drag = *drag;
-                        scrollbar::apply_drag(&this.scroll_handle, &drag, f32::from(ev.position.y));
-                        cx.notify();
-                    }
-                }))
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _| {
-                        this.scrollbar_state.drag = None;
-                    }),
+        // -- Terminal section --
+        let app_state_terminal = self.app_state.clone();
+        let border_bg2 = theme.border;
+        let border_variant_hover2 = theme.border_variant;
+        let terminal_section = div().px(px(16.)).pb(px(16.)).child(
+            div()
+                .px(px(12.))
+                .py(px(8.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .bg(border_bg2)
+                .hover(move |s| s.bg(border_variant_hover2))
+                .text_color(theme.text)
+                .text_size(px(13.))
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_center()
+                .gap(px(6.))
+                .child(
+                    svg()
+                        .path(crate::icons::ICON_TERMINAL)
+                        .size(px(14.))
+                        .text_color(theme.text)
+                        .flex_shrink_0(),
                 )
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _| {
-                        this.scrollbar_state.drag = None;
-                    }),
-                )
-                .child(scroll_div)
-                .children(scrollbar_el);
-
-            Some(
-                div()
-                    .id("recent-projects-section")
-                    .px(px(16.))
-                    .pb(px(12.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.text_faint)
-                            .pb(px(4.))
-                            .child("RECENT PROJECTS"),
-                    )
-                    .child(scroll_container),
-            )
-        };
+                .child("Open Terminal")
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    create_terminal(&app_state_terminal, window, cx);
+                }),
+        );
 
         div()
             .id("modal-backdrop")
@@ -414,49 +466,14 @@ impl Render for NewInstanceModal {
                     cx.notify();
                 });
             })
-            .child(render_modal_body(&self.app_state, recent_section, &theme))
+            .child(render_modal_body(
+                &self.app_state,
+                recent_section,
+                browse_section,
+                terminal_section,
+                &theme,
+            ))
     }
-}
-
-#[derive(Clone, Copy)]
-enum ActionKind {
-    Terminal,
-    ProjectHome,
-    Browse,
-}
-
-fn modal_button(
-    label: &str,
-    description: &str,
-    app_state: Entity<AppState>,
-    action: ActionKind,
-    theme: &Theme,
-) -> gpui::Div {
-    let label = label.to_owned();
-    let description = description.to_owned();
-    let border_variant = theme.border_variant;
-    div()
-        .px(px(12.))
-        .py(px(10.))
-        .rounded(px(6.))
-        .cursor_pointer()
-        .bg(theme.border)
-        .hover(move |s| s.bg(border_variant))
-        .flex()
-        .flex_col()
-        .gap(px(2.))
-        .child(div().text_color(theme.text).child(label))
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(theme.text_muted)
-                .child(description),
-        )
-        .on_mouse_down(MouseButton::Left, move |_, window, cx| match action {
-            ActionKind::Terminal => create_terminal(&app_state, window, cx),
-            ActionKind::ProjectHome => create_project_at_home(&app_state, window, cx),
-            ActionKind::Browse => browse_for_directory(&app_state, window, cx),
-        })
 }
 
 fn browse_for_directory(

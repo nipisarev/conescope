@@ -1,0 +1,310 @@
+use gpui::prelude::*;
+use gpui::{Entity, MouseButton, ScrollHandle, SharedString, div, px, svg};
+
+use crate::icons;
+use crate::state::app_state::AppState;
+use crate::theme::Theme;
+use crate::views::colors::{default_instance_color, hex_to_rgba};
+use crate::views::text_input::TextInput;
+
+pub const SIDEBAR_WIDTH: f32 = 220.0;
+
+#[derive(Debug)]
+pub struct Sidebar {
+    app_state: Entity<AppState>,
+    scroll_handle: ScrollHandle,
+}
+
+impl Sidebar {
+    #[must_use]
+    pub fn new(app_state: Entity<AppState>) -> Self {
+        Self {
+            app_state,
+            scroll_handle: ScrollHandle::new(),
+        }
+    }
+}
+
+struct SidebarEntry {
+    id: String,
+    num: usize,
+    title: String,
+    path: String,
+    color: gpui::Rgba,
+    is_focused: bool,
+}
+
+fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<SidebarEntry> {
+    let state = app_state.read(cx);
+    let il = state.instance_list.read(cx);
+    let focused_id = state.focused_instance_id(cx).map(str::to_owned);
+
+    il.entries()
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let inst = entry.read(cx);
+            let num = i + 1;
+            let color = inst
+                .instance
+                .color
+                .as_deref()
+                .map_or_else(default_instance_color, hex_to_rgba);
+            let title = inst
+                .instance
+                .title
+                .clone()
+                .unwrap_or_else(|| format!("Instance {num}"));
+            let path = shorten_path(
+                inst.current_cwd
+                    .as_deref()
+                    .or_else(|| {
+                        inst.instance.project_id.as_ref().and_then(|pid| {
+                            state
+                                .project_store
+                                .read(cx)
+                                .get(pid)
+                                .map(|p| p.path.as_str())
+                        })
+                    })
+                    .unwrap_or("~"),
+            );
+            SidebarEntry {
+                id: inst.id().to_owned(),
+                num,
+                title,
+                path,
+                color,
+                is_focused: focused_id.as_deref() == Some(inst.id()),
+            }
+        })
+        .collect()
+}
+
+fn shorten_path(path: &str) -> String {
+    if path.is_empty() {
+        return String::new();
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    if !home.is_empty() && path.starts_with(&home) {
+        return format!("~{}", &path[home.len()..]);
+    }
+    path.to_owned()
+}
+
+fn render_instance_row(
+    entry: &SidebarEntry,
+    app_state: &Entity<AppState>,
+    editing_input: Option<&Entity<TextInput>>,
+    font_size: f32,
+    theme: &Theme,
+) -> gpui::Stateful<gpui::Div> {
+    let app_state_click = app_state.clone();
+    let id = entry.id.clone();
+    let element_id: SharedString = format!("sidebar-row-{}", entry.num).into();
+    let accent = theme.accent;
+    let element_hover = theme.element_hover;
+    let text_muted = theme.text_muted;
+    let icon_size = px(font_size - 2.0);
+
+    div()
+        .id(element_id)
+        .px(px(8.))
+        .py(px(4.))
+        .rounded(px(4.))
+        .cursor_pointer()
+        .flex()
+        .flex_col()
+        .gap(px(1.))
+        .when(entry.is_focused, move |el| el.bg(accent))
+        .when(!entry.is_focused, move |el| {
+            el.hover(move |s| s.bg(element_hover))
+        })
+        .on_click(move |_, _, cx| {
+            app_state_click.update(cx, |s, cx| s.focus_instance(&id, cx));
+        })
+        // Line 1: command-num + title
+        .child(
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(1.))
+                        .text_color(entry.color)
+                        .text_size(px(font_size - 1.0))
+                        .font_weight(gpui::FontWeight::BOLD)
+                        .child(
+                            svg()
+                                .path(icons::ICON_COMMAND)
+                                .size(icon_size)
+                                .flex_shrink_0(),
+                        )
+                        .child(format!("{}", entry.num)),
+                )
+                .child(if let Some(input) = editing_input {
+                    div()
+                        .flex_1()
+                        .overflow_hidden()
+                        .child(input.clone())
+                        .into_any_element()
+                } else {
+                    let app_state_edit = app_state.clone();
+                    let edit_id = entry.id.clone();
+                    let edit_title = entry.title.clone();
+                    div()
+                        .text_color(entry.color)
+                        .text_size(px(font_size - 1.0))
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .cursor_pointer()
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            cx.stop_propagation();
+                            app_state_edit.update(cx, |s, cx| {
+                                s.start_edit_title(&edit_id, &edit_title, cx);
+                            });
+                            let editing_input =
+                                app_state_edit.read(cx).editing_input.clone();
+                            if let Some(input) = editing_input {
+                                input.read(cx).focus_handle.clone().focus(window, cx);
+                            }
+                        })
+                        .child(entry.title.clone())
+                        .into_any_element()
+                }),
+        )
+        // Line 2: shortened path
+        .child(
+            div()
+                .pl(px(4.))
+                .text_color(text_muted)
+                .text_size(px(font_size - 2.0))
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .child(entry.path.clone()),
+        )
+}
+
+fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &Theme) -> gpui::Div {
+    let app_state_click = app_state.clone();
+    let element_hover = theme.element_hover;
+    let text_muted = theme.text_muted;
+    let text_faint = theme.text_faint;
+    let icon_size = px(font_size);
+    let cmd_icon_size = px(font_size - 3.0);
+
+    div()
+        .flex_shrink_0()
+        // Divider
+        .child(div().h(px(1.)).w_full().bg(theme.border))
+        // Button
+        .child(
+            div()
+                .mx(px(4.))
+                .my(px(4.))
+                .px(px(8.))
+                .py(px(6.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap(px(6.))
+                .hover(move |s| s.bg(element_hover))
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_click.update(cx, AppState::toggle_new_instance_modal);
+                })
+                // Folder-plus icon
+                .child(
+                    svg()
+                        .path(icons::ICON_FOLDER_PLUS)
+                        .size(icon_size)
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
+                // Label
+                .child(
+                    div()
+                        .flex_1()
+                        .text_color(text_muted)
+                        .text_size(px(font_size - 1.0))
+                        .child("Create a new window"),
+                )
+                // Shortcut hint
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(1.))
+                        .text_color(text_faint)
+                        .text_size(px(font_size - 2.0))
+                        .child(
+                            svg()
+                                .path(icons::ICON_COMMAND)
+                                .size(cmd_icon_size)
+                                .flex_shrink_0(),
+                        )
+                        .child("N"),
+                ),
+        )
+}
+
+impl Render for Sidebar {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let state = self.app_state.read(cx);
+        let font_size = state.settings_store.read(cx).settings().ui_font_size();
+        let theme = state.theme().clone();
+        let editing_tile_id = state.editing_tile_id.clone();
+        let editing_input = state.editing_input.clone();
+
+        let entries = collect_sidebar_entries(&self.app_state, cx);
+
+        let mut list = div().flex().flex_col().gap(px(2.)).py(px(4.)).px(px(4.));
+        for entry in &entries {
+            let input = if editing_tile_id.as_deref() == Some(entry.id.as_str()) {
+                editing_input.as_ref()
+            } else {
+                None
+            };
+            list = list.child(render_instance_row(
+                entry,
+                &self.app_state,
+                input,
+                font_size,
+                &theme,
+            ));
+        }
+
+        div()
+            .h_full()
+            .w(px(SIDEBAR_WIDTH))
+            .flex()
+            .flex_col()
+            .bg(theme.panel)
+            .border_r_1()
+            .border_color(theme.border)
+            // Scrollable instance list
+            .child(
+                div()
+                    .id("sidebar-scroll")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll_handle)
+                    .child(list),
+            )
+            // Pinned bottom section
+            .child(render_bottom_section(&self.app_state, font_size, &theme))
+    }
+}

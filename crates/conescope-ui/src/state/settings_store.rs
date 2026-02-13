@@ -23,6 +23,15 @@ pub enum SidebarTab {
     Files,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SidebarMode {
+    #[default]
+    Pinned,
+    #[serde(other)]
+    Overlay,
+}
+
 /// Per-instance layout state. Each instance remembers its own panel configuration.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct InstanceLayoutState {
@@ -84,6 +93,10 @@ pub struct SessionState {
     pub window_width: Option<f32>,
     #[serde(default)]
     pub window_height: Option<f32>,
+    #[serde(default)]
+    pub sidebar_mode: SidebarMode,
+    #[serde(default = "default_true")]
+    pub sidebar_open: bool,
 }
 
 impl Default for SessionState {
@@ -95,6 +108,8 @@ impl Default for SessionState {
             window_y: None,
             window_width: None,
             window_height: None,
+            sidebar_mode: SidebarMode::Pinned,
+            sidebar_open: true,
         }
     }
 }
@@ -116,6 +131,10 @@ struct LegacySessionState {
     window_width: Option<f32>,
     #[serde(default)]
     window_height: Option<f32>,
+    #[serde(default)]
+    sidebar_mode: SidebarMode,
+    #[serde(default = "default_true")]
+    sidebar_open: bool,
     // Per-instance fields (present in old data, absent in new format)
     #[serde(default)]
     terminal_height: Option<f32>,
@@ -144,6 +163,8 @@ impl LegacySessionState {
             window_y: self.window_y,
             window_width: self.window_width,
             window_height: self.window_height,
+            sidebar_mode: self.sidebar_mode,
+            sidebar_open: self.sidebar_open,
         };
         let has_layout = self.terminal_height.is_some()
             || self.sidebar_width.is_some()
@@ -365,6 +386,7 @@ mod tests {
             window_y: Some(150.0),
             window_width: Some(1600.0),
             window_height: Some(1000.0),
+            ..Default::default()
         };
         let json = serde_json::to_string(&state).unwrap();
         let parsed: SessionState = serde_json::from_str(&json).unwrap();

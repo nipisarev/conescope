@@ -15,6 +15,7 @@ pub mod questions_panel;
 pub mod resizable_divider;
 pub mod scrollbar;
 pub mod settings_view;
+pub mod sidebar;
 pub mod terminal_tabs;
 pub mod text_input;
 pub mod top_bar;

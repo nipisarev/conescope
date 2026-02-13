@@ -53,8 +53,10 @@ pub const ICON_SETTINGS: &str = "icons/gear.svg";
 pub const ICON_BACK: &str = "icons/minus-circle.svg";
 pub const ICON_CLOSE_CIRCLE: &str = "icons/x-circle.svg";
 pub const ICON_GIT: &str = "icons/git-branch.svg";
+pub const ICON_FOLDER_PLUS: &str = "icons/folder-plus.svg";
 
 // Aliases for tile headers (same as above, all regular weight now)
+pub const ICON_TERMINAL_WINDOW: &str = ICON_TERMINAL;
 pub const ICON_COMMAND_REG: &str = ICON_COMMAND;
 pub const ICON_FOLDER_REG: &str = "icons/folder-simple.svg";
 pub const ICON_GIT_REG: &str = ICON_GIT;
