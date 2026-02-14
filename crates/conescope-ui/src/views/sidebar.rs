@@ -7,7 +7,7 @@ use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::text_input::TextInput;
 
-pub const SIDEBAR_WIDTH: f32 = 260.0;
+pub const SIDEBAR_WIDTH: f32 = 300.0;
 
 #[derive(Debug)]
 pub struct Sidebar {
@@ -277,7 +277,7 @@ fn render_close_button(
         })
         .child(
             svg()
-                .path(icons::ICON_CLOSE)
+                .path(icons::ICON_TRASH)
                 .size(px(font_size - 3.0))
                 .text_color(text_muted)
                 .flex_shrink_0(),
@@ -350,12 +350,17 @@ fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &T
         )
 }
 
-impl Render for Sidebar {
-    fn render(
+impl Sidebar {
+    /// Render with an explicit width (for resizable pinned sidebar).
+    pub fn render_with_width(
         &mut self,
-        _window: &mut gpui::Window,
+        width: f32,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
+        self.render_inner(width, cx)
+    }
+
+    fn render_inner(&mut self, width: f32, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let state = self.app_state.read(cx);
         let font_size = state.settings_store.read(cx).settings().ui_font_size();
         let theme = state.theme().clone();
@@ -380,9 +385,11 @@ impl Render for Sidebar {
             ));
         }
 
+        let effective_width = width.max(SIDEBAR_WIDTH);
+
         div()
             .h_full()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(effective_width))
             .flex()
             .flex_col()
             .bg(theme.panel)
@@ -400,5 +407,15 @@ impl Render for Sidebar {
             )
             // Pinned bottom section
             .child(render_bottom_section(&self.app_state, font_size, &theme))
+    }
+}
+
+impl Render for Sidebar {
+    fn render(
+        &mut self,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        self.render_inner(SIDEBAR_WIDTH, cx)
     }
 }

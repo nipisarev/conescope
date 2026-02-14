@@ -222,7 +222,7 @@ fn render_tile_controls(
                 .text_color(text_color)
                 .child(
                     svg()
-                        .path(icons::ICON_CLOSE_REG)
+                        .path(icons::ICON_TRASH)
                         .size(icon_size)
                         .text_color(text_color),
                 )

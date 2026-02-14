@@ -35,6 +35,8 @@ pub struct AppState {
     theme: Theme,
     /// Whether the overlay sidebar is currently visible (transient, not persisted).
     pub sidebar_overlay_visible: bool,
+    /// Generation counter to cancel stale hover-open / auto-hide timers.
+    pub sidebar_hover_gen: u32,
 }
 
 impl std::fmt::Debug for AppState {
@@ -71,6 +73,7 @@ impl AppState {
                 editing_input: None,
                 theme: Theme::load_builtin(ThemeMode::Light),
                 sidebar_overlay_visible: false,
+                sidebar_hover_gen: 0,
             }
         })
     }
@@ -433,7 +436,20 @@ impl AppState {
 
     pub fn hide_sidebar_overlay(&mut self, cx: &mut gpui::Context<Self>) {
         self.sidebar_overlay_visible = false;
+        self.sidebar_hover_gen = self.sidebar_hover_gen.wrapping_add(1);
         cx.notify();
+    }
+
+    pub fn show_sidebar_overlay(&mut self, cx: &mut gpui::Context<Self>) {
+        self.sidebar_overlay_visible = true;
+        self.sidebar_hover_gen = self.sidebar_hover_gen.wrapping_add(1);
+        cx.notify();
+    }
+
+    /// Increment hover gen to cancel any pending open/hide timers.
+    pub fn bump_sidebar_hover_gen(&mut self) -> u32 {
+        self.sidebar_hover_gen = self.sidebar_hover_gen.wrapping_add(1);
+        self.sidebar_hover_gen
     }
 }
 

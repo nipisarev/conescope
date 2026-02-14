@@ -20,8 +20,17 @@ impl TopBar {
     }
 }
 
-/// Resolve the focused instance title, positional number, and project color.
-fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(usize, String, gpui::Rgba)> {
+struct FocusedInfo {
+    num: usize,
+    title: String,
+    color: gpui::Rgba,
+    git_branch: Option<String>,
+    git_insertions: usize,
+    git_deletions: usize,
+}
+
+/// Resolve the focused instance title, positional number, project color, and git info.
+fn focused_info(state: &AppState, cx: &gpui::App) -> Option<FocusedInfo> {
     let id = state.focused_instance_id(cx)?;
     let il = state.instance_list.read(cx);
     let pos = il.entries().iter().position(|e| e.read(cx).id() == id)?;
@@ -38,7 +47,98 @@ fn focused_info(state: &AppState, cx: &gpui::App) -> Option<(usize, String, gpui
         .color
         .as_deref()
         .map_or_else(default_instance_color, hex_to_rgba);
-    Some((pos + 1, title, color))
+    let git = &inst.git_summary;
+    Some(FocusedInfo {
+        num: pos + 1,
+        title,
+        color,
+        git_branch: git.branch.clone(),
+        git_insertions: git.insertions,
+        git_deletions: git.deletions,
+    })
+}
+
+/// Build the focus-mode left additions: back arrow + title + git badge.
+fn render_focus_left(
+    fi: &FocusedInfo,
+    app_state_for_back: Entity<AppState>,
+    font_size: f32,
+    theme: &Theme,
+) -> gpui::Div {
+    let icon_size = px(font_size + 1.0);
+    let text_hover: Hsla = theme.text.into();
+    let text_muted: Hsla = theme.text_muted.into();
+
+    let title_text = format!("\u{2318}{} {}", fi.num, fi.title);
+
+    let mut section = div()
+        .flex()
+        .flex_row()
+        .items_center()
+        // Back arrow (return to overview)
+        .child(
+            div()
+                .ml(px(4.))
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .hover(move |s| s.text_color(text_hover))
+                .child(
+                    svg()
+                        .path(icons::ICON_ARROW_LEFT)
+                        .size(icon_size)
+                        .text_color(text_muted)
+                        .flex_shrink_0(),
+                )
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_for_back.update(cx, AppState::return_to_overview);
+                }),
+        )
+        // Title
+        .child(div().ml(px(8.)).text_color(fi.color).child(title_text));
+
+    // Git badge
+    if let Some(branch) = &fi.git_branch {
+        let green = gpui::rgba(0x4ec9_4eff);
+        let red = gpui::rgba(0xf851_49ff);
+        let secondary_size = px(font_size - 1.0);
+
+        let mut badge = div()
+            .ml(px(10.))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(3.))
+            .text_size(secondary_size)
+            .text_color(theme.text_muted)
+            .child(
+                svg()
+                    .path(icons::ICON_GIT)
+                    .size(icon_size)
+                    .text_color(theme.text_muted)
+                    .flex_shrink_0(),
+            )
+            .child(branch.clone());
+
+        if fi.git_insertions > 0 {
+            badge = badge.child(
+                div()
+                    .text_color(green)
+                    .child(format!("+{}", fi.git_insertions)),
+            );
+        }
+        if fi.git_deletions > 0 {
+            badge = badge.child(
+                div()
+                    .text_color(red)
+                    .child(format!("-{}", fi.git_deletions)),
+            );
+        }
+        section = section.child(badge);
+    }
+
+    section
 }
 
 impl Render for TopBar {
@@ -53,17 +153,16 @@ impl Render for TopBar {
         let font_size = state.settings_store.read(cx).settings().ui_font_size();
         let sidebar_open = state.sidebar_open(cx);
 
-        // In Focus mode, title goes in left section; center is empty.
-        let (left_title, center_text, title_color) = match view_mode {
-            ViewMode::Overview => (None, String::new(), theme.text_muted),
-            ViewMode::Focus => {
-                if let Some((num, title, color)) = focused_info(state, cx) {
-                    (Some(format!("\u{2318}{num} {title}")), String::new(), color)
-                } else {
-                    (None, String::new(), theme.text_muted)
-                }
-            }
-            ViewMode::Settings => (None, "SETTINGS".to_string(), theme.text_muted),
+        let focus_info = if view_mode == ViewMode::Focus {
+            focused_info(state, cx)
+        } else {
+            None
+        };
+
+        let title_color: gpui::Rgba = focus_info.as_ref().map_or(theme.text_muted, |fi| fi.color);
+        let center_text = match view_mode {
+            ViewMode::Settings => "SETTINGS".to_string(),
+            _ => String::new(),
         };
 
         let app_state_for_close = self.app_state.clone();
@@ -71,9 +170,7 @@ impl Render for TopBar {
         let app_state_for_sidebar = self.app_state.clone();
 
         let right_section = match view_mode {
-            ViewMode::Focus => {
-                render_focus_buttons(app_state_for_back, app_state_for_close, font_size, &theme)
-            }
+            ViewMode::Focus => render_focus_close_button(app_state_for_close, font_size, &theme),
             ViewMode::Overview => render_overview_buttons(&self.app_state, font_size, &theme),
             ViewMode::Settings => render_settings_buttons(&self.app_state, font_size, &theme),
         };
@@ -87,7 +184,6 @@ impl Render for TopBar {
         };
         let sidebar_hover: Hsla = theme.text.into();
 
-        // Left section: traffic light spacer + sidebar toggle + optional focused title
         let mut left_section = div()
             .flex()
             .flex_row()
@@ -112,9 +208,9 @@ impl Render for TopBar {
                     }),
             );
 
-        if let Some(title_text) = left_title {
+        if let Some(fi) = &focus_info {
             left_section =
-                left_section.child(div().ml(px(8.)).text_color(title_color).child(title_text));
+                left_section.child(render_focus_left(fi, app_state_for_back, font_size, &theme));
         }
 
         div()
@@ -133,9 +229,7 @@ impl Render for TopBar {
                     window.titlebar_double_click();
                 }
             })
-            // Left section: traffic lights + sidebar toggle + optional title
             .child(left_section)
-            // Center title
             .child(
                 div()
                     .flex_1()
@@ -243,42 +337,20 @@ fn render_settings_buttons(
         )
 }
 
-fn render_focus_buttons(
-    app_state_for_back: Entity<AppState>,
+fn render_focus_close_button(
     app_state_for_close: Entity<AppState>,
     font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
     let text_muted: Hsla = theme.text_muted.into();
-    let text: Hsla = theme.text.into();
     let destructive_hover: Hsla = theme.destructive_hover.into();
     let icon_size = px(font_size + 1.0);
 
     div()
         .flex()
         .flex_row()
-        .gap(px(8.))
         .pr(px(12.))
-        // Minimize button (return to overview)
-        .child(
-            div()
-                .px(px(6.))
-                .py(px(4.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(move |s| s.text_color(text))
-                .child(
-                    svg()
-                        .path(icons::ICON_BACK)
-                        .size(icon_size)
-                        .text_color(text_muted)
-                        .flex_shrink_0(),
-                )
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    app_state_for_back.update(cx, AppState::return_to_overview);
-                }),
-        )
-        // Close button (red on hover)
+        // Close button (trash icon, red on hover)
         .child(
             div()
                 .px(px(6.))
@@ -288,7 +360,7 @@ fn render_focus_buttons(
                 .hover(move |s| s.text_color(destructive_hover))
                 .child(
                     svg()
-                        .path(icons::ICON_CLOSE_CIRCLE)
+                        .path(icons::ICON_TRASH)
                         .size(icon_size)
                         .text_color(text_muted)
                         .flex_shrink_0(),

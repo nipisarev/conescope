@@ -52,6 +52,8 @@ pub const ICON_QUESTION: &str = "icons/question.svg";
 pub const ICON_SETTINGS: &str = "icons/gear.svg";
 pub const ICON_BACK: &str = "icons/minus-circle.svg";
 pub const ICON_CLOSE_CIRCLE: &str = "icons/x-circle.svg";
+pub const ICON_TRASH: &str = "icons/trash.svg";
+pub const ICON_ARROW_LEFT: &str = "icons/arrow-left.svg";
 pub const ICON_GIT: &str = "icons/git-branch.svg";
 pub const ICON_FOLDER_PLUS: &str = "icons/folder-plus.svg";
 

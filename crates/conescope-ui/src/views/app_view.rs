@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use gpui::prelude::*;
 use gpui::{AppContext, Entity, MouseButton, div, px};
 
@@ -9,6 +11,8 @@ use crate::actions::{
 };
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
+use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size, render_divider};
+use crate::views::sidebar::SIDEBAR_WIDTH;
 
 use super::activity_bar::ActivityBar;
 use super::confirm_modal::ConfirmModal;
@@ -20,6 +24,8 @@ use super::questions_panel::QuestionsPanel;
 use super::settings_view::SettingsView;
 use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
+
+const SIDEBAR_MAX: f32 = 600.0;
 
 pub struct AppView {
     pub app_state: Entity<AppState>,
@@ -33,6 +39,8 @@ pub struct AppView {
     pub confirm_modal: Entity<ConfirmModal>,
     pub questions_panel: Entity<QuestionsPanel>,
     pub error_modal: Entity<ErrorModal>,
+    /// Drag state for resizable pinned sidebar.
+    sidebar_drag: Option<DragState>,
 }
 
 impl std::fmt::Debug for AppView {
@@ -94,7 +102,82 @@ impl AppView {
             confirm_modal,
             questions_panel,
             error_modal,
+            sidebar_drag: None,
         }
+    }
+
+    /// Start a delayed hover-open of the overlay sidebar (250ms).
+    fn start_hover_open(&self, cx: &mut gpui::Context<Self>) {
+        let app_state = self.app_state.clone();
+        let hover_gen = app_state.update(cx, |s, _| s.bump_sidebar_hover_gen());
+        cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            cx.update(|cx| {
+                app_state.update(cx, |s, cx| {
+                    if s.sidebar_hover_gen == hover_gen && !s.sidebar_overlay_visible {
+                        s.show_sidebar_overlay(cx);
+                    }
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// Start a delayed auto-hide of the overlay sidebar (500ms).
+    fn start_auto_hide(&self, cx: &mut gpui::Context<Self>) {
+        let app_state = self.app_state.clone();
+        let hover_gen = app_state.update(cx, |s, _| s.bump_sidebar_hover_gen());
+        cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(300))
+                .await;
+            cx.update(|cx| {
+                app_state.update(cx, |s, cx| {
+                    if s.sidebar_hover_gen == hover_gen && s.sidebar_overlay_visible {
+                        s.hide_sidebar_overlay(cx);
+                    }
+                });
+            });
+        })
+        .detach();
+    }
+
+    /// Cancel any pending hover/hide timer (mouse re-entered sidebar).
+    fn cancel_sidebar_timer(&self, cx: &mut gpui::Context<Self>) {
+        self.app_state.update(cx, |s, _| {
+            s.bump_sidebar_hover_gen();
+        });
+    }
+
+    fn on_sidebar_drag_move(
+        &mut self,
+        event: &gpui::MouseMoveEvent,
+        _window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let Some(ref mut drag) = self.sidebar_drag else {
+            return;
+        };
+        let current = drag.position_component(event.position);
+        let delta = drag.delta(current);
+        if delta.abs() < 0.5 {
+            return;
+        }
+        let app_state = self.app_state.clone();
+        let width = app_state.read(cx).sidebar_width(cx);
+        let new_width = clamp_size(width + delta, SIDEBAR_WIDTH, SIDEBAR_MAX);
+        app_state.update(cx, |s, cx| s.set_sidebar_width(new_width, cx));
+    }
+
+    fn on_sidebar_drag_end(
+        &mut self,
+        _event: &gpui::MouseUpEvent,
+        _window: &mut gpui::Window,
+        _cx: &mut gpui::Context<Self>,
+    ) {
+        self.sidebar_drag = None;
     }
 }
 
@@ -261,6 +344,11 @@ impl Render for AppView {
         let error_open = state.error_message.is_some();
         let sidebar_open = state.sidebar_open(cx);
         let sidebar_overlay_visible = state.sidebar_overlay_visible;
+        let pinned_sidebar_width = state.sidebar_width(cx).max(SIDEBAR_WIDTH);
+        let dragging_sidebar = self
+            .sidebar_drag
+            .as_ref()
+            .is_some_and(|d| d.target == DragTarget::Sidebar);
 
         let theme = state.theme();
         let root = div()
@@ -275,19 +363,49 @@ impl Render for AppView {
             .child(self.top_bar.clone())
             // Main content area (relative container for overlay positioning)
             .child({
-                let app_state_dismiss = self.app_state.clone();
-                let app_state_hover = self.app_state.clone();
                 let shadow_color = theme.backdrop;
 
-                div()
+                let mut content = div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_row()
-                    .relative()
-                    // Pinned sidebar (when toggle is on)
+                    .relative();
+
+                // Drag handlers for resizable pinned sidebar
+                if sidebar_open {
+                    content = content
+                        .on_mouse_move(cx.listener(Self::on_sidebar_drag_move))
+                        .on_mouse_up(
+                            MouseButton::Left,
+                            cx.listener(Self::on_sidebar_drag_end),
+                        )
+                        .on_mouse_up_out(
+                            MouseButton::Left,
+                            cx.listener(Self::on_sidebar_drag_end),
+                        );
+                }
+
+                content
+                    // Pinned sidebar (when toggle is on) with dynamic width + divider
                     .when(sidebar_open, |el| {
-                        el.child(self.sidebar.clone())
+                        el.child(
+                            self.sidebar.update(cx, |s, cx| {
+                                s.render_with_width(pinned_sidebar_width, cx)
+                                    .into_any_element()
+                            }),
+                        )
+                        .child(render_divider(
+                            Axis::Horizontal,
+                            dragging_sidebar,
+                            cx.listener(|this, event: &gpui::MouseDownEvent, _window, _cx| {
+                                this.sidebar_drag = Some(DragState {
+                                    target: DragTarget::Sidebar,
+                                    axis: Axis::Horizontal,
+                                    last_pos: f32::from(event.position.x),
+                                });
+                            }),
+                        ))
                     })
                     // Content area
                     .child(match view_mode {
@@ -317,17 +435,25 @@ impl Render for AppView {
                                 .left_0()
                                 .w_full()
                                 .h_full()
-                                // Semi-transparent backdrop — click to dismiss
+                                // Semi-transparent backdrop — mouse here starts auto-hide
                                 .child(
                                     div()
                                         .size_full()
                                         .bg(shadow_color)
-                                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                            app_state_dismiss
-                                                .update(cx, AppState::hide_sidebar_overlay);
+                                        .on_mouse_move(
+                                            cx.listener(|this, _, _, cx| {
+                                                this.start_auto_hide(cx);
+                                            }),
+                                        )
+                                        .on_mouse_down(MouseButton::Left, {
+                                            let app_state = self.app_state.clone();
+                                            move |_, _, cx| {
+                                                app_state
+                                                    .update(cx, AppState::hide_sidebar_overlay);
+                                            }
                                         }),
                                 )
-                                // Sidebar panel with shadow
+                                // Sidebar panel with shadow — cancel hide timer on hover
                                 .child(
                                     div()
                                         .absolute()
@@ -335,11 +461,14 @@ impl Render for AppView {
                                         .left_0()
                                         .h_full()
                                         .shadow_lg()
+                                        .on_mouse_move(cx.listener(|this, _, _, cx| {
+                                            this.cancel_sidebar_timer(cx);
+                                        }))
                                         .child(self.sidebar.clone()),
                                 ),
                         )
                     })
-                    // Hover trigger strip (left edge, 12px wide)
+                    // Hover trigger strip (left edge, 12px wide) with 250ms delay
                     .when(!sidebar_open && !sidebar_overlay_visible, |el| {
                         el.child(
                             div()
@@ -348,14 +477,21 @@ impl Render for AppView {
                                 .left_0()
                                 .w(px(12.))
                                 .h_full()
-                                .on_mouse_move(move |_, _, cx| {
-                                    app_state_hover.update(cx, |s, cx| {
-                                        if !s.sidebar_overlay_visible {
-                                            s.sidebar_overlay_visible = true;
-                                            cx.notify();
-                                        }
-                                    });
-                                }),
+                                .on_mouse_move(cx.listener(|this, _, _, cx| {
+                                    this.start_hover_open(cx);
+                                })),
+                        )
+                        // Cancel open timer if mouse leaves the strip into content
+                        .child(
+                            div()
+                                .absolute()
+                                .top_0()
+                                .left(px(12.))
+                                .right_0()
+                                .h_full()
+                                .on_mouse_move(cx.listener(|this, _, _, cx| {
+                                    this.cancel_sidebar_timer(cx);
+                                })),
                         )
                     })
             })
