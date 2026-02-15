@@ -5,8 +5,9 @@ use conescope_core::instance::InstanceType;
 
 use crate::icons;
 use crate::state::app_state::AppState;
+use crate::state::session_detector::{SessionEvent, SessionStatus};
 use crate::theme::Theme;
-use crate::views::colors::{default_instance_color, hex_to_rgba, status_color};
+use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::text_input::TextInput;
 
 #[derive(Debug)]
@@ -45,7 +46,17 @@ fn render_tile(
     font_family: &str,
     theme: &Theme,
 ) -> gpui::AnyElement {
-    let status_rgba = status_color(tile.status);
+    let status_color = match tile.session_status {
+        SessionStatus::Working => gpui::rgba(0x4ade_80ff),                     // green
+        SessionStatus::Question => gpui::rgba(0xf871_71ff),                    // red
+        SessionStatus::Waiting | SessionStatus::Finished => gpui::rgba(0xfacc_15ff), // yellow
+        SessionStatus::Stopped => gpui::rgba(0x9ca3_afff),                     // gray
+    };
+    let dot_opacity = if tile.session_status.is_pulsing() {
+        tile.pulse_opacity
+    } else {
+        1.0
+    };
 
     div()
         .flex_1()
@@ -58,7 +69,8 @@ fn render_tile(
         .border_color(theme.border)
         .child(render_tile_header(
             tile,
-            status_rgba,
+            status_color,
+            dot_opacity,
             app_state.clone(),
             editing_input,
             terminal_font_size,
@@ -77,7 +89,8 @@ fn render_tile(
 #[allow(clippy::too_many_arguments)]
 fn render_tile_header(
     tile: &TileData,
-    status_rgba: gpui::Rgba,
+    status_color: gpui::Rgba,
+    dot_opacity: f32,
     app_state: Entity<AppState>,
     editing_input: Option<&Entity<TextInput>>,
     font_size: f32,
@@ -168,7 +181,8 @@ fn render_tile_header(
     }
 
     let right = render_tile_controls(
-        status_rgba,
+        status_color,
+        dot_opacity,
         icon_size,
         close_state,
         close_id,
@@ -194,7 +208,8 @@ fn render_tile_header(
 /// Right side controls: status dot + close button.
 #[allow(clippy::too_many_arguments)]
 fn render_tile_controls(
-    status_rgba: gpui::Rgba,
+    status_color: gpui::Rgba,
+    dot_opacity: f32,
     icon_size: gpui::Pixels,
     close_state: Entity<AppState>,
     close_id: String,
@@ -213,7 +228,8 @@ fn render_tile_controls(
                 .w(px(8.))
                 .h(px(8.))
                 .rounded(px(4.))
-                .bg(status_rgba)
+                .bg(status_color)
+                .opacity(dot_opacity)
                 .flex_shrink_0(),
         )
         .child(
@@ -439,6 +455,8 @@ impl Render for OverviewGrid {
 
         let font_family = state.settings_store.read(cx).settings().font_family.clone();
 
+        let pulse_opacity = state.pulse_timer.read(cx).opacity();
+
         let tiles: Vec<TileData> = il
             .entries()
             .iter()
@@ -471,7 +489,6 @@ impl Render for OverviewGrid {
                     id: inst.id().to_owned(),
                     num: i + 1,
                     title,
-                    status: inst.status(),
                     color: inst
                         .instance
                         .color
@@ -484,6 +501,9 @@ impl Render for OverviewGrid {
                     git_branch: git.branch.clone(),
                     git_insertions: git.insertions,
                     git_deletions: git.deletions,
+                    session_status: inst.session_status(),
+                    session_event: inst.session_event().cloned(),
+                    pulse_opacity,
                 }
             })
             .collect();
@@ -513,11 +533,11 @@ impl Render for OverviewGrid {
     }
 }
 
+#[allow(dead_code)]
 struct TileData {
     id: String,
     num: usize,
     title: String,
-    status: conescope_core::instance::InstanceStatus,
     color: gpui::Rgba,
     instance_type: InstanceType,
     project_path: Option<String>,
@@ -526,4 +546,7 @@ struct TileData {
     git_branch: Option<String>,
     git_insertions: usize,
     git_deletions: usize,
+    session_status: SessionStatus,
+    session_event: Option<SessionEvent>,
+    pulse_opacity: f32,
 }
