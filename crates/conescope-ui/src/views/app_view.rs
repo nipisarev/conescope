@@ -6,8 +6,8 @@ use gpui::{AppContext, Entity, MouseButton, div, px};
 use crate::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
-    OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel, ToggleOverviewSidebar,
-    ToggleSidebar, ToggleTerminal,
+    NewTerminalTab, OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel,
+    ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -72,7 +72,15 @@ impl AppView {
             #[allow(clippy::cast_precision_loss)]
             let font_size = settings.terminal_font_size as f32;
             let lhr = settings.terminal_line_height as f32;
-            let colors = app_state_for_font.read(cx).theme().terminal_colors();
+            let theme = app_state_for_font.read(cx).theme();
+            let colors = theme.terminal_colors();
+            let menu_colors = crate::terminal::MenuColors {
+                surface: theme.surface,
+                border: theme.border,
+                hover: theme.element_hover,
+                text: theme.text,
+                text_faint: theme.text_muted,
+            };
             let entries: Vec<_> = app_state_for_font
                 .read(cx)
                 .instance_list
@@ -84,7 +92,7 @@ impl AppView {
                     e.update_font(&font_family, cx);
                     e.update_font_size(font_size, cx);
                     e.update_line_height(lhr, cx);
-                    e.update_colors(&colors, cx);
+                    e.update_colors(&colors, menu_colors, cx);
                 });
             }
         })
@@ -239,6 +247,12 @@ fn with_action_handlers(
                     return;
                 }
                 focus_view.update(cx, |fv, cx| fv.close_active_tab(window, cx));
+            }
+        })
+        .on_action({
+            let focus_view = focus_view.clone();
+            move |_: &NewTerminalTab, window, cx| {
+                focus_view.update(cx, |fv, cx| fv.add_new_terminal_tab(window, cx));
             }
         })
         .on_action({
@@ -435,16 +449,20 @@ impl Render for AppView {
                                 .left_0()
                                 .w_full()
                                 .h_full()
-                                // Semi-transparent backdrop — mouse here starts auto-hide
+                                // Single mouse handler on outer container to avoid sibling ordering issues
+                                .on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _, cx| {
+                                    // Check if cursor is inside sidebar bounds (left 300px)
+                                    if event.position.x <= px(SIDEBAR_WIDTH) {
+                                        this.cancel_sidebar_timer(cx);
+                                    } else {
+                                        this.start_auto_hide(cx);
+                                    }
+                                }))
+                                // Semi-transparent backdrop
                                 .child(
                                     div()
                                         .size_full()
                                         .bg(shadow_color)
-                                        .on_mouse_move(
-                                            cx.listener(|this, _, _, cx| {
-                                                this.start_auto_hide(cx);
-                                            }),
-                                        )
                                         .on_mouse_down(MouseButton::Left, {
                                             let app_state = self.app_state.clone();
                                             move |_, _, cx| {
@@ -453,7 +471,7 @@ impl Render for AppView {
                                             }
                                         }),
                                 )
-                                // Sidebar panel with shadow — cancel hide timer on hover
+                                // Sidebar panel with shadow
                                 .child(
                                     div()
                                         .absolute()
@@ -461,9 +479,6 @@ impl Render for AppView {
                                         .left_0()
                                         .h_full()
                                         .shadow_lg()
-                                        .on_mouse_move(cx.listener(|this, _, _, cx| {
-                                            this.cancel_sidebar_timer(cx);
-                                        }))
                                         .child(self.sidebar.clone()),
                                 ),
                         )

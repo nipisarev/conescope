@@ -259,15 +259,34 @@ impl InstanceEntry {
     pub fn update_colors(
         &mut self,
         colors: &crate::terminal::TerminalColors,
+        menu_colors: crate::terminal::MenuColors,
         cx: &mut gpui::Context<Self>,
     ) {
         if let Some(ref tv) = self.terminal_view {
             let c = colors.clone();
-            tv.update(cx, |v, _| v.set_colors(c));
+            tv.update(cx, |v, _| {
+                v.set_colors(c);
+                v.set_menu_colors(
+                    menu_colors.surface,
+                    menu_colors.border,
+                    menu_colors.hover,
+                    menu_colors.text,
+                    menu_colors.text_faint,
+                );
+            });
         }
         for tab in &self.shell_tabs {
             let c = colors.clone();
-            tab.terminal_view.update(cx, |v, _| v.set_colors(c));
+            tab.terminal_view.update(cx, |v, _| {
+                v.set_colors(c);
+                v.set_menu_colors(
+                    menu_colors.surface,
+                    menu_colors.border,
+                    menu_colors.hover,
+                    menu_colors.text,
+                    menu_colors.text_faint,
+                );
+            });
         }
     }
 

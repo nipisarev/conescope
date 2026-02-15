@@ -108,6 +108,7 @@ impl AppState {
     }
 
     pub fn focus_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
+        tracing::debug!(instance_id = id, "Focusing instance");
         let old_id = self
             .settings_store
             .read(cx)
@@ -123,10 +124,14 @@ impl AppState {
         session.focused_instance_id = Some(id.to_owned());
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
+        tracing::debug!(instance_id = id, "Instance focused, session saved");
         cx.notify();
     }
 
     pub fn return_to_overview(&mut self, cx: &mut gpui::Context<Self>) {
+        // Persist current layout while focused_instance_id is still set
+        self.settings_store
+            .update(cx, |store, _| store.persist_current_layout());
         let mut session = self.settings_store.read(cx).session().clone();
         session.view_mode = ViewMode::Overview;
         session.focused_instance_id = None;

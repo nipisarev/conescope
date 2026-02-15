@@ -7,14 +7,19 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::TermMode;
 use gpui::prelude::*;
 use gpui::{
-    ClipboardItem, CursorStyle, FocusHandle, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, SharedString, actions, div, px, rgba,
+    ClipboardItem, CursorStyle, ExternalPaths, FocusHandle, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Point, Rgba, ScrollWheelEvent, SharedString,
+    actions, div, px, rgba,
 };
 
 use super::terminal::{Terminal, TerminalColors};
-use super::terminal_element::{PendingResize, TerminalElement};
+use super::terminal_element::{CachedOrigin, PendingResize, TerminalElement};
 
 actions!(terminal, [Copy, Paste, SelectAll, SendTab, SendBackTab]);
+
+struct TerminalContextMenu {
+    position: Point<gpui::Pixels>,
+}
 
 /// Events emitted by `TerminalView`.
 #[derive(Debug, Clone)]
@@ -40,14 +45,24 @@ pub struct TerminalView {
     _pending_output: Vec<u8>,
     /// Track mouse drag state for selection.
     selecting: bool,
-    /// Cached cell width for mouse position calculations.
-    cached_cell_width: f32,
     /// Shared state for deferred resize from Element prepaint → View render.
     pending_resize: PendingResize,
+    /// Element bounds origin (set by Element prepaint, used for mouse coord conversion).
+    cached_origin: CachedOrigin,
+    /// Task for continuous scrolling during drag selection.
+    drag_scroll_task: Option<gpui::Task<()>>,
+    /// Last known mouse position during drag (for auto-scroll).
+    last_drag_pos: Option<Point<gpui::Pixels>>,
     /// Cached scroll state for scrollbar rendering (updated via observer + `on_scroll`).
     cached_display_offset: usize,
     cached_history_size: usize,
     cached_screen_lines: usize,
+    context_menu: Option<TerminalContextMenu>,
+    menu_surface: Rgba,
+    menu_border: Rgba,
+    menu_hover: Rgba,
+    menu_text: Rgba,
+    menu_text_faint: Rgba,
 }
 
 impl std::fmt::Debug for TerminalView {
@@ -93,11 +108,19 @@ impl TerminalView {
             colors,
             _pending_output: Vec::new(),
             selecting: false,
-            cached_cell_width: 8.0,
             pending_resize: Rc::new(Cell::new(None)),
+            cached_origin: Rc::new(Cell::new(gpui::Point::default())),
+            drag_scroll_task: None,
+            last_drag_pos: None,
             cached_display_offset: 0,
             cached_history_size: 0,
             cached_screen_lines: screen_lines,
+            context_menu: None,
+            menu_surface: rgba(0x2d2d_2dff),
+            menu_border: rgba(0x4040_40ff),
+            menu_hover: rgba(0x3a3a_3aff),
+            menu_text: rgba(0xe0e0_e0ff),
+            menu_text_faint: rgba(0x6666_66ff),
         }
     }
 
@@ -138,6 +161,22 @@ impl TerminalView {
         self.line_height_ratio = ratio;
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_menu_colors(
+        &mut self,
+        surface: Rgba,
+        border: Rgba,
+        hover: Rgba,
+        text: Rgba,
+        text_faint: Rgba,
+    ) {
+        self.menu_surface = surface;
+        self.menu_border = border;
+        self.menu_hover = hover;
+        self.menu_text = text;
+        self.menu_text_faint = text_faint;
+    }
+
     fn on_key_down(
         &mut self,
         event: &KeyDownEvent,
@@ -147,6 +186,10 @@ impl TerminalView {
         // Let Cmd+ shortcuts propagate to global action handlers
         // (Cmd+C/V/A are handled via on_action, not on_key_down).
         if event.keystroke.modifiers.platform {
+            if event.keystroke.key == "backspace" {
+                self.terminal.read(cx).input(b"\x15");
+                cx.notify();
+            }
             return;
         }
         let mode = self.terminal.read(cx).mode();
@@ -181,6 +224,24 @@ impl TerminalView {
         cx.notify();
     }
 
+    fn on_right_click(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.focus_handle.focus(window, cx);
+        cx.stop_propagation();
+        let origin = self.cached_origin.get();
+        self.context_menu = Some(TerminalContextMenu {
+            position: gpui::Point {
+                x: event.position.x - origin.x,
+                y: event.position.y - origin.y,
+            },
+        });
+        cx.notify();
+    }
+
     fn on_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
@@ -194,6 +255,30 @@ impl TerminalView {
         self.terminal.update(cx, |term, _| {
             term.update_selection(point, side);
         });
+
+        // Store last drag position for auto-scroll
+        self.last_drag_pos = Some(event.position);
+
+        let delta = self.drag_line_delta(event.position);
+        if delta != 0 {
+            self.terminal.update(cx, |term, _| {
+                term.scroll_lines(delta);
+            });
+            let t = self.terminal.read(cx);
+            self.cached_display_offset = t.display_offset();
+            self.cached_history_size = t.history_size();
+            self.cached_screen_lines = t.screen_lines();
+
+            // Start continuous scroll loop if not already running
+            if self.drag_scroll_task.is_none() {
+                self.drag_scroll_task = Some(Self::spawn_drag_scroll_task(cx));
+            }
+        } else {
+            // Clear task when delta is 0
+            self.drag_scroll_task = None;
+            self.last_drag_pos = None;
+        }
+
         cx.notify();
     }
 
@@ -207,6 +292,8 @@ impl TerminalView {
             return;
         }
         self.selecting = false;
+        self.drag_scroll_task = None;
+        self.last_drag_pos = None;
         cx.notify();
     }
 
@@ -281,20 +368,100 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// Convert a pixel position relative to the window to a terminal grid point.
+    fn spawn_drag_scroll_task(cx: &mut gpui::Context<Self>) -> gpui::Task<()> {
+        cx.spawn(async |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(30))
+                    .await;
+
+                let should_continue = this
+                    .update(cx, |view, cx| {
+                        if !view.selecting {
+                            view.drag_scroll_task = None;
+                            view.last_drag_pos = None;
+                            return false;
+                        }
+
+                        if let Some(pos) = view.last_drag_pos {
+                            let delta = view.drag_line_delta(pos);
+                            if delta != 0 {
+                                view.terminal.update(cx, |term, _| {
+                                    term.scroll_lines(delta);
+                                });
+                                let t = view.terminal.read(cx);
+                                view.cached_display_offset = t.display_offset();
+                                view.cached_history_size = t.history_size();
+                                view.cached_screen_lines = t.screen_lines();
+                                cx.notify();
+                                return true;
+                            }
+                        }
+
+                        view.drag_scroll_task = None;
+                        view.last_drag_pos = None;
+                        false
+                    })
+                    .unwrap_or(false);
+
+                if !should_continue {
+                    break;
+                }
+            }
+        })
+    }
+
+    fn drag_line_delta(&self, cursor_pos: gpui::Point<gpui::Pixels>) -> i32 {
+        let origin = self.cached_origin.get();
+        let line_height = gpui::px(self.font_size * self.line_height_ratio);
+        let line_height_f = f32::from(line_height);
+        #[allow(clippy::cast_precision_loss)]
+        let viewport_bottom = origin.y + gpui::px(self.cached_screen_lines as f32 * line_height_f);
+        // Threshold: trigger auto-scroll when cursor is within half a line of the edge.
+        // GPUI only delivers mouse_move within element bounds, so the cursor can't
+        // actually go above origin.y — a proximity zone is needed for the top edge.
+        let threshold = line_height * 0.5;
+        let top_edge = origin.y + threshold;
+        let bottom_edge = viewport_bottom - threshold;
+
+        if cursor_pos.y < top_edge {
+            let dist = f32::from(top_edge - cursor_pos.y) + line_height_f;
+            (dist.powf(1.1) / line_height_f).clamp(1.0, 3.0) as i32
+        } else if cursor_pos.y > bottom_edge {
+            let dist = f32::from(cursor_pos.y - bottom_edge) + line_height_f;
+            -((dist.powf(1.1) / line_height_f).clamp(1.0, 3.0) as i32)
+        } else {
+            0
+        }
+    }
+
+    /// Convert a window-relative pixel position to a terminal grid point.
     fn pixel_to_grid(
         &self,
         position: gpui::Point<gpui::Pixels>,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
     ) -> (AlacPoint, Side) {
-        let cell_width = self.cached_cell_width.max(1.0);
+        // Subtract element origin to convert window-relative → element-local coords.
+        let origin = self.cached_origin.get();
+        let local_x = f32::from(position.x - origin.x).max(0.0);
+        let local_y = f32::from(position.y - origin.y).max(0.0);
+
+        let cell_width = f32::from(super::terminal_element::compute_cell_width(
+            window,
+            &self.font_family,
+            gpui::px(self.font_size),
+        ))
+        .max(1.0);
         let line_height = (self.font_size * self.line_height_ratio).max(1.0);
 
         #[allow(clippy::cast_sign_loss)]
-        let col = (f32::from(position.x) / cell_width).floor().max(0.0) as usize;
-        let line = (f32::from(position.y) / line_height).floor().max(0.0) as i32;
+        let col = (local_x / cell_width).floor() as usize;
+        let viewport_line = (local_y / line_height).floor() as i32;
 
-        let cell_x = f32::from(position.x) % cell_width;
+        #[allow(clippy::cast_possible_wrap)]
+        let line = viewport_line - self.cached_display_offset as i32;
+
+        let cell_x = local_x % cell_width;
         let side = if cell_x > cell_width / 2.0 {
             Side::Right
         } else {
@@ -306,6 +473,7 @@ impl TerminalView {
 }
 
 impl Render for TerminalView {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         window: &mut gpui::Window,
@@ -331,6 +499,7 @@ impl Render for TerminalView {
         let font_family = self.font_family.clone();
         let font_size = px(self.font_size);
         let pending_resize = self.pending_resize.clone();
+        let cached_origin = self.cached_origin.clone();
 
         // Compute scrollbar thumb from cached scroll state.
         let scrollbar = if self.cached_history_size > 0 {
@@ -373,6 +542,7 @@ impl Render for TerminalView {
             .key_context("Terminal")
             .on_key_down(cx.listener(Self::on_key_down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_click))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_scroll_wheel(cx.listener(Self::on_scroll))
@@ -381,6 +551,15 @@ impl Render for TerminalView {
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::send_tab))
             .on_action(cx.listener(Self::send_back_tab))
+            .on_drop(
+                cx.listener(|this: &mut Self, paths: &ExternalPaths, _window, cx| {
+                    let escaped = shell_escape_paths(paths.paths());
+                    if !escaped.is_empty() {
+                        this.terminal.read(cx).input(escaped.as_bytes());
+                        cx.notify();
+                    }
+                }),
+            )
             .text_size(font_size)
             .child(TerminalElement::new(
                 terminal,
@@ -390,12 +569,144 @@ impl Render for TerminalView {
                 font_size,
                 self.line_height_ratio,
                 pending_resize,
+                cached_origin,
                 self.bg_color,
                 self.colors.clone(),
             ));
 
         if let Some(sb) = scrollbar {
             container = container.child(sb);
+        }
+
+        if let Some(menu) = &self.context_menu {
+            let menu_pos = menu.position;
+            let has_selection = self.terminal.read(cx).selection_text().is_some();
+            let surface = self.menu_surface;
+            let border = self.menu_border;
+            let hover = self.menu_hover;
+            let text = self.menu_text;
+            let text_faint = self.menu_text_faint;
+
+            container = container.child(
+                div()
+                    .id("terminal-ctx-dismiss")
+                    .absolute()
+                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.context_menu = None;
+                            cx.notify();
+                        }),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, _, _, cx| {
+                            this.context_menu = None;
+                            cx.notify();
+                        }),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .top(menu_pos.y)
+                            .left(menu_pos.x)
+                            .min_w(px(200.))
+                            .bg(surface)
+                            .border_1()
+                            .border_color(border)
+                            .rounded(px(6.))
+                            .shadow_lg()
+                            .py(px(4.))
+                            .text_size(px(12.))
+                            .child(terminal_ctx_item(
+                                "New Terminal",
+                                "⌘T",
+                                surface,
+                                hover,
+                                text,
+                                cx.listener(|_, _, window, cx| {
+                                    window.dispatch_action(
+                                        Box::new(crate::actions::NewTerminalTab),
+                                        cx,
+                                    );
+                                }),
+                            ))
+                            .child(terminal_ctx_separator(border))
+                            .when(!has_selection, |div| {
+                                div.child(terminal_ctx_item_disabled(
+                                    "Copy", "⌘C", surface, text_faint,
+                                ))
+                            })
+                            .when(has_selection, |div| {
+                                div.child(terminal_ctx_item(
+                                    "Copy",
+                                    "⌘C",
+                                    surface,
+                                    hover,
+                                    text,
+                                    cx.listener(|this, _, window, cx| {
+                                        this.copy(&Copy, window, cx);
+                                        this.context_menu = None;
+                                        cx.notify();
+                                    }),
+                                ))
+                            })
+                            .child(terminal_ctx_item(
+                                "Paste",
+                                "⌘V",
+                                surface,
+                                hover,
+                                text,
+                                cx.listener(|this, _, window, cx| {
+                                    this.paste(&Paste, window, cx);
+                                    this.context_menu = None;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(terminal_ctx_item(
+                                "Select All",
+                                "⌘A",
+                                surface,
+                                hover,
+                                text,
+                                cx.listener(|this, _, window, cx| {
+                                    this.select_all(&SelectAll, window, cx);
+                                    this.context_menu = None;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(terminal_ctx_item(
+                                "Clear",
+                                "⌘K",
+                                surface,
+                                hover,
+                                text,
+                                cx.listener(|this, _, _, cx| {
+                                    this.terminal.update(cx, |term, _| {
+                                        term.clear_screen();
+                                    });
+                                    this.context_menu = None;
+                                    cx.notify();
+                                }),
+                            ))
+                            .child(terminal_ctx_separator(border))
+                            .child(terminal_ctx_item(
+                                "Close Terminal",
+                                "⌘W",
+                                surface,
+                                hover,
+                                text,
+                                cx.listener(|this, _, window, cx| {
+                                    window.dispatch_action(Box::new(crate::actions::CloseTab), cx);
+                                    this.context_menu = None;
+                                    cx.notify();
+                                }),
+                            )),
+                    ),
+            );
         }
 
         container
@@ -411,7 +722,13 @@ fn encode_keystroke(keystroke: &gpui::Keystroke, mode: TermMode) -> Option<Cow<'
     // Named keys.
     let app_cursor = mode.contains(TermMode::APP_CURSOR);
     let result: Option<Cow<'static, [u8]>> = match keystroke.key.as_ref() {
-        "enter" | "return" => Some(Cow::Borrowed(b"\r")),
+        "enter" | "return" => {
+            if modifiers.shift {
+                Some(Cow::Borrowed(b"\n"))
+            } else {
+                Some(Cow::Borrowed(b"\r"))
+            }
+        }
         "escape" => Some(Cow::Borrowed(b"\x1b")),
         "tab" => {
             if modifiers.shift {
@@ -563,4 +880,71 @@ impl ModifiersExt for gpui::Modifiers {
     fn has_any(&self) -> bool {
         self.shift || self.control || self.alt || self.platform
     }
+}
+
+fn shell_escape_paths(paths: &[std::path::PathBuf]) -> String {
+    paths
+        .iter()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            format!("'{}'", s.replace('\'', "'\\''"))
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn terminal_ctx_item(
+    label: &str,
+    shortcut: &str,
+    _surface: Rgba,
+    hover: Rgba,
+    text: Rgba,
+    on_click: impl Fn(&MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
+) -> gpui::Div {
+    let sc = shortcut.to_owned();
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px(px(10.))
+        .py(px(4.))
+        .text_color(text)
+        .cursor_pointer()
+        .hover(move |s| s.bg(hover))
+        .on_mouse_down(MouseButton::Left, move |ev, win, cx| {
+            cx.stop_propagation();
+            on_click(ev, win, cx);
+        })
+        .child(label.to_owned())
+        .child(div().text_color(text).child(sc))
+}
+
+fn terminal_ctx_item_disabled(
+    label: &str,
+    shortcut: &str,
+    _surface: Rgba,
+    text_faint: Rgba,
+) -> gpui::AnyElement {
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .px(px(10.))
+        .py(px(4.))
+        .text_color(text_faint)
+        .child(label.to_owned())
+        .child(div().text_color(text_faint).child(shortcut.to_owned()))
+        .into_any_element()
+}
+
+fn terminal_ctx_separator(border: Rgba) -> gpui::AnyElement {
+    div()
+        .h(px(1.))
+        .mx(px(8.))
+        .my(px(3.))
+        .bg(border)
+        .into_any_element()
 }

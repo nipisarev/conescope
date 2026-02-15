@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::prelude::*;
@@ -11,7 +12,7 @@ use crate::state::app_state::AppState;
 use crate::state::git_store::GitStoreEvent;
 use crate::state::settings_store::SidebarTab;
 use crate::terminal::spawn_terminal_pane;
-use crate::views::code_viewer::{CodeEditor, CodeEditorEvent};
+use crate::views::code_viewer::{CodeEditor, CodeEditorEvent, TabBuffer};
 use crate::views::diff_viewer::DiffViewer;
 use crate::views::editor_tabs::{EditorTabs, EditorTabsEvent};
 use crate::views::file_tree::{FileTree, FileTreeEvent};
@@ -40,6 +41,8 @@ pub struct FocusView {
     diff_viewer: Entity<DiffViewer>,
     /// Last focused instance ID, used to detect switches.
     last_focused_id: Option<String>,
+    /// Per-instance editor buffers to preserve unsaved changes across instance switches.
+    instance_buffers: HashMap<String, HashMap<String, TabBuffer>>,
 }
 
 impl std::fmt::Debug for FocusView {
@@ -263,6 +266,7 @@ impl FocusView {
             git_panel,
             diff_viewer,
             last_focused_id,
+            instance_buffers: HashMap::new(),
         }
     }
 
@@ -367,9 +371,50 @@ impl FocusView {
         }
     }
 
+    pub fn add_new_terminal_tab(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let state = self.app_state.read(cx);
+        let Some(id) = state.focused_instance_id(cx) else {
+            return;
+        };
+        let il = state.instance_list.read(cx);
+        let Some(entry) = il.find_by_id(id, cx).cloned() else {
+            return;
+        };
+
+        let cwd = {
+            let inst = entry.read(cx);
+            inst.instance.project_id.as_ref().and_then(|pid| {
+                state
+                    .project_store
+                    .read(cx)
+                    .get(pid)
+                    .map(|p| p.path.clone())
+            })
+        };
+        let ff = Some(state.settings_store.read(cx).settings().font_family.clone());
+        let tc = state.theme().terminal_colors();
+        let s = state.settings_store.read(cx).settings().clone();
+        #[allow(clippy::cast_precision_loss)]
+        let tfs = s.terminal_font_size as f32;
+        let lhr = s.terminal_line_height as f32;
+        let pane = spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), tfs, lhr, &tc, window, cx);
+        entry.update(cx, |e, cx| {
+            let (id, rx) = e.add_shell_tab(pane, cx);
+            e.start_shell_output_polling(id, rx, cx);
+            e.set_active_tab(TerminalTab::Shell(id), cx);
+        });
+        let fh = entry.read(cx).active_focus_handle().cloned();
+        if let Some(fh) = fh {
+            fh.focus(window, cx);
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn build_tab_bar(
-        &self,
         entry: &gpui::Entity<crate::state::instance_entry::InstanceEntry>,
         font_size: f32,
         theme: &Theme,
@@ -381,8 +426,6 @@ impl FocusView {
         let shell_tabs = inst.shell_tab_info();
 
         let entry_for_primary = entry.clone();
-        let entry_for_add = entry.clone();
-        let app_state_for_add = self.app_state.clone();
 
         // Click shell tab → switch to it
         let entry_click = entry.clone();
@@ -422,48 +465,8 @@ impl FocusView {
             &on_click_shell,
             &on_close_shell,
             // "+" button: always spawn a new shell tab
-            cx.listener(move |_this, _event: &gpui::MouseDownEvent, window, cx| {
-                let cwd = {
-                    let state = app_state_for_add.read(cx);
-                    let inst = entry_for_add.read(cx);
-                    inst.instance.project_id.as_ref().and_then(|pid| {
-                        state
-                            .project_store
-                            .read(cx)
-                            .get(pid)
-                            .map(|p| p.path.clone())
-                    })
-                };
-                let ff = Some(
-                    app_state_for_add
-                        .read(cx)
-                        .settings_store
-                        .read(cx)
-                        .settings()
-                        .font_family
-                        .clone(),
-                );
-                let tc = app_state_for_add.read(cx).theme().terminal_colors();
-                let s = app_state_for_add
-                    .read(cx)
-                    .settings_store
-                    .read(cx)
-                    .settings()
-                    .clone();
-                #[allow(clippy::cast_precision_loss)]
-                let tfs = s.terminal_font_size as f32;
-                let lhr = s.terminal_line_height as f32;
-                let pane =
-                    spawn_terminal_pane(cwd.as_deref(), ff.as_deref(), tfs, lhr, &tc, window, cx);
-                entry_for_add.update(cx, |e, cx| {
-                    let (id, rx) = e.add_shell_tab(pane, cx);
-                    e.start_shell_output_polling(id, rx, cx);
-                    e.set_active_tab(TerminalTab::Shell(id), cx);
-                });
-                let fh = entry_for_add.read(cx).active_focus_handle().cloned();
-                if let Some(fh) = fh {
-                    fh.focus(window, cx);
-                }
+            cx.listener(move |this, _event: &gpui::MouseDownEvent, window, cx| {
+                this.add_new_terminal_tab(window, cx);
             }),
             font_size,
             theme,
@@ -652,6 +655,21 @@ impl Render for FocusView {
 
         // Detect instance switch: layout already switched by focus_instance()
         if focused_id != self.last_focused_id {
+            // Save current instance's editor buffers
+            if let Some(ref old_id) = self.last_focused_id {
+                let old_buffers = self
+                    .code_editor
+                    .update(cx, |editor, _cx| editor.take_buffers());
+                self.instance_buffers.insert(old_id.clone(), old_buffers);
+            }
+
+            // Restore new instance's editor buffers
+            if let Some(ref new_id) = focused_id {
+                let new_buffers = self.instance_buffers.remove(new_id).unwrap_or_default();
+                self.code_editor
+                    .update(cx, |editor, _cx| editor.restore_buffers(new_buffers));
+            }
+
             // Restore editor tabs from the new instance's layout
             let (paths, active) = self.app_state.read(cx).saved_editor_tabs(cx);
             self.editor_tabs.update(cx, |tabs, _| {
@@ -806,7 +824,7 @@ impl Render for FocusView {
             .settings()
             .ui_editor_font_size();
 
-        let tab_bar = self.build_tab_bar(&entry, ui_font_size, &theme, cx);
+        let tab_bar = Self::build_tab_bar(&entry, ui_font_size, &theme, cx);
 
         let main_area = render_main_area(
             editor_visible,

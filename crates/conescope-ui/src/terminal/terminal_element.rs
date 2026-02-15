@@ -43,6 +43,10 @@ struct ShapedRun {
 /// View reads it in render and applies resize outside the render pipeline.
 pub type PendingResize = Rc<Cell<Option<(usize, usize)>>>;
 
+/// Shared state for element bounds origin: Element writes in prepaint,
+/// View reads in mouse handlers to convert window-relative to element-local coords.
+pub type CachedOrigin = Rc<Cell<Point<Pixels>>>;
+
 /// GPUI Element that renders terminal cells.
 #[allow(missing_debug_implementations)]
 pub struct TerminalElement {
@@ -53,6 +57,7 @@ pub struct TerminalElement {
     font_size: Pixels,
     line_height_ratio: f32,
     pending_resize: PendingResize,
+    cached_origin: CachedOrigin,
     bg_color: Rgba,
     colors: TerminalColors,
 }
@@ -68,6 +73,7 @@ impl TerminalElement {
         font_size: Pixels,
         line_height_ratio: f32,
         pending_resize: PendingResize,
+        cached_origin: CachedOrigin,
         bg_color: Rgba,
         colors: TerminalColors,
     ) -> Self {
@@ -79,6 +85,7 @@ impl TerminalElement {
             font_size,
             line_height_ratio,
             pending_resize,
+            cached_origin,
             bg_color,
             colors,
         }
@@ -132,6 +139,9 @@ impl Element for TerminalElement {
         cx: &mut gpui::App,
     ) -> Self::PrepaintState {
         let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+
+        // Store element origin for mouse coordinate conversion in TerminalView.
+        self.cached_origin.set(bounds.origin);
 
         // Compute cell metrics.
         let font_size = self.font_size;
@@ -362,7 +372,7 @@ impl Element for TerminalElement {
 
         // Paint cursor.
         if let Some((rect, shape)) = &prepaint.cursor_rect {
-            let cursor_color = gpui::rgba(0xCCCC_CCFF);
+            let cursor_color = self.colors.fg;
             match shape {
                 CursorShape::Block => {
                     window.paint_quad(gpui::fill(*rect, cursor_color));
@@ -387,7 +397,7 @@ impl Element for TerminalElement {
     }
 }
 
-fn compute_cell_width(
+pub(super) fn compute_cell_width(
     window: &mut gpui::Window,
     family: &SharedString,
     font_size: Pixels,

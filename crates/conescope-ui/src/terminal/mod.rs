@@ -12,7 +12,7 @@ use gpui::{AppContext, SharedString};
 use portable_pty::{CommandBuilder, MasterPty, PtySize, native_pty_system};
 
 use terminal::Terminal;
-pub use terminal::TerminalColors;
+pub use terminal::{MenuColors, TerminalColors};
 use terminal_view::TerminalView;
 
 /// Default line-height multiplier relative to font size.

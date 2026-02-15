@@ -20,6 +20,8 @@ actions!(
         ToggleSidebar,
         ToggleEditor,
         ToggleTerminal,
+        NewTerminalTab,
+        ClearTerminal,
         OpenSettings,
         CloseSettings,
         SaveFile,

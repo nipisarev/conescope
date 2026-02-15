@@ -126,7 +126,7 @@ impl InstanceList {
             });
 
             if is_project {
-                entry.read(cx).send_input(b"claude\r");
+                entry.read(cx).send_input(b"claude --continue\r");
             }
         }
     }

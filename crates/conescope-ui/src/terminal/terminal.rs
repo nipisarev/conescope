@@ -330,6 +330,15 @@ impl Terminal {
         }
     }
 
+    pub fn scroll_lines(&mut self, delta: i32) {
+        self.term.scroll_display(Scroll::Delta(delta));
+    }
+
+    pub fn clear_screen(&mut self) {
+        self.term.grid_mut().clear_history();
+        self.input(b"\x0c");
+    }
+
     /// Convert scroll wheel event to line count using pixel accumulation.
     ///
     /// Accumulates sub-pixel trackpad deltas across events. Only produces
@@ -447,6 +456,16 @@ pub struct TerminalColors {
     pub fg: Rgba,
     pub bg: Rgba,
     pub ansi: [Rgba; 16],
+}
+
+/// Context menu color palette — derived from the active theme.
+#[derive(Debug, Clone, Copy)]
+pub struct MenuColors {
+    pub surface: Rgba,
+    pub border: Rgba,
+    pub hover: Rgba,
+    pub text: Rgba,
+    pub text_faint: Rgba,
 }
 
 impl Default for TerminalColors {

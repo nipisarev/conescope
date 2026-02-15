@@ -248,14 +248,22 @@ impl SettingsStore {
         if let Some(ref id) = self.session.focused_instance_id {
             if let Some(layout) = self.instance_layouts.get(id) {
                 self.layout = layout.clone();
+                tracing::debug!(instance_id = id, layout = ?self.layout, "Loaded layout for focused instance");
             } else if let Some(layout) = legacy_layout {
                 // Migrate legacy per-instance data to the focused instance
                 self.instance_layouts.insert(id.clone(), layout.clone());
                 self.layout = layout;
+                tracing::debug!(
+                    instance_id = id,
+                    "Migrated legacy layout for focused instance"
+                );
+            } else {
+                tracing::debug!(instance_id = id, "No saved layout found, using defaults");
             }
         } else if let Some(layout) = legacy_layout {
             // No focused instance but legacy data exists — use as default layout
             self.layout = layout;
+            tracing::debug!("No focused instance, using legacy layout as default");
         }
 
         self.loaded = true;
@@ -277,18 +285,28 @@ impl SettingsStore {
         if let Ok(json) = serde_json::to_string(&session_to_save) {
             self.db.set_setting("session_state".to_owned(), json);
         }
+        // Ensure current layout is flushed on every session save
+        self.persist_current_layout();
     }
 
     /// Save the current instance's layout and persist to DB.
     pub fn save_layout(&mut self, layout: InstanceLayoutState) {
         self.layout = layout;
+        // Keep in-memory cache in sync so switch_instance_layout reads correct state
+        if let Some(ref id) = self.session.focused_instance_id {
+            self.instance_layouts
+                .insert(id.clone(), self.layout.clone());
+        }
         self.persist_current_layout();
     }
 
     /// Persist current layout to DB under the focused instance's key.
-    fn persist_current_layout(&self) {
+    pub fn persist_current_layout(&self) {
         if let Some(ref id) = self.session.focused_instance_id {
+            tracing::debug!(instance_id = id, layout = ?self.layout, "Persisting current layout");
             self.persist_layout_for(id, &self.layout);
+        } else {
+            tracing::debug!("No focused instance, skipping layout persist");
         }
     }
 
@@ -302,11 +320,13 @@ impl SettingsStore {
     /// Switch layout when focusing a different instance.
     /// Saves the current layout under `old_id`, loads layout for `new_id`.
     pub fn switch_instance_layout(&mut self, old_id: Option<&str>, new_id: &str) {
+        tracing::debug!(old_id, new_id, "Switching instance layout");
         // Save current layout under old instance
         if let Some(old) = old_id {
             self.instance_layouts
                 .insert(old.to_owned(), self.layout.clone());
             self.persist_layout_for(old, &self.layout);
+            tracing::debug!(old_id = old, "Saved old layout");
         }
         // Load layout for new instance (or default)
         self.layout = self
@@ -314,6 +334,10 @@ impl SettingsStore {
             .get(new_id)
             .cloned()
             .unwrap_or_default();
+        // Cache the loaded layout immediately to prevent defaults from being silently dropped
+        self.instance_layouts
+            .insert(new_id.to_owned(), self.layout.clone());
+        tracing::debug!(new_id, cached = ?self.layout, "Loaded and cached new layout");
     }
 
     /// Remove a deleted instance's layout from cache and DB.
@@ -726,8 +750,9 @@ mod tests {
             ..Default::default()
         });
 
-        // Switch to B
+        // Switch to B (real code updates focused_instance_id after switch)
         store.switch_instance_layout(Some("inst-A"), "inst-B");
+        store.session.focused_instance_id = Some("inst-B".into());
 
         // B gets defaults, not A's values
         assert_eq!(store.layout().sidebar_width, 240.0);
@@ -741,6 +766,7 @@ mod tests {
 
         // Switch back to A
         store.switch_instance_layout(Some("inst-B"), "inst-A");
+        store.session.focused_instance_id = Some("inst-A".into());
 
         // A still has its original values
         assert_eq!(store.layout().sidebar_width, 999.0);

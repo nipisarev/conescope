@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use gpui::prelude::*;
 use gpui::{
     AnyElement, App, Bounds, Entity, EventEmitter, GlobalElementId, InspectorElementId, LayoutId,
@@ -101,12 +103,21 @@ pub enum CodeEditorEvent {
 
 impl EventEmitter<CodeEditorEvent> for CodeEditor {}
 
+#[derive(Clone, Debug)]
+pub struct TabBuffer {
+    pub content: String,
+    pub dirty: bool,
+    pub language: String,
+}
+
 pub struct CodeEditor {
     app_state: Entity<AppState>,
     file_path: Option<String>,
     editor_state: Option<Entity<InputState>>,
     /// Pending file to open once the editor state is initialized.
     pending_open: Option<String>,
+    /// Per-tab content buffers to preserve unsaved changes on tab switch.
+    buffers: HashMap<String, TabBuffer>,
 }
 
 impl std::fmt::Debug for CodeEditor {
@@ -125,6 +136,7 @@ impl CodeEditor {
             file_path: None,
             editor_state: None,
             pending_open: None,
+            buffers: HashMap::new(),
         }
     }
 
@@ -146,12 +158,23 @@ impl CodeEditor {
 
         cx.subscribe(&state, |this, _state, event, cx| {
             if let InputEvent::Change = event {
+                // Update in-memory buffer for current file
                 if let Some(ref path) = this.file_path {
-                    if conescope_core::settings::SettingsJson::is_scratch_file(
-                        std::path::Path::new(path),
-                    ) {
-                        if let Some(ref editor) = this.editor_state {
-                            let content = editor.read(cx).value().to_string();
+                    if let Some(ref editor) = this.editor_state {
+                        let content = editor.read(cx).value().to_string();
+                        let lang = lang_from_path(path);
+                        this.buffers.insert(
+                            path.clone(),
+                            TabBuffer {
+                                content: content.clone(),
+                                dirty: true,
+                                language: lang,
+                            },
+                        );
+                        // Auto-save scratch files to disk
+                        if conescope_core::settings::SettingsJson::is_scratch_file(
+                            std::path::Path::new(path),
+                        ) {
                             let _ = std::fs::write(path, content);
                         }
                     }
@@ -164,8 +187,26 @@ impl CodeEditor {
         state
     }
 
+    /// Save the current file content to buffer before switching.
+    fn save_current_to_buffer(&mut self, cx: &App) {
+        if let (Some(path), Some(editor)) = (&self.file_path, &self.editor_state) {
+            let content = editor.read(cx).value().to_string();
+            let lang = lang_from_path(path);
+            self.buffers.insert(
+                path.clone(),
+                TabBuffer {
+                    content,
+                    dirty: true,
+                    language: lang,
+                },
+            );
+        }
+    }
+
     /// Open and display a file. Defers to render if editor not yet initialized.
     pub fn open_file(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        // Save current buffer before switching
+        self.save_current_to_buffer(cx);
         self.pending_open = Some(path.to_owned());
         cx.notify();
     }
@@ -177,6 +218,19 @@ impl CodeEditor {
         window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // Check buffer first before reading from disk
+        if let Some(buffer) = self.buffers.get(path) {
+            state.update(cx, |s, cx| {
+                s.set_highlighter(&buffer.language, cx);
+                s.set_value(&buffer.content, window, cx);
+            });
+            self.file_path = Some(path.to_owned());
+            cx.emit(CodeEditorEvent::FileOpened(path.to_owned()));
+            cx.notify();
+            return;
+        }
+
+        // Not in buffer — read from disk
         if let Ok(metadata) = std::fs::metadata(path) {
             if metadata.len() > MAX_FILE_SIZE {
                 self.file_path = Some(path.to_owned());
@@ -189,7 +243,7 @@ impl CodeEditor {
         if let Ok(content) = std::fs::read_to_string(path) {
             let lang = lang_from_path(path);
             state.update(cx, |s, cx| {
-                s.set_highlighter(lang, cx);
+                s.set_highlighter(&lang, cx);
                 s.set_value(&content, window, cx);
             });
             self.file_path = Some(path.to_owned());
@@ -217,14 +271,19 @@ impl CodeEditor {
     ///
     /// # Errors
     /// Returns `std::io::Error` if the file cannot be written.
-    pub fn save_file(&self, cx: &gpui::App) -> Result<(), std::io::Error> {
-        let Some(path) = &self.file_path else {
+    pub fn save_file(&mut self, cx: &gpui::App) -> Result<(), std::io::Error> {
+        let Some(ref path) = self.file_path else {
             return Ok(());
         };
         let Some(content) = self.value(cx) else {
             return Ok(());
         };
-        std::fs::write(path, content)
+        std::fs::write(path, &content)?;
+        // Mark buffer as clean after successful save
+        if let Some(buffer) = self.buffers.get_mut(path) {
+            buffer.dirty = false;
+        }
+        Ok(())
     }
 
     /// Open a native "Save As" dialog. On success, writes content to the chosen path,
@@ -275,6 +334,16 @@ impl CodeEditor {
         self.file_path = None;
         self.pending_open = None;
         cx.notify();
+    }
+
+    /// Take buffers for cross-instance persistence.
+    pub fn take_buffers(&mut self) -> HashMap<String, TabBuffer> {
+        std::mem::take(&mut self.buffers)
+    }
+
+    /// Restore buffers for cross-instance persistence.
+    pub fn restore_buffers(&mut self, buffers: HashMap<String, TabBuffer>) {
+        self.buffers = buffers;
     }
 }
 

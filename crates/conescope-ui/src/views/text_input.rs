@@ -3,10 +3,10 @@ use std::ops::Range;
 use gpui::prelude::*;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, KeyBinding,
+    EntityInputHandler, EventEmitter, FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions, div, fill, hsla,
-    point, px, relative, rgba, size,
+    ShapedLine, SharedString, Style, TextRun, UTF16Selection, Window, actions, div, fill, point,
+    px, relative, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -552,8 +552,8 @@ fn build_cursor_quads(
     cursor_pos: Pixels,
     line: &ShapedLine,
     bounds: Bounds<Pixels>,
+    cursor_color: Hsla,
 ) -> (Option<PaintQuad>, Option<PaintQuad>) {
-    let cursor_color = hsla(0., 0., 0.85, 1.0);
     let selection_color = rgba(0x264f_78ff);
 
     if selected_range.is_empty() {
@@ -630,8 +630,9 @@ impl Element for TextElement {
             line.x_for_index(cursor)
         };
 
+        let cursor_color = window.text_style().color;
         let (selection, cursor_quad) =
-            build_cursor_quads(&selected_range, cursor_pos, &line, bounds);
+            build_cursor_quads(&selected_range, cursor_pos, &line, bounds, cursor_color);
 
         PrepaintState {
             line: if is_empty { None } else { Some(line) },

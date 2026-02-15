@@ -4,8 +4,8 @@ use tracing::info;
 
 use conescope_core::settings::SettingsJson;
 use conescope_ui::actions::{
-    CancelRename, CloseTab, CopyPath, CopyRelativePath, FileCopy, FileCut, FileDelete,
-    FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
+    CancelRename, ClearTerminal, CloseTab, CopyPath, CopyRelativePath, FileCopy, FileCut,
+    FileDelete, FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
     FocusInstance3, FocusInstance4, FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8,
     FocusInstance9, NewFile, NewFolder, NewInstance, OpenSettings, Quit, ReturnToOverview,
     RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleOverviewSidebar, ToggleSidebar,
@@ -89,6 +89,7 @@ fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("tab", SendTab, Some("Terminal")),
         KeyBinding::new("shift-tab", SendBackTab, Some("Terminal")),
+        KeyBinding::new("cmd-k", ClearTerminal, Some("Terminal")),
     ]);
 
     text_input::register_key_bindings(cx);
@@ -258,6 +259,8 @@ fn main() {
                 let settings_store = app_state.read(cx).settings_store.clone();
                 settings_store.update(cx, |store, _| store.load_session(db_settings));
                 info!("Session state loaded");
+            } else {
+                tracing::warn!("Failed to load session state from DB");
             }
 
             // Load user settings into store

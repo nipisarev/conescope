@@ -1,4 +1,5 @@
 - SDK
 - drag&drop tiles in Overview
-- Rework New Window and active bar and make SIDEBAR for creating new windows
-...
+- Questions
+- analogue Tmux?
+- Add themems (in setting choose many instead of light/dark)
