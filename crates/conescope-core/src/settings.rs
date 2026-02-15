@@ -26,6 +26,9 @@ pub struct SettingsJson {
 
     #[serde(default = "default_terminal_line_height")]
     pub terminal_line_height: f64,
+
+    #[serde(default = "default_sound_notifications")]
+    pub sound_notifications: bool,
 }
 
 fn default_comment_font_family() -> String {
@@ -43,6 +46,9 @@ fn default_font_size() -> i64 {
 fn default_terminal_line_height() -> f64 {
     1.2
 }
+fn default_sound_notifications() -> bool {
+    true
+}
 
 impl Default for SettingsJson {
     fn default() -> Self {
@@ -53,6 +59,7 @@ impl Default for SettingsJson {
             editor_font_size: default_font_size(),
             terminal_font_size: default_font_size(),
             terminal_line_height: default_terminal_line_height(),
+            sound_notifications: default_sound_notifications(),
         }
     }
 }
