@@ -126,9 +126,7 @@ impl TerminalContent {
     #[must_use]
     #[allow(clippy::cast_sign_loss)]
     pub fn screen_text(&self) -> String {
-        let mut grid: Vec<Vec<char>> = (0..self.lines)
-            .map(|_| vec![' '; self.cols])
-            .collect();
+        let mut grid: Vec<Vec<char>> = (0..self.lines).map(|_| vec![' '; self.cols]).collect();
 
         for cell in &self.cells {
             let row = cell.point.line.0;

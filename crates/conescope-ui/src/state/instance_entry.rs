@@ -573,7 +573,8 @@ impl InstanceEntry {
 
                         if should_analyze {
                             cx.update(|cx| {
-                                let screen = tv.read(cx).terminal.read(cx).last_content.screen_text();
+                                let screen =
+                                    tv.read(cx).terminal.read(cx).last_content.screen_text();
                                 if let Some(entry) = weak.upgrade() {
                                     entry.update(cx, |e, cx| {
                                         let prev = e.session_detector.status();

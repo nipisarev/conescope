@@ -11,12 +11,48 @@ use crate::views::colors::{default_instance_color, hex_to_rgba};
 #[derive(Debug)]
 pub struct TopBar {
     app_state: Entity<AppState>,
+    cached_has_unfocused_questions: bool,
+    cached_pulse_opacity: f32,
 }
 
 impl TopBar {
     #[must_use]
-    pub fn new(app_state: Entity<AppState>) -> Self {
-        Self { app_state }
+    pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
+        let pulse_timer = app_state.read(cx).pulse_timer.clone();
+        let instance_list = app_state.read(cx).instance_list.clone();
+        let settings_store = app_state.read(cx).settings_store.clone();
+
+        cx.observe(&pulse_timer, |this, timer, cx| {
+            this.cached_pulse_opacity = timer.read(cx).opacity();
+            cx.notify();
+        })
+        .detach();
+
+        cx.observe(&instance_list, {
+            let app_state = app_state.clone();
+            move |this, _, cx| {
+                this.cached_has_unfocused_questions =
+                    app_state.read(cx).has_unfocused_questions(cx);
+                cx.notify();
+            }
+        })
+        .detach();
+
+        cx.observe(&settings_store, {
+            let app_state = app_state.clone();
+            move |this, _, cx| {
+                this.cached_has_unfocused_questions =
+                    app_state.read(cx).has_unfocused_questions(cx);
+                cx.notify();
+            }
+        })
+        .detach();
+
+        Self {
+            app_state,
+            cached_has_unfocused_questions: false,
+            cached_pulse_opacity: 1.0,
+        }
     }
 }
 
@@ -184,29 +220,48 @@ impl Render for TopBar {
         };
         let sidebar_hover: Hsla = theme.text.into();
 
+        let show_notification_dot =
+            view_mode == ViewMode::Focus && self.cached_has_unfocused_questions;
+        let pulse_opacity = self.cached_pulse_opacity;
+
+        let mut sidebar_btn = div()
+            .relative()
+            .px(px(6.))
+            .py(px(4.))
+            .rounded(px(4.))
+            .cursor_pointer()
+            .hover(move |s| s.text_color(sidebar_hover))
+            .child(
+                svg()
+                    .path(icons::ICON_SIDEBAR)
+                    .size(icon_size)
+                    .text_color(sidebar_icon_color)
+                    .flex_shrink_0(),
+            )
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                app_state_for_sidebar.update(cx, AppState::toggle_sidebar_open);
+            });
+
+        if show_notification_dot {
+            sidebar_btn = sidebar_btn.child(
+                div()
+                    .absolute()
+                    .top(px(-2.))
+                    .right(px(-2.))
+                    .w(px(8.))
+                    .h(px(8.))
+                    .rounded(px(4.))
+                    .bg(gpui::rgba(0xf871_71ff))
+                    .opacity(pulse_opacity),
+            );
+        }
+
         let mut left_section = div()
             .flex()
             .flex_row()
             .items_center()
             .child(div().w(px(76.)))
-            .child(
-                div()
-                    .px(px(6.))
-                    .py(px(4.))
-                    .rounded(px(4.))
-                    .cursor_pointer()
-                    .hover(move |s| s.text_color(sidebar_hover))
-                    .child(
-                        svg()
-                            .path(icons::ICON_SIDEBAR)
-                            .size(icon_size)
-                            .text_color(sidebar_icon_color)
-                            .flex_shrink_0(),
-                    )
-                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                        app_state_for_sidebar.update(cx, AppState::toggle_sidebar_open);
-                    }),
-            );
+            .child(sidebar_btn);
 
         if let Some(fi) = &focus_info {
             left_section =

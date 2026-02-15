@@ -52,8 +52,8 @@ impl std::fmt::Debug for AppView {
 impl AppView {
     #[must_use]
     pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
-        let top_bar = cx.new(|_| TopBar::new(app_state.clone()));
-        let activity_bar = cx.new(|_| ActivityBar::new(app_state.clone()));
+        let top_bar = cx.new(|cx| TopBar::new(app_state.clone(), cx));
+        let activity_bar = cx.new(|cx| ActivityBar::new(app_state.clone(), cx));
         let sidebar = cx.new(|_| Sidebar::new(app_state.clone()));
         let overview_grid = cx.new(|_| OverviewGrid::new(app_state.clone()));
         let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));

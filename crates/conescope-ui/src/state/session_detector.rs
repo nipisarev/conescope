@@ -190,9 +190,7 @@ fn log_screen_dump(screen_text: &str, status: SessionStatus) {
     use std::path::PathBuf;
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let dir = PathBuf::from(home)
-        .join(".conescope")
-        .join("screen_dumps");
+    let dir = PathBuf::from(home).join(".conescope").join("screen_dumps");
     let _ = fs::create_dir_all(&dir);
 
     let ts = std::time::SystemTime::now()
@@ -247,7 +245,9 @@ fn extract_yn_question(screen_text: &str) -> String {
         {
             // Strip the prompt suffix to get the question text
             let trimmed = line.trim();
-            for pat in &["[Y/n]", "[y/N]", "[y/n]", "[Yes/No]", "[yes/no]", "(y/n)", "(yes/no)"] {
+            for pat in &[
+                "[Y/n]", "[y/N]", "[y/n]", "[Yes/No]", "[yes/no]", "(y/n)", "(yes/no)",
+            ] {
                 if let Some(pos) = trimmed.find(pat) {
                     let q = trimmed[..pos].trim();
                     if !q.is_empty() {

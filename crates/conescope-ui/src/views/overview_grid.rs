@@ -8,6 +8,7 @@ use crate::state::app_state::AppState;
 use crate::state::session_detector::{SessionEvent, SessionStatus};
 use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
+use crate::views::question_overlay::render_question_overlay;
 use crate::views::text_input::TextInput;
 
 #[derive(Debug)]
@@ -47,10 +48,10 @@ fn render_tile(
     theme: &Theme,
 ) -> gpui::AnyElement {
     let status_color = match tile.session_status {
-        SessionStatus::Working => gpui::rgba(0x4ade_80ff),                     // green
-        SessionStatus::Question => gpui::rgba(0xf871_71ff),                    // red
+        SessionStatus::Working => gpui::rgba(0x4ade_80ff), // green
+        SessionStatus::Question => gpui::rgba(0xf871_71ff), // red
         SessionStatus::Waiting | SessionStatus::Finished => gpui::rgba(0xfacc_15ff), // yellow
-        SessionStatus::Stopped => gpui::rgba(0x9ca3_afff),                     // gray
+        SessionStatus::Stopped => gpui::rgba(0x9ca3_afff), // gray
     };
     let dot_opacity = if tile.session_status.is_pulsing() {
         tile.pulse_opacity
@@ -352,8 +353,12 @@ fn render_tile_body(
     let tile_focus_handle = tile.focus_handle.clone();
     let panel = theme.panel;
 
+    let session_event = tile.session_event.clone();
+    let overlay_id = tile.id.clone();
+    let overlay_state = app_state.clone();
+
     let terminal_child = tile.terminal_view.as_ref().map(|tv| {
-        div()
+        let mut container = div()
             .size_full()
             .relative()
             .px(px(4.))
@@ -371,8 +376,15 @@ fn render_tile_body(
                             fh.focus(window, cx);
                         }
                     }),
-            )
-            .into_any_element()
+            );
+
+        container = container.children(
+            session_event
+                .as_ref()
+                .map(|event| render_question_overlay(event, &overlay_id, &overlay_state, theme)),
+        );
+
+        container.into_any_element()
     });
 
     div()

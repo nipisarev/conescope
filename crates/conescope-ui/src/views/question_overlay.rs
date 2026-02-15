@@ -13,9 +13,9 @@ pub fn render_question_overlay(
     theme: &Theme,
 ) -> AnyElement {
     match event {
-        SessionEvent::Question {
-            text, choices, ..
-        } => render_question_card(text, choices, instance_id, app_state.clone(), theme),
+        SessionEvent::Question { text, choices, .. } => {
+            render_question_card(text, choices, instance_id, app_state.clone(), theme)
+        }
         SessionEvent::WaitingForInput => render_badge("Waiting...", theme),
         SessionEvent::Finished => render_badge("Finished", theme),
     }
@@ -78,9 +78,7 @@ fn render_question_card(
     let focus_state = app_state.clone();
     card = card.child(
         div()
-            .id(SharedString::from(format!(
-                "more-ctx-{focus_id}"
-            )))
+            .id(SharedString::from(format!("more-ctx-{focus_id}")))
             .cursor_pointer()
             .pt(px(2.))
             .text_size(px(10.))

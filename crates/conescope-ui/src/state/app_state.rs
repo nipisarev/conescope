@@ -6,6 +6,7 @@ use super::git_store::GitStore;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
 use super::pulse_timer::PulseTimer;
+use super::session_detector::SessionStatus;
 use super::settings_store::{SettingsStore, SidebarMode, SidebarTab, ViewMode};
 use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::{TextInput, TextInputEvent};
@@ -109,6 +110,17 @@ impl AppState {
     #[must_use]
     pub fn focused_instance_id<'a>(&self, cx: &'a gpui::App) -> Option<&'a str> {
         self.settings_store.read(cx).focused_instance_id()
+    }
+
+    #[must_use]
+    pub fn has_unfocused_questions(&self, cx: &gpui::App) -> bool {
+        let focused_id = self.focused_instance_id(cx);
+        let il = self.instance_list.read(cx);
+        il.entries().iter().any(|e| {
+            let entry = e.read(cx);
+            let is_focused = focused_id.is_some_and(|fid| fid == entry.id());
+            !is_focused && entry.session_status() == SessionStatus::Question
+        })
     }
 
     pub fn focus_instance(&mut self, id: &str, cx: &mut gpui::Context<Self>) {
