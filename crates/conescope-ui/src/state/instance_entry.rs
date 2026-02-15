@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use crate::state::session_detector::{SessionDetector, SessionEvent, SessionStatus};
 use crate::terminal::terminal_view::{TerminalView, TerminalViewEvent};
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType, TerminalTab};
 use conescope_pty::history::TerminalHistory;
@@ -58,6 +59,7 @@ pub struct InstanceEntry {
     pub child_pid: Option<u32>,
     /// Last known CWD (updated by background polling).
     pub current_cwd: Option<String>,
+    pub session_detector: SessionDetector,
 }
 
 impl std::fmt::Debug for InstanceEntry {
@@ -93,6 +95,7 @@ impl InstanceEntry {
             git_summary: GitSummary::default(),
             child_pid: None,
             current_cwd,
+            session_detector: SessionDetector::new(),
         }
     }
 
@@ -133,6 +136,30 @@ impl InstanceEntry {
         self.instance.status = status;
         cx.emit(InstanceEvent::StatusChanged(status));
         cx.notify();
+    }
+
+    #[must_use]
+    pub fn session_status(&self) -> SessionStatus {
+        self.session_detector.status()
+    }
+
+    #[must_use]
+    pub fn session_event(&self) -> Option<&SessionEvent> {
+        self.session_detector.event()
+    }
+
+    pub fn answer_question(&mut self, choice_index: usize) {
+        if let Some(SessionEvent::Question { choices, .. }) = self.session_detector.event() {
+            if choice_index < choices.len() {
+                let input = format!("{}\n", choice_index + 1);
+                self.send_input(input.as_bytes());
+            }
+        }
+        self.session_detector.reset_to_working();
+    }
+
+    pub fn dismiss_session_event(&mut self) {
+        self.session_detector.reset_to_working();
     }
 
     pub fn update_tokens(&mut self, tokens: i64, cost: f64, cx: &mut gpui::Context<Self>) {
@@ -531,17 +558,49 @@ impl InstanceEntry {
                     while let Ok(chunk) = rx.try_recv() {
                         batch.extend_from_slice(&chunk);
                     }
+
                     if batch.is_empty() {
-                        // Stop polling if the entity was dropped.
-                        if weak.upgrade().is_none() {
+                        let alive = cx.update(|_cx| weak.upgrade().is_some());
+                        if !alive {
                             break;
+                        }
+
+                        // Idle tick: check if screen analysis is needed
+                        let should_analyze = cx.update(|cx| {
+                            weak.upgrade()
+                                .is_some_and(|e| e.read(cx).session_detector.should_analyze())
+                        });
+
+                        if should_analyze {
+                            cx.update(|cx| {
+                                let screen = tv.read(cx).terminal.read(cx).last_content.screen_text();
+                                if let Some(entry) = weak.upgrade() {
+                                    entry.update(cx, |e, cx| {
+                                        let prev = e.session_detector.status();
+                                        e.session_detector.analyze_screen(&screen);
+                                        if e.session_detector.status() != prev {
+                                            cx.notify();
+                                        }
+                                    });
+                                }
+                            });
                         }
                         continue;
                     }
 
+                    // Non-empty batch: feed to terminal and run Phase 1 trigger scan
                     cx.update(|cx| {
                         if let Some(entry) = weak.upgrade() {
-                            entry.update(cx, |e, _| e.history.push(batch.clone()));
+                            entry.update(cx, |e, cx| {
+                                e.history.push(batch.clone());
+                                let was_non_working =
+                                    e.session_detector.status() != SessionStatus::Working;
+                                e.session_detector.on_output(&batch);
+                                if was_non_working {
+                                    e.session_detector.reset_to_working();
+                                    cx.notify();
+                                }
+                            });
                         }
                         tv.update(cx, |view, cx| {
                             view.queue_output_bytes(&batch, cx);

@@ -39,6 +39,7 @@ impl SessionStatus {
 #[derive(Debug)]
 pub struct SessionDetector {
     status: SessionStatus,
+    event: Option<SessionEvent>,
     trigger_pending: bool,
     last_output_at: Option<Instant>,
 }
@@ -56,6 +57,7 @@ impl SessionDetector {
     pub fn new() -> Self {
         Self {
             status: SessionStatus::Working,
+            event: None,
             trigger_pending: false,
             last_output_at: None,
         }
@@ -64,6 +66,11 @@ impl SessionDetector {
     #[must_use]
     pub fn status(&self) -> SessionStatus {
         self.status
+    }
+
+    #[must_use]
+    pub fn event(&self) -> Option<&SessionEvent> {
+        self.event.as_ref()
     }
 
     pub fn on_output(&mut self, data: &[u8]) {
@@ -96,28 +103,33 @@ impl SessionDetector {
         // Phase 2: status bar signals (highest priority)
         if lower.contains("esc to interrupt") {
             self.status = SessionStatus::Working;
+            self.event = None;
             return None;
         }
 
         if lower.contains("enter to select") {
             let (question, choices) = extract_question_and_choices(screen_text);
             self.status = SessionStatus::Question;
-            return Some(SessionEvent::Question {
+            let evt = SessionEvent::Question {
                 text: question,
                 choices,
                 screen_snapshot: screen_text.to_string(),
-            });
+            };
+            self.event = Some(evt.clone());
+            return Some(evt);
         }
 
         // Yes/No prompt
         if has_yes_no_prompt(&lower) {
             let question = extract_yn_question(screen_text);
             self.status = SessionStatus::Question;
-            return Some(SessionEvent::Question {
+            let evt = SessionEvent::Question {
                 text: question,
                 choices: vec!["Yes".into(), "No".into()],
                 screen_snapshot: screen_text.to_string(),
-            });
+            };
+            self.event = Some(evt.clone());
+            return Some(evt);
         }
 
         // Numbered options (1. 2. 3.)
@@ -125,30 +137,37 @@ impl SessionDetector {
         if options.len() >= 2 {
             let question = extract_question_before_options(screen_text);
             self.status = SessionStatus::Question;
-            return Some(SessionEvent::Question {
+            let evt = SessionEvent::Question {
                 text: question,
                 choices: options,
                 screen_snapshot: screen_text.to_string(),
-            });
+            };
+            self.event = Some(evt.clone());
+            return Some(evt);
         }
 
         // Fallback: idle without recognizable pattern = waiting
         self.status = SessionStatus::Waiting;
-        Some(SessionEvent::WaitingForInput)
+        let evt = SessionEvent::WaitingForInput;
+        self.event = Some(evt.clone());
+        Some(evt)
     }
 
     pub fn reset_to_working(&mut self) {
         self.status = SessionStatus::Working;
+        self.event = None;
         self.trigger_pending = false;
     }
 
     pub fn mark_stopped(&mut self) {
         self.status = SessionStatus::Stopped;
+        self.event = None;
         self.trigger_pending = false;
     }
 
     pub fn mark_finished(&mut self) {
         self.status = SessionStatus::Finished;
+        self.event = None;
         self.trigger_pending = false;
     }
 }
