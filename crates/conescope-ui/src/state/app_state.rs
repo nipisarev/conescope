@@ -5,6 +5,7 @@ use super::db_worker::DbHandle;
 use super::git_store::GitStore;
 use super::instance_list::InstanceList;
 use super::project_store::ProjectStore;
+use super::pulse_timer::PulseTimer;
 use super::settings_store::{SettingsStore, SidebarMode, SidebarTab, ViewMode};
 use crate::theme::{Theme, ThemeMode};
 use crate::views::text_input::{TextInput, TextInputEvent};
@@ -22,6 +23,7 @@ pub struct AppState {
     pub project_store: Entity<ProjectStore>,
     pub settings_store: Entity<SettingsStore>,
     pub git_store: Entity<GitStore>,
+    pub pulse_timer: Entity<PulseTimer>,
     pub db: DbHandle,
     pub questions_queue_open: bool,
     pub new_instance_modal_open: bool,
@@ -58,12 +60,14 @@ impl AppState {
             let project_store = cx.new(|_| ProjectStore::new(db3));
             let settings_store = cx.new(|_| SettingsStore::new(db4));
             let git_store = cx.new(|_| GitStore::new());
+            let pulse_timer = cx.new(PulseTimer::new);
 
             Self {
                 instance_list,
                 project_store,
                 settings_store,
                 git_store,
+                pulse_timer,
                 db,
                 questions_queue_open: false,
                 new_instance_modal_open: false,
