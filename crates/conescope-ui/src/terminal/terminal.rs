@@ -118,6 +118,49 @@ impl Default for TerminalContent {
     }
 }
 
+impl TerminalContent {
+    /// Reconstruct full screen text from the cell grid.
+    ///
+    /// Only visible lines (line 0..self.lines) are included.
+    /// Trailing whitespace per line is trimmed.
+    #[must_use]
+    #[allow(clippy::cast_sign_loss)]
+    pub fn screen_text(&self) -> String {
+        let mut grid: Vec<Vec<char>> = (0..self.lines)
+            .map(|_| vec![' '; self.cols])
+            .collect();
+
+        for cell in &self.cells {
+            let row = cell.point.line.0;
+            if row < 0 || row as usize >= self.lines {
+                continue;
+            }
+            let col = cell.point.column.0;
+            if col >= self.cols {
+                continue;
+            }
+            grid[row as usize][col] = cell.c;
+        }
+
+        grid.iter()
+            .map(|row| {
+                let s: String = row.iter().collect();
+                s.trim_end().to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Extract the last N lines from the visible screen text.
+    #[must_use]
+    pub fn last_lines(&self, n: usize) -> String {
+        let text = self.screen_text();
+        let lines: Vec<&str> = text.lines().collect();
+        let start = lines.len().saturating_sub(n);
+        lines[start..].join("\n")
+    }
+}
+
 /// Simple dimensions struct for Term initialization and resize.
 struct TermDimensions {
     cols: usize,
