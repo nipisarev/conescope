@@ -275,6 +275,24 @@ impl AppState {
         cx.notify();
     }
 
+    pub fn answer_instance_question(
+        &self,
+        instance_id: &str,
+        choice_index: usize,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let entry = self
+            .instance_list
+            .read(cx)
+            .find_by_id(instance_id, cx)
+            .cloned();
+        if let Some(entry) = entry {
+            entry.update(cx, |e, _| {
+                e.answer_question(choice_index);
+            });
+        }
+    }
+
     pub fn toggle_new_instance_modal(&mut self, cx: &mut gpui::Context<Self>) {
         self.new_instance_modal_open = !self.new_instance_modal_open;
         cx.notify();

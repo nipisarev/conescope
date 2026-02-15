@@ -11,6 +11,7 @@ pub mod focus_view;
 pub mod git_panel;
 pub mod new_instance_modal;
 pub mod overview_grid;
+pub mod question_overlay;
 pub mod questions_panel;
 pub mod resizable_divider;
 pub mod scrollbar;

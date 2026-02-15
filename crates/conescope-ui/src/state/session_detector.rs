@@ -104,6 +104,8 @@ impl SessionDetector {
         if lower.contains("esc to interrupt") {
             self.status = SessionStatus::Working;
             self.event = None;
+            #[cfg(debug_assertions)]
+            log_screen_dump(screen_text, self.status);
             return None;
         }
 
@@ -116,6 +118,8 @@ impl SessionDetector {
                 screen_snapshot: screen_text.to_string(),
             };
             self.event = Some(evt.clone());
+            #[cfg(debug_assertions)]
+            log_screen_dump(screen_text, self.status);
             return Some(evt);
         }
 
@@ -129,6 +133,8 @@ impl SessionDetector {
                 screen_snapshot: screen_text.to_string(),
             };
             self.event = Some(evt.clone());
+            #[cfg(debug_assertions)]
+            log_screen_dump(screen_text, self.status);
             return Some(evt);
         }
 
@@ -143,6 +149,8 @@ impl SessionDetector {
                 screen_snapshot: screen_text.to_string(),
             };
             self.event = Some(evt.clone());
+            #[cfg(debug_assertions)]
+            log_screen_dump(screen_text, self.status);
             return Some(evt);
         }
 
@@ -150,6 +158,8 @@ impl SessionDetector {
         self.status = SessionStatus::Waiting;
         let evt = SessionEvent::WaitingForInput;
         self.event = Some(evt.clone());
+        #[cfg(debug_assertions)]
+        log_screen_dump(screen_text, self.status);
         Some(evt)
     }
 
@@ -170,6 +180,41 @@ impl SessionDetector {
         self.event = None;
         self.trigger_pending = false;
     }
+}
+
+// --- Debug screen dump logging ---
+
+#[cfg(debug_assertions)]
+fn log_screen_dump(screen_text: &str, status: SessionStatus) {
+    use std::fs;
+    use std::path::PathBuf;
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dir = PathBuf::from(home)
+        .join(".conescope")
+        .join("screen_dumps");
+    let _ = fs::create_dir_all(&dir);
+
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let filename = format!("{ts}_{status:?}.txt");
+
+    let last_lines: String = screen_text
+        .lines()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let content = format!(
+        "=== Status: {status:?} ===\n\n--- Last 2 lines ---\n{last_lines}\n\n--- Full screen ---\n{screen_text}\n",
+    );
+    let _ = fs::write(dir.join(filename), content);
 }
 
 // --- Pattern scanning (Phase 1) ---
