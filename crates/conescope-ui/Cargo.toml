@@ -24,6 +24,7 @@ gpui-component.workspace = true
 rust-embed.workspace = true
 rfd.workspace = true
 notify.workspace = true
+strip-ansi-escapes = "0.2"
 
 [lints]
 workspace = true
