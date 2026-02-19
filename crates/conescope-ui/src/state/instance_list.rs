@@ -149,6 +149,9 @@ impl InstanceList {
                         },
                     );
                 }
+                InstanceEvent::SessionStatusChanged => {
+                    cx.notify();
+                }
                 InstanceEvent::CwdChanged(cwd) => {
                     this.db
                         .update_instance_cwd(inst.id().to_owned(), cwd.clone());

@@ -446,10 +446,10 @@ impl Terminal {
         self.term.selection = Some(sel);
     }
 
-    /// Get the current terminal mode flags.
+    /// Get the current terminal mode flags (live, not cached).
     #[must_use]
     pub fn mode(&self) -> TermMode {
-        self.last_content.mode
+        *self.term.mode()
     }
 
     /// Process collected events from the term (title changes, bell, etc.).

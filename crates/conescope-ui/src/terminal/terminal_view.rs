@@ -189,6 +189,7 @@ impl TerminalView {
             if event.keystroke.key == "backspace" {
                 self.terminal.read(cx).input(b"\x15");
                 cx.notify();
+                cx.stop_propagation();
             }
             return;
         }
@@ -196,6 +197,7 @@ impl TerminalView {
         if let Some(bytes) = encode_keystroke(&event.keystroke, mode) {
             self.terminal.read(cx).input(bytes.as_ref());
             cx.notify();
+            cx.stop_propagation();
         }
     }
 

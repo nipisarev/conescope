@@ -4,6 +4,7 @@ use std::time::Instant;
 pub struct PulseTimer {
     start: Instant,
     opacity: f32,
+    active: bool,
 }
 
 impl PulseTimer {
@@ -16,8 +17,10 @@ impl PulseTimer {
                 let should_continue = cx.update(|cx| {
                     if let Some(timer) = this.upgrade() {
                         timer.update(cx, |t, cx| {
-                            t.tick();
-                            cx.notify();
+                            if t.active {
+                                t.tick();
+                                cx.notify();
+                            }
                         });
                         true
                     } else {
@@ -34,7 +37,20 @@ impl PulseTimer {
         Self {
             start: Instant::now(),
             opacity: 1.0,
+            active: false,
         }
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        if active && !self.active {
+            self.start = Instant::now();
+        }
+        self.active = active;
+    }
+
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        self.active
     }
 
     fn tick(&mut self) {

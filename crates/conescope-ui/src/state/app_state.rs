@@ -63,6 +63,18 @@ impl AppState {
             let git_store = cx.new(|_| GitStore::new());
             let pulse_timer = cx.new(PulseTimer::new);
 
+            // Drive PulseTimer active state from instance pulsing status
+            let pt = pulse_timer.clone();
+            cx.observe(&instance_list, move |_this, il, cx| {
+                let pulsing = il
+                    .read(cx)
+                    .entries()
+                    .iter()
+                    .any(|e| e.read(cx).session_status().is_pulsing());
+                pt.update(cx, |t, _| t.set_active(pulsing));
+            })
+            .detach();
+
             Self {
                 instance_list,
                 project_store,
@@ -301,6 +313,19 @@ impl AppState {
         if let Some(entry) = entry {
             entry.update(cx, |e, _| {
                 e.answer_question(choice_index);
+            });
+        }
+    }
+
+    pub fn dismiss_instance_session_event(&self, instance_id: &str, cx: &mut gpui::Context<Self>) {
+        let entry = self
+            .instance_list
+            .read(cx)
+            .find_by_id(instance_id, cx)
+            .cloned();
+        if let Some(entry) = entry {
+            entry.update(cx, |e, _| {
+                e.dismiss_session_event();
             });
         }
     }

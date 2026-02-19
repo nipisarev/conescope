@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 conescope-core = { path = "../conescope-core" }
 conescope-git = { path = "../conescope-git" }
+conescope-platform = { path = "../conescope-platform" }
 conescope-pty = { path = "../conescope-pty" }
 gpui.workspace = true
 alacritty_terminal.workspace = true

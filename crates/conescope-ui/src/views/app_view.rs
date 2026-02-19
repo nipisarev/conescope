@@ -55,7 +55,7 @@ impl AppView {
         let top_bar = cx.new(|cx| TopBar::new(app_state.clone(), cx));
         let activity_bar = cx.new(|cx| ActivityBar::new(app_state.clone(), cx));
         let sidebar = cx.new(|_| Sidebar::new(app_state.clone()));
-        let overview_grid = cx.new(|_| OverviewGrid::new(app_state.clone()));
+        let overview_grid = cx.new(|cx| OverviewGrid::new(app_state.clone(), cx));
         let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
         let settings_view = cx.new(|cx| SettingsView::new(app_state.clone(), cx));

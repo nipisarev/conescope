@@ -1,5 +1,5 @@
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px, relative, svg};
+use gpui::{Entity, FocusHandle, MouseButton, div, px, relative, svg};
 
 use conescope_core::instance::InstanceType;
 
@@ -11,15 +11,37 @@ use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::question_overlay::render_question_overlay;
 use crate::views::text_input::TextInput;
 
-#[derive(Debug)]
+#[allow(missing_debug_implementations)]
 pub struct OverviewGrid {
     app_state: Entity<AppState>,
+    cached_pulse_opacity: f32,
+    overlay_selected_index: usize,
+    overlay_focus_handle: FocusHandle,
+    active_question_instance_id: Option<String>,
 }
 
 impl OverviewGrid {
     #[must_use]
-    pub fn new(app_state: Entity<AppState>) -> Self {
-        Self { app_state }
+    pub fn new(app_state: Entity<AppState>, cx: &mut gpui::Context<Self>) -> Self {
+        let pulse_timer = app_state.read(cx).pulse_timer.clone();
+        cx.observe(&pulse_timer, |this, timer, cx| {
+            this.cached_pulse_opacity = timer.read(cx).opacity();
+            cx.notify();
+        })
+        .detach();
+
+        Self {
+            app_state,
+            cached_pulse_opacity: 1.0,
+            overlay_selected_index: 0,
+            overlay_focus_handle: cx.focus_handle(),
+            active_question_instance_id: None,
+        }
+    }
+
+    pub fn set_overlay_selected_index(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
+        self.overlay_selected_index = index;
+        cx.notify();
     }
 }
 
@@ -46,6 +68,9 @@ fn render_tile(
     terminal_font_size: f32,
     font_family: &str,
     theme: &Theme,
+    grid_entity: Entity<OverviewGrid>,
+    overlay_selected_index: usize,
+    overlay_focus_handle: Option<&FocusHandle>,
 ) -> gpui::AnyElement {
     let status_color = match tile.session_status {
         SessionStatus::Working => gpui::rgba(0x4ade_80ff), // green
@@ -83,6 +108,9 @@ fn render_tile(
             terminal_font_size,
             font_family,
             theme,
+            grid_entity,
+            overlay_selected_index,
+            overlay_focus_handle,
         ))
         .into_any_element()
 }
@@ -342,12 +370,16 @@ fn shorten_path(path: &str) -> String {
 ///
 /// A transparent overlay sits on top of the terminal to capture clicks,
 /// preventing the `TerminalView`'s `stop_propagation()` from blocking focus switch.
+#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn render_tile_body(
     tile: &TileData,
     app_state: Entity<AppState>,
     terminal_font_size: f32,
     font_family: &str,
     theme: &Theme,
+    grid_entity: Entity<OverviewGrid>,
+    overlay_selected_index: usize,
+    overlay_focus_handle: Option<&FocusHandle>,
 ) -> gpui::Div {
     let tile_id = tile.id.clone();
     let tile_focus_handle = tile.focus_handle.clone();
@@ -378,11 +410,22 @@ fn render_tile_body(
                     }),
             );
 
-        container = container.children(
-            session_event
-                .as_ref()
-                .map(|event| render_question_overlay(event, &overlay_id, &overlay_state, theme)),
-        );
+        container = container.children(session_event.as_ref().and_then(|event| {
+            if matches!(event, SessionEvent::Question { .. }) {
+                Some(render_question_overlay(
+                    event,
+                    &overlay_id,
+                    &overlay_state,
+                    theme,
+                    terminal_font_size,
+                    overlay_focus_handle,
+                    overlay_selected_index,
+                    Some(&grid_entity),
+                ))
+            } else {
+                None
+            }
+        }));
 
         container.into_any_element()
     });
@@ -443,84 +486,115 @@ fn build_grid(slots: Vec<gpui::AnyElement>, cols: usize) -> gpui::Div {
 }
 
 impl Render for OverviewGrid {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        let state = self.app_state.read(cx);
-        let il = state.instance_list.read(cx);
+        // Extract all data from state upfront, then drop the borrow so we can
+        // mutably borrow cx later (for focus).
+        let (theme, editing_tile_id, editing_input, terminal_font_size, font_family, tiles) = {
+            let state = self.app_state.read(cx);
+            let il = state.instance_list.read(cx);
+            let theme = state.theme().clone();
 
-        let theme = state.theme();
+            if il.is_empty() {
+                return build_grid(vec![render_empty_state(self.app_state.clone(), &theme)], 1);
+            }
 
-        // Empty state: show "+ New Window" tile
-        if il.is_empty() {
-            return build_grid(vec![render_empty_state(self.app_state.clone(), theme)], 1);
-        }
+            let ps = state.project_store.read(cx);
+            let editing_tile_id = state.editing_tile_id.clone();
+            let editing_input = state.editing_input.clone();
+            let terminal_font_size = state.settings_store.read(cx).settings().ui_font_size();
+            let font_family = state.settings_store.read(cx).settings().font_family.clone();
+            let pulse_opacity = self.cached_pulse_opacity;
 
-        let ps = state.project_store.read(cx);
-
-        let editing_tile_id = state.editing_tile_id.clone();
-        let editing_input = state.editing_input.clone();
-
-        let terminal_font_size = state.settings_store.read(cx).settings().ui_font_size();
-
-        let font_family = state.settings_store.read(cx).settings().font_family.clone();
-
-        let pulse_opacity = state.pulse_timer.read(cx).opacity();
-
-        let tiles: Vec<TileData> = il
-            .entries()
-            .iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let inst = entry.read(cx);
-                // Prefer live CWD, fall back to project path
-                let project_path = inst.current_cwd.clone().or_else(|| {
-                    inst.instance
-                        .project_id
-                        .as_ref()
-                        .and_then(|pid| ps.get(pid))
-                        .map(|p| p.path.clone())
-                });
-                let git = &inst.git_summary;
-                let title = inst
-                    .instance
-                    .title
-                    .as_deref()
-                    .filter(|t| !t.is_empty())
-                    .unwrap_or_else(|| {
-                        // Fallback: last folder name from project path
-                        project_path
-                            .as_deref()
-                            .and_then(|p| p.rsplit('/').find(|s| !s.is_empty()))
-                            .unwrap_or("Untitled")
-                    })
-                    .to_owned();
-                TileData {
-                    id: inst.id().to_owned(),
-                    num: i + 1,
-                    title,
-                    color: inst
+            let tiles: Vec<TileData> = il
+                .entries()
+                .iter()
+                .enumerate()
+                .map(|(i, entry)| {
+                    let inst = entry.read(cx);
+                    let project_path = inst.current_cwd.clone().or_else(|| {
+                        inst.instance
+                            .project_id
+                            .as_ref()
+                            .and_then(|pid| ps.get(pid))
+                            .map(|p| p.path.clone())
+                    });
+                    let git = &inst.git_summary;
+                    let title = inst
                         .instance
-                        .color
+                        .title
                         .as_deref()
-                        .map_or_else(default_instance_color, hex_to_rgba),
-                    instance_type: inst.instance_type(),
-                    project_path,
-                    terminal_view: inst.terminal_view.clone(),
-                    focus_handle: inst.focus_handle.clone(),
-                    git_branch: git.branch.clone(),
-                    git_insertions: git.insertions,
-                    git_deletions: git.deletions,
-                    session_status: inst.session_status(),
-                    session_event: inst.session_event().cloned(),
-                    pulse_opacity,
-                }
-            })
-            .collect();
+                        .filter(|t| !t.is_empty())
+                        .unwrap_or_else(|| {
+                            project_path
+                                .as_deref()
+                                .and_then(|p| p.rsplit('/').find(|s| !s.is_empty()))
+                                .unwrap_or("Untitled")
+                        })
+                        .to_owned();
+                    TileData {
+                        id: inst.id().to_owned(),
+                        num: i + 1,
+                        title,
+                        color: inst
+                            .instance
+                            .color
+                            .as_deref()
+                            .map_or_else(default_instance_color, hex_to_rgba),
+                        instance_type: inst.instance_type(),
+                        project_path,
+                        terminal_view: inst.terminal_view.clone(),
+                        focus_handle: inst.focus_handle.clone(),
+                        git_branch: git.branch.clone(),
+                        git_insertions: git.insertions,
+                        git_deletions: git.deletions,
+                        session_status: inst.session_status(),
+                        session_event: inst.session_event().cloned(),
+                        pulse_opacity,
+                    }
+                })
+                .collect();
+
+            (
+                theme,
+                editing_tile_id,
+                editing_input,
+                terminal_font_size,
+                font_family,
+                tiles,
+            )
+        };
+        // cx borrow is now released
 
         let (cols, _rows) = grid_dimensions(tiles.len());
+
+        let grid_entity = cx.entity().clone();
+        let overlay_selected_index = self.overlay_selected_index;
+
+        // Find the first tile with a Question event to give it keyboard focus
+        let question_tile_id = tiles.iter().find_map(|t| {
+            if matches!(t.session_event, Some(SessionEvent::Question { .. })) {
+                Some(t.id.clone())
+            } else {
+                None
+            }
+        });
+
+        // Reset selected_index when the question instance changes
+        if question_tile_id != self.active_question_instance_id {
+            self.active_question_instance_id
+                .clone_from(&question_tile_id);
+            self.overlay_selected_index = 0;
+        }
+
+        // Auto-focus overlay when a question is active
+        if question_tile_id.is_some() {
+            self.overlay_focus_handle.focus(window, cx);
+        }
 
         let slots: Vec<gpui::AnyElement> = tiles
             .iter()
@@ -530,13 +604,21 @@ impl Render for OverviewGrid {
                 } else {
                     None
                 };
+                let fh = if question_tile_id.as_deref() == Some(tile.id.as_str()) {
+                    Some(&self.overlay_focus_handle)
+                } else {
+                    None
+                };
                 render_tile(
                     tile,
                     self.app_state.clone(),
                     input,
                     terminal_font_size,
                     &font_family,
-                    theme,
+                    &theme,
+                    grid_entity.clone(),
+                    overlay_selected_index,
+                    fh,
                 )
             })
             .collect();

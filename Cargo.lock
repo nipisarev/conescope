@@ -1069,6 +1069,7 @@ dependencies = [
  "chrono",
  "conescope-core",
  "conescope-git",
+ "conescope-platform",
  "conescope-pty",
  "flume",
  "gpui",

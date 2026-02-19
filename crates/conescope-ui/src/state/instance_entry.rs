@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use crate::state::session_detector::{SessionDetector, SessionEvent, SessionStatus};
+use crate::state::session_detector::{PromptType, SessionDetector, SessionEvent, SessionStatus};
 use crate::terminal::terminal_view::{TerminalView, TerminalViewEvent};
 use conescope_core::instance::{Instance, InstanceStatus, InstanceType, TerminalTab};
 use conescope_pty::history::TerminalHistory;
@@ -13,6 +13,7 @@ use crate::terminal::{TerminalPane, terminal_font};
 #[derive(Debug, Clone)]
 pub enum InstanceEvent {
     StatusChanged(InstanceStatus),
+    SessionStatusChanged,
     CwdChanged(String),
     Exited,
 }
@@ -60,6 +61,7 @@ pub struct InstanceEntry {
     /// Last known CWD (updated by background polling).
     pub current_cwd: Option<String>,
     pub session_detector: SessionDetector,
+    last_sound_status: Option<SessionStatus>,
 }
 
 impl std::fmt::Debug for InstanceEntry {
@@ -96,6 +98,7 @@ impl InstanceEntry {
             child_pid: None,
             current_cwd,
             session_detector: SessionDetector::new(),
+            last_sound_status: None,
         }
     }
 
@@ -149,10 +152,28 @@ impl InstanceEntry {
     }
 
     pub fn answer_question(&mut self, choice_index: usize) {
-        if let Some(SessionEvent::Question { choices, .. }) = self.session_detector.event() {
+        if let Some(SessionEvent::Question {
+            choices,
+            prompt_type,
+            ..
+        }) = self.session_detector.event()
+        {
             if choice_index < choices.len() {
-                let input = format!("{}\n", choice_index + 1);
-                self.send_input(input.as_bytes());
+                match prompt_type {
+                    PromptType::YesNo => {
+                        let key = if choice_index == 0 { "y" } else { "n" };
+                        self.send_input(format!("{key}\n").as_bytes());
+                    }
+                    PromptType::NumberedList => {
+                        self.send_input(format!("{}\n", choice_index + 1).as_bytes());
+                    }
+                    PromptType::ArrowSelect => {
+                        let arrow_down = "\x1b[B";
+                        let mut input = arrow_down.repeat(choice_index);
+                        input.push('\r');
+                        self.send_input(input.as_bytes());
+                    }
+                }
             }
         }
         self.session_detector.reset_to_working();
@@ -579,8 +600,31 @@ impl InstanceEntry {
                                     entry.update(cx, |e, cx| {
                                         let prev = e.session_detector.status();
                                         e.session_detector.analyze_screen(&screen);
-                                        if e.session_detector.status() != prev {
+                                        let new = e.session_detector.status();
+
+                                        // Always notify when there's an active event
+                                        // (ensures overlay re-renders even if status unchanged)
+                                        if e.session_detector.event().is_some() {
                                             cx.notify();
+                                        }
+
+                                        if new != prev {
+                                            cx.emit(InstanceEvent::SessionStatusChanged);
+                                            if e.last_sound_status != Some(new) {
+                                                e.last_sound_status = Some(new);
+                                                let sound_key = match new {
+                                                    SessionStatus::Question => Some("question"),
+                                                    SessionStatus::Waiting => Some("waiting"),
+                                                    SessionStatus::Finished => Some("finished"),
+                                                    SessionStatus::Stopped => Some("stopped"),
+                                                    SessionStatus::Working => None,
+                                                };
+                                                if let Some(key) = sound_key {
+                                                    conescope_platform::sound::play_status_sound(
+                                                        key,
+                                                    );
+                                                }
+                                            }
                                         }
                                     });
                                 }
@@ -592,15 +636,9 @@ impl InstanceEntry {
                     // Non-empty batch: feed to terminal and run Phase 1 trigger scan
                     cx.update(|cx| {
                         if let Some(entry) = weak.upgrade() {
-                            entry.update(cx, |e, cx| {
+                            entry.update(cx, |e, _cx| {
                                 e.history.push(batch.clone());
-                                let was_non_working =
-                                    e.session_detector.status() != SessionStatus::Working;
                                 e.session_detector.on_output(&batch);
-                                if was_non_working {
-                                    e.session_detector.reset_to_working();
-                                    cx.notify();
-                                }
                             });
                         }
                         tv.update(cx, |view, cx| {
