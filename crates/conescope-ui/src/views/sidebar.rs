@@ -3,6 +3,7 @@ use gpui::{Entity, MouseButton, ScrollHandle, SharedString, div, px, rgba, svg};
 
 use crate::icons;
 use crate::state::app_state::AppState;
+use crate::state::settings_store::SidebarMode;
 use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
 use crate::views::text_input::TextInput;
@@ -350,20 +351,126 @@ fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &T
         )
 }
 
+fn render_window_controls() -> gpui::Div {
+    let red = rgba(0xff5f_57ff);
+    let yellow = rgba(0xfebc_2eff);
+    let green = rgba(0x28c8_40ff);
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap(px(8.))
+        // Close
+        .child(
+            div()
+                .size(px(12.))
+                .rounded_full()
+                .bg(red)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    cx.stop_propagation();
+                    window.dispatch_action(
+                        Box::new(crate::actions::Quit),
+                        cx,
+                    );
+                }),
+        )
+        // Minimize
+        .child(
+            div()
+                .size(px(12.))
+                .rounded_full()
+                .bg(yellow)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    cx.stop_propagation();
+                    window.minimize_window();
+                }),
+        )
+        // Zoom
+        .child(
+            div()
+                .size(px(12.))
+                .rounded_full()
+                .bg(green)
+                .cursor_pointer()
+                .on_mouse_down(MouseButton::Left, |_, window, cx| {
+                    cx.stop_propagation();
+                    window.zoom_window();
+                }),
+        )
+}
+
+fn render_sidebar_header(
+    app_state: &Entity<AppState>,
+    sidebar_mode: SidebarMode,
+    _glass: bool,
+    prefix: &str,
+    theme: &Theme,
+) -> gpui::Div {
+    let sidebar_icon_color = if sidebar_mode == SidebarMode::Pinned {
+        theme.text
+    } else {
+        theme.text_muted
+    };
+    let element_hover = theme.element_hover;
+    let app_state_toggle = app_state.clone();
+
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .h(px(36.))
+        .px(px(12.))
+        .gap(px(8.))
+        .flex_shrink_0()
+        // Window controls (left) — hidden in overlay/glass mode
+        .child(render_window_controls())
+        // Sidebar toggle — next to window controls on the left
+        .child(
+            div()
+                .id(SharedString::from(format!("{prefix}-sidebar-pin-toggle")))
+                .p(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .hover(move |s| s.bg(element_hover))
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    app_state_toggle.update(cx, AppState::toggle_sidebar_mode);
+                })
+                .child(
+                    svg()
+                        .path(icons::ICON_SIDEBAR)
+                        .size(px(16.))
+                        .text_color(sidebar_icon_color),
+                ),
+        )
+}
+
 impl Sidebar {
     /// Render with an explicit width (for resizable pinned sidebar).
     pub fn render_with_width(
         &mut self,
         width: f32,
+        glass: bool,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        self.render_inner(width, cx)
+        let prefix = if glass { "overlay" } else { "pinned" };
+        self.render_inner(width, glass, prefix, cx)
     }
 
-    fn render_inner(&mut self, width: f32, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render_inner(
+        &mut self,
+        width: f32,
+        glass: bool,
+        prefix: &str,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
         let state = self.app_state.read(cx);
         let font_size = state.settings_store.read(cx).settings().ui_font_size();
         let theme = state.theme().clone();
+        let sidebar_mode = state.sidebar_mode(cx);
         let editing_tile_id = state.editing_tile_id.clone();
         let editing_input = state.editing_input.clone();
 
@@ -387,18 +494,24 @@ impl Sidebar {
 
         let effective_width = width.max(SIDEBAR_WIDTH);
 
-        div()
-            .h_full()
-            .w(px(effective_width))
-            .flex()
-            .flex_col()
-            .bg(theme.panel)
-            .border_r_1()
-            .border_color(theme.border)
+        let mut base = div().h_full().w(px(effective_width)).flex().flex_col();
+
+        if glass {
+            // Overlay window provides glass blur; no extra bg/border needed
+        } else if sidebar_mode == SidebarMode::Pinned {
+            // Pinned in base layer: transparent (inherits root glass bg), no border
+        } else {
+            // Fallback: opaque panel bg with right border
+            base = base.bg(theme.panel).border_color(theme.border).border_r_1();
+        }
+
+        base
+            // Header with window controls + pin toggle
+            .child(render_sidebar_header(&self.app_state, sidebar_mode, glass, prefix, &theme))
             // Scrollable instance list
             .child(
                 div()
-                    .id("sidebar-scroll")
+                    .id(SharedString::from(format!("{prefix}-sidebar-scroll")))
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -416,6 +529,6 @@ impl Render for Sidebar {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
-        self.render_inner(SIDEBAR_WIDTH, cx)
+        self.render_inner(SIDEBAR_WIDTH, false, "pinned", cx)
     }
 }
