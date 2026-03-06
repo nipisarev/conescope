@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, AnyWindowHandle, AppContext, ElementId, Entity, MouseButton,
-    WindowKind, WindowOptions, div, ease_in_out, px, size,
+    Animation, AnimationExt, AnyWindowHandle, AppContext, ElementId, Entity, WindowKind,
+    WindowOptions, div, ease_in_out, px, size,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -18,7 +18,6 @@ use crate::actions::{
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
 use crate::views::overlay_sidebar::OverlaySidebarView;
-use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size};
 use crate::views::sidebar::SIDEBAR_WIDTH;
 
 use super::activity_bar::ActivityBar;
@@ -31,7 +30,6 @@ use super::settings_view::SettingsView;
 use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
 
-const SIDEBAR_MAX: f32 = 600.0;
 const OVERLAY_SIDEBAR_PADDING: f32 = 0.0;
 
 pub struct AppView {
@@ -45,8 +43,6 @@ pub struct AppView {
     pub settings_view: Entity<SettingsView>,
     pub confirm_modal: Entity<ConfirmModal>,
     pub error_modal: Entity<ErrorModal>,
-    /// Drag state for resizable pinned sidebar.
-    sidebar_drag: Option<DragState>,
     /// Generation counter for sidebar slide animation (bumped on each toggle).
     sidebar_anim_gen: usize,
     /// Whether sidebar was open on previous render (to detect transitions).
@@ -143,7 +139,6 @@ impl AppView {
             settings_view,
             confirm_modal,
             error_modal,
-            sidebar_drag: None,
             sidebar_anim_gen: 0,
             sidebar_was_open: false,
             sidebar_overlay_was_visible: false,
@@ -304,35 +299,6 @@ impl AppView {
         self.app_state.update(cx, |s, _| {
             s.bump_sidebar_hover_gen();
         });
-    }
-
-    fn on_sidebar_drag_move(
-        &mut self,
-        event: &gpui::MouseMoveEvent,
-        _window: &mut gpui::Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let Some(ref mut drag) = self.sidebar_drag else {
-            return;
-        };
-        let current = drag.position_component(event.position);
-        let delta = drag.delta(current);
-        if delta.abs() < 0.5 {
-            return;
-        }
-        let app_state = self.app_state.clone();
-        let width = app_state.read(cx).sidebar_width(cx);
-        let new_width = clamp_size(width + delta, SIDEBAR_WIDTH, SIDEBAR_MAX);
-        app_state.update(cx, |s, cx| s.set_sidebar_width(new_width, cx));
-    }
-
-    fn on_sidebar_drag_end(
-        &mut self,
-        _event: &gpui::MouseUpEvent,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<Self>,
-    ) {
-        self.sidebar_drag = None;
     }
 }
 
@@ -559,12 +525,15 @@ impl Render for AppView {
         };
 
         // Content card: rounded, opaque, floating on base layer with margin on all sides
-        let mut content_card = div()
+        let content_card = div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
-            .m(px(12.))
+            .mt(px(12.))
+            .mr(px(12.))
+            .mb(px(12.))
+            .when(!sidebar_open, |el| el.ml(px(12.)))
             .rounded(px(10.))
             .bg(theme.background)
             .overflow_hidden()
@@ -579,14 +548,6 @@ impl Render for AppView {
                     .child(content_view),
             )
             .child(self.activity_bar.clone());
-
-        // Drag handlers for resizable pinned sidebar
-        if sidebar_open {
-            content_card = content_card
-                .on_mouse_move(cx.listener(Self::on_sidebar_drag_move))
-                .on_mouse_up(MouseButton::Left, cx.listener(Self::on_sidebar_drag_end))
-                .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_sidebar_drag_end));
-        }
 
         // Detect sidebar open/close transitions and bump animation gen
         if sidebar_open != self.sidebar_was_open {
@@ -626,31 +587,12 @@ impl Render for AppView {
                 },
             );
 
-        // Drag handle between sidebar and content card (only when sidebar is open)
-        let drag_handle = div()
-            .w(px(6.))
-            .h_full()
-            .flex_shrink_0()
-            .when(sidebar_open, |el| {
-                el.cursor(gpui::CursorStyle::ResizeLeftRight).on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, event: &gpui::MouseDownEvent, _window, _cx| {
-                        this.sidebar_drag = Some(DragState {
-                            target: DragTarget::Sidebar,
-                            axis: Axis::Horizontal,
-                            last_pos: f32::from(event.position.x),
-                        });
-                    }),
-                )
-            });
-
-        // Outer: animated sidebar + drag handle + content card
+        // Outer: animated sidebar + content card
         let outer = div()
             .size_full()
             .flex()
             .flex_row()
             .child(sidebar_wrapper)
-            .when(sidebar_open, |el| el.child(drag_handle))
             .child(content_card);
 
         root

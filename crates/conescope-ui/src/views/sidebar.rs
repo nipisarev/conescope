@@ -296,20 +296,21 @@ fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &T
     div()
         .flex_shrink_0()
         // Divider
-        .child(div().h(px(1.)).w_full().bg(theme.border))
+        .child(div().h(px(1.)).ml(px(20.)).w_full().bg(theme.border))
         // Button
         .child(
             div()
-                .mx(px(4.))
                 .my(px(4.))
-                .px(px(8.))
+                .mx(px(16.))
+                .mb(px(12.))
+                .pl(px(8.))
                 .py(px(6.))
                 .rounded(px(4.))
                 .cursor_pointer()
                 .flex()
                 .flex_row()
                 .items_center()
-                .gap(px(6.))
+                .gap(px(4.))
                 .hover(move |s| s.bg(element_hover))
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     app_state_click.update(cx, AppState::toggle_new_instance_modal);
@@ -422,8 +423,9 @@ fn render_sidebar_header(
         .flex_row()
         .items_center()
         .h(px(36.))
-        .py(px(32.))
-        .px(px(26.))
+        .pt(px(30.))
+        .pb(px(20.))
+        .ml(px(24.))
         .gap(px(8.))
         .flex_shrink_0()
         // Window controls (left) — hidden in overlay/glass mode
@@ -477,7 +479,7 @@ impl Sidebar {
 
         let entries = collect_sidebar_entries(&self.app_state, cx);
 
-        let mut list = div().flex().flex_col().gap(px(6.)).py(px(4.)).px(px(20.));
+        let mut list = div().flex().flex_col().gap(px(6.)).px(px(16.));
         for entry in &entries {
             let input = if editing_tile_id.as_deref() == Some(entry.id.as_str()) {
                 editing_input.as_ref()

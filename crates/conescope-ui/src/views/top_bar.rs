@@ -178,6 +178,7 @@ fn render_focus_left(
 }
 
 impl Render for TopBar {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         _window: &mut gpui::Window,
@@ -211,7 +212,7 @@ impl Render for TopBar {
             ViewMode::Settings => render_settings_buttons(&self.app_state, font_size, &theme),
         };
 
-        let bar_height = px(font_size * 2.0 + 10.0);
+        let bar_height = px(font_size * 2.0 + 6.0);
         let icon_size = px(font_size + 1.0);
         let sidebar_icon_color: Hsla = if sidebar_open {
             theme.accent.into()
@@ -224,44 +225,46 @@ impl Render for TopBar {
             view_mode == ViewMode::Focus && self.cached_has_unfocused_questions;
         let pulse_opacity = self.cached_pulse_opacity;
 
-        let mut sidebar_btn = div()
-            .relative()
-            .px(px(6.))
-            .py(px(4.))
-            .rounded(px(4.))
-            .cursor_pointer()
-            .hover(move |s| s.text_color(sidebar_hover))
-            .child(
-                svg()
-                    .path(icons::ICON_SIDEBAR)
-                    .size(icon_size)
-                    .text_color(sidebar_icon_color)
-                    .flex_shrink_0(),
-            )
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                app_state_for_sidebar.update(cx, AppState::toggle_sidebar_open);
-            });
-
-        if show_notification_dot {
-            sidebar_btn = sidebar_btn.child(
-                div()
-                    .absolute()
-                    .top(px(-2.))
-                    .right(px(-2.))
-                    .w(px(8.))
-                    .h(px(8.))
-                    .rounded(px(4.))
-                    .bg(gpui::rgba(0xf871_71ff))
-                    .opacity(pulse_opacity),
-            );
-        }
+        let sidebar_btn = (!sidebar_open).then(|| {
+            let mut btn = div()
+                .relative()
+                .px(px(6.))
+                .py(px(4.))
+                .rounded(px(4.))
+                .cursor_pointer()
+                .hover(move |s| s.text_color(sidebar_hover))
+                .child(
+                    svg()
+                        .path(icons::ICON_SIDEBAR)
+                        .size(icon_size)
+                        .text_color(sidebar_icon_color)
+                        .flex_shrink_0(),
+                )
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_for_sidebar.update(cx, AppState::toggle_sidebar_open);
+                });
+            if show_notification_dot {
+                btn = btn.child(
+                    div()
+                        .absolute()
+                        .top(px(-2.))
+                        .right(px(-2.))
+                        .w(px(8.))
+                        .h(px(8.))
+                        .rounded(px(4.))
+                        .bg(gpui::rgba(0xf871_71ff))
+                        .opacity(pulse_opacity),
+                );
+            }
+            btn
+        });
 
         let mut left_section = div()
             .flex()
             .flex_row()
             .items_center()
             .child(div().w(px(8.)))
-            .child(sidebar_btn);
+            .children(sidebar_btn);
 
         if let Some(fi) = &focus_info {
             left_section =
