@@ -19,6 +19,7 @@ pub struct ConfirmAction {
     pub instance_id: String,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     pub instance_list: Entity<InstanceList>,
     pub project_store: Entity<ProjectStore>,
@@ -38,8 +39,12 @@ pub struct AppState {
     theme: Theme,
     /// Whether the overlay sidebar is currently visible (transient, not persisted).
     pub sidebar_overlay_visible: bool,
+    /// Whether the overlay sidebar content should be visible (staggered animation).
+    pub overlay_content_visible: bool,
     /// Generation counter to cancel stale hover-open / auto-hide timers.
     pub sidebar_hover_gen: u32,
+    /// Bumped when a debounced terminal resize completes (drives fade-in animation).
+    pub terminal_resize_gen: usize,
 }
 
 impl std::fmt::Debug for AppState {
@@ -90,7 +95,9 @@ impl AppState {
                 editing_input: None,
                 theme: Theme::load_builtin(ThemeMode::Light),
                 sidebar_overlay_visible: false,
+                overlay_content_visible: false,
                 sidebar_hover_gen: 0,
+                terminal_resize_gen: 0,
             }
         })
     }
@@ -481,17 +488,51 @@ impl AppState {
 
     pub fn toggle_sidebar_open(&mut self, cx: &mut gpui::Context<Self>) {
         let mut session = self.settings_store.read(cx).session().clone();
-        session.sidebar_open = !session.sidebar_open;
+        if self.sidebar_overlay_visible {
+            // Clicking toggle from overlay → pin sidebar, close overlay
+            session.sidebar_open = true;
+            self.sidebar_overlay_visible = false;
+            self.overlay_content_visible = false;
+        } else {
+            session.sidebar_open = !session.sidebar_open;
+        }
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
+        cx.notify();
+    }
+
+    pub fn toggle_sidebar_visibility(&mut self, cx: &mut gpui::Context<Self>) {
+        if self.sidebar_open(cx) {
+            let mut session = self.settings_store.read(cx).session().clone();
+            session.sidebar_open = false;
+            self.sidebar_overlay_visible = true;
+            self.settings_store
+                .update(cx, |store, _| store.save_session(session));
+        } else if self.sidebar_overlay_visible {
+            self.sidebar_overlay_visible = false;
+            self.overlay_content_visible = false;
+            self.sidebar_hover_gen = self.sidebar_hover_gen.wrapping_add(1);
+        } else {
+            self.sidebar_overlay_visible = true;
+        }
         cx.notify();
     }
 
     pub fn toggle_sidebar_mode(&mut self, cx: &mut gpui::Context<Self>) {
         let mut session = self.settings_store.read(cx).session().clone();
         session.sidebar_mode = match session.sidebar_mode {
-            SidebarMode::Pinned => SidebarMode::Overlay,
-            SidebarMode::Overlay => SidebarMode::Pinned,
+            SidebarMode::Pinned => {
+                session.sidebar_open = false;
+                self.sidebar_overlay_visible = false;
+                self.overlay_content_visible = false;
+                SidebarMode::Overlay
+            }
+            SidebarMode::Overlay => {
+                session.sidebar_open = true;
+                self.sidebar_overlay_visible = false;
+                self.overlay_content_visible = false;
+                SidebarMode::Pinned
+            }
         };
         self.settings_store
             .update(cx, |store, _| store.save_session(session));
@@ -530,7 +571,7 @@ pub fn sync_gpui_component_theme(theme: &Theme, cx: &mut gpui::App) {
     let text_muted = Hsla::from(theme.text_muted);
 
     let gc_theme = gpui_component::theme::Theme::global_mut(cx);
-    gc_theme.colors.background = editor_bg;
+    gc_theme.colors.background = gpui::transparent_black();
     gc_theme.colors.foreground = Hsla::from(theme.text);
     gc_theme.colors.muted_foreground = Hsla::from(theme.text_faint);
     gc_theme.colors.border = Hsla::from(theme.border);

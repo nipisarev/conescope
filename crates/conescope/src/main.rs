@@ -302,8 +302,12 @@ fn main() {
                         titlebar: Some(gpui::TitlebarOptions {
                             title: Some("Conescope".into()),
                             appears_transparent: true,
-                            traffic_light_position: Some(gpui::point(gpui::px(12.), gpui::px(12.))),
+                            traffic_light_position: Some(gpui::point(
+                                gpui::px(-100.),
+                                gpui::px(-100.),
+                            )),
                         }),
+                        window_background: gpui::WindowBackgroundAppearance::Blurred,
                         ..Default::default()
                     },
                     |window, cx| {

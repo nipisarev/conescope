@@ -48,7 +48,6 @@ pub const ICON_TERMINAL: &str = "icons/terminal-window.svg";
 pub const ICON_COMMAND: &str = "icons/command.svg";
 pub const ICON_PLUS: &str = "icons/plus.svg";
 pub const ICON_CLOSE: &str = "icons/x.svg";
-pub const ICON_QUESTION: &str = "icons/question.svg";
 pub const ICON_SETTINGS: &str = "icons/gear.svg";
 pub const ICON_BACK: &str = "icons/minus-circle.svg";
 pub const ICON_CLOSE_CIRCLE: &str = "icons/x-circle.svg";
@@ -56,6 +55,8 @@ pub const ICON_TRASH: &str = "icons/trash.svg";
 pub const ICON_ARROW_LEFT: &str = "icons/arrow-left.svg";
 pub const ICON_GIT: &str = "icons/git-branch.svg";
 pub const ICON_FOLDER_PLUS: &str = "icons/folder-plus.svg";
+pub const ICON_PIN: &str = "icons/pin.svg";
+pub const ICON_QUESTION: &str = "icons/question.svg";
 
 // Aliases for tile headers (same as above, all regular weight now)
 pub const ICON_TERMINAL_WINDOW: &str = ICON_TERMINAL;

@@ -1,23 +1,19 @@
 use gpui::prelude::*;
-use gpui::{Entity, FocusHandle, MouseButton, div, px, relative, svg};
+use gpui::{Entity, MouseButton, div, px, relative, svg};
 
 use conescope_core::instance::InstanceType;
 
 use crate::icons;
 use crate::state::app_state::AppState;
-use crate::state::session_detector::{SessionEvent, SessionStatus};
+use crate::state::session_detector::SessionStatus;
 use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
-use crate::views::question_overlay::render_question_overlay;
 use crate::views::text_input::TextInput;
 
 #[allow(missing_debug_implementations)]
 pub struct OverviewGrid {
     app_state: Entity<AppState>,
     cached_pulse_opacity: f32,
-    overlay_selected_index: usize,
-    overlay_focus_handle: FocusHandle,
-    active_question_instance_id: Option<String>,
 }
 
 impl OverviewGrid {
@@ -33,15 +29,7 @@ impl OverviewGrid {
         Self {
             app_state,
             cached_pulse_opacity: 1.0,
-            overlay_selected_index: 0,
-            overlay_focus_handle: cx.focus_handle(),
-            active_question_instance_id: None,
         }
-    }
-
-    pub fn set_overlay_selected_index(&mut self, index: usize, cx: &mut gpui::Context<Self>) {
-        self.overlay_selected_index = index;
-        cx.notify();
     }
 }
 
@@ -68,9 +56,6 @@ fn render_tile(
     terminal_font_size: f32,
     font_family: &str,
     theme: &Theme,
-    grid_entity: Entity<OverviewGrid>,
-    overlay_selected_index: usize,
-    overlay_focus_handle: Option<&FocusHandle>,
 ) -> gpui::AnyElement {
     let status_color = match tile.session_status {
         SessionStatus::Working => gpui::rgba(0x4ade_80ff), // green
@@ -108,9 +93,6 @@ fn render_tile(
             terminal_font_size,
             font_family,
             theme,
-            grid_entity,
-            overlay_selected_index,
-            overlay_focus_handle,
         ))
         .into_any_element()
 }
@@ -370,27 +352,19 @@ fn shorten_path(path: &str) -> String {
 ///
 /// A transparent overlay sits on top of the terminal to capture clicks,
 /// preventing the `TerminalView`'s `stop_propagation()` from blocking focus switch.
-#[allow(clippy::too_many_arguments, clippy::needless_pass_by_value)]
 fn render_tile_body(
     tile: &TileData,
     app_state: Entity<AppState>,
     terminal_font_size: f32,
     font_family: &str,
     theme: &Theme,
-    grid_entity: Entity<OverviewGrid>,
-    overlay_selected_index: usize,
-    overlay_focus_handle: Option<&FocusHandle>,
 ) -> gpui::Div {
     let tile_id = tile.id.clone();
     let tile_focus_handle = tile.focus_handle.clone();
     let panel = theme.panel;
 
-    let session_event = tile.session_event.clone();
-    let overlay_id = tile.id.clone();
-    let overlay_state = app_state.clone();
-
     let terminal_child = tile.terminal_view.as_ref().map(|tv| {
-        let mut container = div()
+        div()
             .size_full()
             .relative()
             .px(px(4.))
@@ -408,26 +382,8 @@ fn render_tile_body(
                             fh.focus(window, cx);
                         }
                     }),
-            );
-
-        container = container.children(session_event.as_ref().and_then(|event| {
-            if matches!(event, SessionEvent::Question { .. }) {
-                Some(render_question_overlay(
-                    event,
-                    &overlay_id,
-                    &overlay_state,
-                    theme,
-                    terminal_font_size,
-                    overlay_focus_handle,
-                    overlay_selected_index,
-                    Some(&grid_entity),
-                ))
-            } else {
-                None
-            }
-        }));
-
-        container.into_any_element()
+            )
+            .into_any_element()
     });
 
     div()
@@ -489,7 +445,7 @@ impl Render for OverviewGrid {
     #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
-        window: &mut gpui::Window,
+        _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         // Extract all data from state upfront, then drop the borrow so we can
@@ -553,7 +509,6 @@ impl Render for OverviewGrid {
                         git_insertions: git.insertions,
                         git_deletions: git.deletions,
                         session_status: inst.session_status(),
-                        session_event: inst.session_event().cloned(),
                         pulse_opacity,
                     }
                 })
@@ -572,40 +527,11 @@ impl Render for OverviewGrid {
 
         let (cols, _rows) = grid_dimensions(tiles.len());
 
-        let grid_entity = cx.entity().clone();
-        let overlay_selected_index = self.overlay_selected_index;
-
-        // Find the first tile with a Question event to give it keyboard focus
-        let question_tile_id = tiles.iter().find_map(|t| {
-            if matches!(t.session_event, Some(SessionEvent::Question { .. })) {
-                Some(t.id.clone())
-            } else {
-                None
-            }
-        });
-
-        // Reset selected_index when the question instance changes
-        if question_tile_id != self.active_question_instance_id {
-            self.active_question_instance_id
-                .clone_from(&question_tile_id);
-            self.overlay_selected_index = 0;
-        }
-
-        // Auto-focus overlay when a question is active
-        if question_tile_id.is_some() {
-            self.overlay_focus_handle.focus(window, cx);
-        }
-
         let slots: Vec<gpui::AnyElement> = tiles
             .iter()
             .map(|tile| {
                 let input = if editing_tile_id.as_deref() == Some(tile.id.as_str()) {
                     editing_input.as_ref()
-                } else {
-                    None
-                };
-                let fh = if question_tile_id.as_deref() == Some(tile.id.as_str()) {
-                    Some(&self.overlay_focus_handle)
                 } else {
                     None
                 };
@@ -616,9 +542,6 @@ impl Render for OverviewGrid {
                     terminal_font_size,
                     &font_family,
                     &theme,
-                    grid_entity.clone(),
-                    overlay_selected_index,
-                    fh,
                 )
             })
             .collect();
@@ -641,6 +564,5 @@ struct TileData {
     git_insertions: usize,
     git_deletions: usize,
     session_status: SessionStatus,
-    session_event: Option<SessionEvent>,
     pulse_opacity: f32,
 }

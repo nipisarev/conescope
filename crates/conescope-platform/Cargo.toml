@@ -6,9 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-conescope-core = { path = "../conescope-core" }
-anyhow.workspace = true
-tracing.workspace = true
+raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = ["NSResponder", "NSView", "NSWindow", "NSGraphics"] }
 
 [lints]
 workspace = true

@@ -88,6 +88,10 @@ pub struct Theme {
     pub vcs_deleted: Rgba,
     pub vcs_conflict: Rgba,
 
+    // Sidebar glass
+    pub sidebar_glass_bg: Rgba,
+    pub sidebar_glass_border: Rgba,
+
     // Tab-specific
     pub tab_active_bg: Rgba,
     pub tab_inactive_bg: Rgba,
@@ -195,6 +199,8 @@ fn dark_theme(
         vcs_conflict: get("version_control.conflict")
             .or_else(|| get("conflict"))
             .unwrap_or(rgba(0xcf8c_e3ff)),
+        sidebar_glass_bg: rgba(0x1a1a_1ab0),
+        sidebar_glass_border: rgba(0x4c4c_4c50),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0x2d2d_2dff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0x1e1e_1eff)),
         syntax_json,
@@ -246,6 +252,8 @@ fn light_theme(
         vcs_conflict: get("version_control.conflict")
             .or_else(|| get("conflict"))
             .unwrap_or(rgba(0xbc05_bcff)),
+        sidebar_glass_bg: rgba(0xf0f0_f0b0),
+        sidebar_glass_border: rgba(0xcccc_cc50),
         tab_active_bg: get("tab.active_background").unwrap_or(rgba(0xffff_ffff)),
         tab_inactive_bg: get("tab.inactive_background").unwrap_or(rgba(0xecec_ecff)),
         syntax_json,

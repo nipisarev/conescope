@@ -1,0 +1,10 @@
+{
+  "archiveScript" : "",
+  "copyIgnoredOnWorktreeCreate" : true,
+  "copyUntrackedOnWorktreeCreate" : false,
+  "openActionID" : "zed",
+  "pullRequestMergeStrategy" : "merge",
+  "runScript" : "",
+  "setupScript" : "",
+  "worktreeBaseRef" : "main"
+}

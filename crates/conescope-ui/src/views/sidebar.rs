@@ -422,7 +422,8 @@ fn render_sidebar_header(
         .flex_row()
         .items_center()
         .h(px(36.))
-        .px(px(12.))
+        .py(px(32.))
+        .px(px(26.))
         .gap(px(8.))
         .flex_shrink_0()
         // Window controls (left) — hidden in overlay/glass mode
@@ -437,7 +438,7 @@ fn render_sidebar_header(
                 .hover(move |s| s.bg(element_hover))
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     cx.stop_propagation();
-                    app_state_toggle.update(cx, AppState::toggle_sidebar_mode);
+                    app_state_toggle.update(cx, AppState::toggle_sidebar_open);
                 })
                 .child(
                     svg()
@@ -476,7 +477,7 @@ impl Sidebar {
 
         let entries = collect_sidebar_entries(&self.app_state, cx);
 
-        let mut list = div().flex().flex_col().gap(px(2.)).py(px(4.)).px(px(4.));
+        let mut list = div().flex().flex_col().gap(px(6.)).py(px(4.)).px(px(20.));
         for entry in &entries {
             let input = if editing_tile_id.as_deref() == Some(entry.id.as_str()) {
                 editing_input.as_ref()

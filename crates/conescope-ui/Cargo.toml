@@ -26,6 +26,8 @@ rust-embed.workspace = true
 rfd.workspace = true
 notify.workspace = true
 strip-ansi-escapes = "0.2"
+raw-window-handle = "0.6"
+core-graphics = "0.24"
 
 [lints]
 workspace = true

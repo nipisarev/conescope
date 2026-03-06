@@ -1,8 +1,13 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gpui::prelude::*;
-use gpui::{AppContext, Entity, MouseButton, SharedString, div, px, relative};
+use gpui::{
+    Animation, AnimationExt, AppContext, ElementId, Entity, MouseButton, SharedString, div, px,
+    relative,
+};
 
 use crate::theme::Theme;
 
@@ -484,7 +489,8 @@ fn render_terminal_pane(
     font_size: f32,
     font_family: &str,
     theme: &Theme,
-) -> gpui::Div {
+    resize_gen: usize,
+) -> gpui::AnyElement {
     let fh = focus_handle.cloned();
     let click_handler =
         move |_: &gpui::MouseDownEvent, window: &mut gpui::Window, cx: &mut gpui::App| {
@@ -510,11 +516,19 @@ fn render_terminal_pane(
                     .line_height(relative(1.0))
                     .child(tv.clone()),
             );
-        if fill_height {
+        let sized = if fill_height {
             base.flex_1().min_h_0()
         } else {
             base.h(px(height))
-        }
+        };
+        sized
+            .id(ElementId::Name(format!("term-fade-{resize_gen}").into()))
+            .with_animation(
+                ElementId::Name(format!("term-fade-anim-{resize_gen}").into()),
+                Animation::new(Duration::from_millis(150)),
+                gpui::Styled::opacity,
+            )
+            .into_any_element()
     } else {
         let base = div()
             .flex()
@@ -532,9 +546,9 @@ fn render_terminal_pane(
                     .child("Terminal not attached"),
             );
         if fill_height {
-            base.flex_1().min_h_0()
+            base.flex_1().min_h_0().into_any_element()
         } else {
-            base.h(px(height))
+            base.h(px(height)).into_any_element()
         }
     }
 }
@@ -587,6 +601,7 @@ fn render_main_area(
     dragging_terminal: bool,
     drag_listener: impl Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
     theme: &Theme,
+    resize_gen: usize,
 ) -> gpui::Div {
     let mut col = div().flex_1().min_h_0().flex().flex_col().overflow_hidden();
 
@@ -620,6 +635,7 @@ fn render_main_area(
             terminal_font_size,
             font_family,
             theme,
+            resize_gen,
         ));
     }
 
@@ -825,6 +841,11 @@ impl Render for FocusView {
             .ui_editor_font_size();
 
         let tab_bar = Self::build_tab_bar(&entry, ui_font_size, &theme, cx);
+        // Read before the mutable cx.listener borrow below.
+        let resize_gen = {
+            let s = self.app_state.read(cx);
+            s.terminal_resize_gen
+        };
 
         let main_area = render_main_area(
             editor_visible,
@@ -849,6 +870,7 @@ impl Render for FocusView {
                 });
             }),
             &theme,
+            resize_gen,
         );
 
         let mut root = div()
@@ -893,24 +915,33 @@ impl Render for FocusView {
     }
 }
 
-/// Resize the focused terminal PTY and view to match the available pixel area.
-///
-/// Reads layout parameters from `AppState`, computes cell metrics using the window's
-/// text system, and applies the resulting cols/rows to both the PTY and the terminal view.
-fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut gpui::App) {
+/// Shared state for debounced PTY resize.
+struct ResizeState {
+    last_grid: Cell<(u16, u16)>,
+    last_pty_grid: Cell<(u16, u16)>,
+    pty_gen: Cell<u32>,
+}
+
+/// Compute the target (cols, rows) for the focused terminal from current layout.
+/// Returns `None` if not in focus mode or no terminal visible.
+fn compute_terminal_grid(
+    this: &AppState,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) -> Option<(
+    u16,
+    u16,
+    Entity<crate::state::instance_entry::InstanceEntry>,
+)> {
     use crate::state::settings_store::ViewMode;
     use crate::terminal::compute_cell_metrics;
 
     if this.view_mode(cx) != ViewMode::Focus {
-        return;
+        return None;
     }
-    let Some(focused_id) = this.focused_instance_id(cx) else {
-        return;
-    };
+    let focused_id = this.focused_instance_id(cx)?;
     let il = this.instance_list.read(cx);
-    let Some(entry) = il.find_by_id(focused_id, cx) else {
-        return;
-    };
+    let entry = il.find_by_id(focused_id, cx)?;
 
     let is_terminal =
         entry.read(cx).instance_type() == conescope_core::instance::InstanceType::Terminal;
@@ -918,9 +949,8 @@ fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut 
     let editor_visible = !is_terminal && this.editor_visible(cx);
     let terminal_visible = is_terminal || this.terminal_visible(cx);
 
-    // If only editor visible (no terminal), no PTY to resize
     if editor_visible && !terminal_visible {
-        return;
+        return None;
     }
 
     let size = window.viewport_size();
@@ -942,17 +972,43 @@ fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut 
     let term_font_size = settings.terminal_font_size as f32;
     let font_family = Some(settings.font_family.clone());
     let lhr = settings.terminal_line_height as f32;
-    let Some((cell_width, cell_height)) =
-        compute_cell_metrics(window, Some(term_font_size), font_family.as_deref(), lhr)
-    else {
-        return;
-    };
+    let (cell_width, cell_height) =
+        compute_cell_metrics(window, Some(term_font_size), font_family.as_deref(), lhr)?;
 
     #[allow(clippy::cast_sign_loss)]
     let cols = (content_width / cell_width).floor().max(1.0) as u16;
     #[allow(clippy::cast_sign_loss)]
     let rows = (content_height / cell_height).floor().max(1.0) as u16;
 
+    Some((cols, rows, entry.clone()))
+}
+
+/// Resize the focused terminal view immediately, and debounce the PTY resize.
+///
+/// The visual terminal (alacritty reflow) updates every frame for smooth appearance.
+/// Resize terminal views immediately; debounce PTY resize (SIGWINCH).
+///
+/// The visual terminal (alacritty reflow) updates every frame for smooth appearance.
+/// The PTY resize (SIGWINCH → shell redraw) is deferred ~80ms so the shell doesn't
+/// spam redraws during window drag. When the debounce fires, `terminal_resize_gen`
+/// on `AppState` is bumped to trigger a fade-in animation masking the shell redraw.
+fn resize_focused_terminal(
+    this: &AppState,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+    state: &Rc<ResizeState>,
+    app_state: &Entity<AppState>,
+) {
+    let Some((cols, rows, entry)) = compute_terminal_grid(this, window, cx) else {
+        return;
+    };
+
+    if state.last_grid.get() == (cols, rows) {
+        return;
+    }
+    state.last_grid.set((cols, rows));
+
+    // Resize terminal views immediately (alacritty reflow is instant/clean).
     let inst = entry.read(cx);
     let tv = inst.terminal_view.clone();
     let shell_tvs: Vec<_> = inst
@@ -960,14 +1016,48 @@ fn resize_focused_terminal(this: &AppState, window: &mut gpui::Window, cx: &mut 
         .iter()
         .map(|t| t.terminal_view.clone())
         .collect();
-    inst.resize_pty(cols, rows);
-    inst.resize_all_shell_ptys(cols, rows);
     if let Some(tv) = tv {
         tv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
     }
     for stv in shell_tvs {
         stv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
     }
+
+    // Debounce PTY resize (SIGWINCH) — bump generation, only the latest fires.
+    let pty_gen = state.pty_gen.get().wrapping_add(1);
+    state.pty_gen.set(pty_gen);
+
+    let state_ref = Rc::clone(state);
+    let entry2 = entry.clone();
+    let app_state2 = app_state.clone();
+    entry.update(cx, |_inst, cx| {
+        cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(80))
+                .await;
+            cx.update(|cx| {
+                if state_ref.pty_gen.get() != pty_gen {
+                    return;
+                }
+                let (cols, rows) = state_ref.last_grid.get();
+                if state_ref.last_pty_grid.get() == (cols, rows) {
+                    return;
+                }
+                state_ref.last_pty_grid.set((cols, rows));
+
+                let inst = entry2.read(cx);
+                inst.resize_pty(cols, rows);
+                inst.resize_all_shell_ptys(cols, rows);
+
+                // Bump generation to trigger fade-in animation masking the shell redraw.
+                app_state2.update(cx, |s, cx| {
+                    s.terminal_resize_gen = s.terminal_resize_gen.wrapping_add(1);
+                    cx.notify();
+                });
+            });
+        })
+        .detach();
+    });
 }
 
 /// Register observers that resize the focused instance's PTY.
@@ -985,20 +1075,30 @@ pub fn register_focus_resize(
     let app_state_observer = app_state.clone();
     let window_handle = window.window_handle();
 
-    // Resize on app_state changes (view mode switch, focused instance, panel toggles).
-    // Uses App::observe (no entity context) to avoid re-entrant borrows.
+    let state: Rc<ResizeState> = Rc::new(ResizeState {
+        last_grid: Cell::new((0, 0)),
+        last_pty_grid: Cell::new((0, 0)),
+        pty_gen: Cell::new(0),
+    });
+
+    let s1 = Rc::clone(&state);
+    let as1 = app_state.clone();
     cx.observe(app_state, move |entity, cx| {
+        let s = &s1;
+        let asr = &as1;
         let _ = cx.update_window(window_handle, |_, window, cx| {
-            entity.update(cx, |state, cx| {
-                resize_focused_terminal(state, window, cx);
+            entity.update(cx, |app_state, cx| {
+                resize_focused_terminal(app_state, window, cx, s, asr);
             });
         });
     })
     .detach();
 
+    let s2 = state;
+    let as2 = app_state.clone();
     app_state_observer.update(cx, |_, cx| {
-        cx.observe_window_bounds(window, |this, window, cx| {
-            resize_focused_terminal(this, window, cx);
+        cx.observe_window_bounds(window, move |this, window, cx| {
+            resize_focused_terminal(this, window, cx, &s2, &as2);
         })
     })
 }

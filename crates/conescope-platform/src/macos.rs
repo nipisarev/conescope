@@ -69,3 +69,53 @@ pub fn position_overlay_at_parent(parent: RawWindowHandle, child: RawWindowHandl
     let parent_frame = parent_win.frame();
     child_win.setFrameOrigin(parent_frame.origin);
 }
+
+/// Defers `setFrame:display:animate:` to the next main-queue iteration via
+/// `dispatch_async_f`. This is required because the native animation pumps a
+/// nested run loop, which re-enters GPUI's `display_layer` callback. If called
+/// from inside any `App::update` / `AsyncApp::update` context the `AppCell`
+/// `RefCell` is already borrowed → panic.
+#[allow(unsafe_code)]
+pub fn animate_resize(handle: RawWindowHandle, width: f64, height: f64) {
+    use std::ffi::c_void;
+
+    type DispatchQueue = *const c_void;
+    type DispatchFunction = extern "C" fn(*mut c_void);
+
+    unsafe extern "C" {
+        // `dispatch_get_main_queue()` is a C macro; the real symbol is `_dispatch_main_q`.
+        #[link_name = "_dispatch_main_q"]
+        static DISPATCH_MAIN_Q: c_void;
+        fn dispatch_async_f(queue: DispatchQueue, context: *mut c_void, work: DispatchFunction);
+    }
+
+    struct Params {
+        handle: RawWindowHandle,
+        width: f64,
+        height: f64,
+    }
+
+    extern "C" fn do_animate(ctx: *mut c_void) {
+        let params = unsafe { Box::from_raw(ctx.cast::<Params>()) };
+        let Some(window) = ns_window_from_raw(params.handle) else {
+            return;
+        };
+        let mut frame = window.frame();
+        frame.size.width = params.width;
+        frame.size.height = params.height;
+        window.setFrame_display_animate(frame, true, true);
+    }
+
+    let params = Box::new(Params {
+        handle,
+        width,
+        height,
+    });
+    unsafe {
+        dispatch_async_f(
+            &raw const DISPATCH_MAIN_Q,
+            Box::into_raw(params).cast::<c_void>(),
+            do_animate,
+        );
+    }
+}

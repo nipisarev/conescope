@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use gpui::prelude::*;
@@ -13,7 +15,6 @@ use crate::actions::{
     NewTerminalTab, OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel,
     ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
 };
-use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
 use crate::views::overlay_sidebar::OverlaySidebarView;
@@ -26,7 +27,6 @@ use super::error_modal::ErrorModal;
 use super::focus_view::FocusView;
 use super::new_instance_modal::NewInstanceModal;
 use super::overview_grid::OverviewGrid;
-use super::questions_panel::QuestionsPanel;
 use super::settings_view::SettingsView;
 use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
@@ -44,7 +44,6 @@ pub struct AppView {
     pub new_instance_modal: Entity<NewInstanceModal>,
     pub settings_view: Entity<SettingsView>,
     pub confirm_modal: Entity<ConfirmModal>,
-    pub questions_panel: Entity<QuestionsPanel>,
     pub error_modal: Entity<ErrorModal>,
     /// Drag state for resizable pinned sidebar.
     sidebar_drag: Option<DragState>,
@@ -58,9 +57,13 @@ pub struct AppView {
     overlay_window: Option<AnyWindowHandle>,
     overlay_needs_attach: bool,
     overlay_parent_handle: Option<RawWindowHandle>,
+    /// Main window handle (for re-activation after overlay close).
+    main_window_handle: Option<AnyWindowHandle>,
     /// Cached parent window origin (screen coords) for overlay initial placement.
     parent_window_origin: Option<gpui::Point<gpui::Pixels>>,
     parent_viewport_size: Option<gpui::Size<gpui::Pixels>>,
+    /// Generation counter for overlay animations — cancels stale open/close tasks.
+    overlay_anim_gen: Arc<AtomicU32>,
 }
 
 impl std::fmt::Debug for AppView {
@@ -80,7 +83,6 @@ impl AppView {
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
         let settings_view = cx.new(|cx| SettingsView::new(app_state.clone(), cx));
         let confirm_modal = cx.new(|_| ConfirmModal::new(app_state.clone()));
-        let questions_panel = cx.new(|_| QuestionsPanel::new(app_state.clone()));
         let error_modal = cx.new(|_| ErrorModal::new(app_state.clone()));
 
         // Observe settings store: propagate font/theme changes to all terminal views.
@@ -140,7 +142,6 @@ impl AppView {
             new_instance_modal,
             settings_view,
             confirm_modal,
-            questions_panel,
             error_modal,
             sidebar_drag: None,
             sidebar_anim_gen: 0,
@@ -149,8 +150,10 @@ impl AppView {
             overlay_window: None,
             overlay_needs_attach: false,
             overlay_parent_handle: None,
+            main_window_handle: None,
             parent_window_origin: None,
             parent_viewport_size: None,
+            overlay_anim_gen: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -160,18 +163,19 @@ impl AppView {
         }
 
         let app_state = self.app_state.clone();
+        let overlay_width = SIDEBAR_WIDTH + OVERLAY_SIDEBAR_PADDING;
         let window_bounds = self.parent_window_origin.map(|origin| {
             let height = self.parent_viewport_size.map_or(px(800.0), |s| s.height);
             gpui::WindowBounds::Windowed(gpui::Bounds {
                 origin,
-                size: size(px(1.0), height),
+                size: size(px(overlay_width), height),
             })
         });
         let overlay_handle = cx.open_window(
             WindowOptions {
                 window_bounds,
                 titlebar: None,
-                focus: false,
+                focus: true,
                 show: true,
                 kind: WindowKind::PopUp,
                 is_movable: false,
@@ -187,74 +191,42 @@ impl AppView {
         );
 
         if let Ok(handle) = overlay_handle {
-            self.overlay_window = Some(handle.into());
+            let handle: AnyWindowHandle = handle.into();
+            self.overlay_window = Some(handle);
             self.overlay_needs_attach = true;
-            self.animate_overlay_open(cx);
+            // Activate overlay so macOS delivers mouse events to it
+            let _ = cx.update_window(handle, |_, child_window, _| {
+                child_window.activate_window();
+            });
         }
-    }
-
-    fn animate_overlay_open(&self, cx: &mut gpui::Context<Self>) {
-        let Some(overlay_window) = self.overlay_window else {
-            return;
-        };
-        let target_width = SIDEBAR_WIDTH + OVERLAY_SIDEBAR_PADDING;
-        let steps: u32 = 12;
-        let step_duration = Duration::from_millis(25);
-        let parent_viewport_size = self.parent_viewport_size;
-
-        cx.spawn(async move |_this, cx| {
-            for i in 1..=steps {
-                cx.background_executor().timer(step_duration).await;
-                #[allow(clippy::cast_precision_loss)]
-                let delta = ease_in_out(i as f32 / steps as f32);
-                let w = target_width * delta;
-                let height = parent_viewport_size.map_or(px(800.0), |s| s.height);
-                let _ = cx.update_window(overlay_window, |_, child_window, _| {
-                    child_window.resize(size(px(w), height));
-                });
-            }
-        })
-        .detach();
     }
 
     fn close_overlay_window_deferred(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(child_handle) = self.overlay_window.take() else {
             return;
         };
+        self.overlay_anim_gen.fetch_add(1, Ordering::Relaxed);
         self.overlay_needs_attach = false;
         let parent_raw = self.overlay_parent_handle.take();
-        let parent_viewport_size = self.parent_viewport_size;
+        let main_window = self.main_window_handle;
 
-        let start_width = SIDEBAR_WIDTH + OVERLAY_SIDEBAR_PADDING;
-        let steps: u32 = 10;
-        let step_duration = Duration::from_millis(20);
-
-        cx.spawn(async move |_this, cx| {
-            // Animate width from full to 0
-            for i in 1..=steps {
-                cx.background_executor().timer(step_duration).await;
-                #[allow(clippy::cast_precision_loss)]
-                let delta = ease_in_out(i as f32 / steps as f32);
-                let w = start_width * (1.0 - delta);
-                let height = parent_viewport_size.map_or(px(800.0), |s| s.height);
-                let _ = cx.update_window(child_handle, |_, child_window, _| {
-                    child_window.resize(size(px(w.max(1.0)), height));
-                });
-            }
-
-            // Detach and remove after animation
-            if let Some(parent_raw) = parent_raw {
-                let _ = cx.update_window(child_handle, |_, child_window, _| {
-                    if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
-                        conescope_platform::remove_child_window(parent_raw, child_wh.as_raw());
-                    }
-                });
-            }
+        // Detach from parent and remove
+        if let Some(parent_raw) = parent_raw {
             let _ = cx.update_window(child_handle, |_, child_window, _| {
-                child_window.remove_window();
+                if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
+                    conescope_platform::remove_child_window(parent_raw, child_wh.as_raw());
+                }
             });
-        })
-        .detach();
+        }
+        let _ = cx.update_window(child_handle, |_, child_window, _| {
+            child_window.remove_window();
+        });
+        // Re-activate main window
+        if let Some(main_win) = main_window {
+            let _ = cx.update_window(main_win, |_, window, _| {
+                window.activate_window();
+            });
+        }
     }
 
     fn sync_overlay_window_bounds(&mut self, window: &gpui::Window, cx: &mut gpui::Context<Self>) {
@@ -530,7 +502,6 @@ impl Render for AppView {
             view_mode,
             new_instance_modal_open,
             confirm_open,
-            questions_open,
             error_open,
             sidebar_open,
             sidebar_overlay_visible,
@@ -542,7 +513,6 @@ impl Render for AppView {
                 state.view_mode(cx),
                 state.new_instance_modal_open,
                 state.confirm_action.is_some(),
-                state.questions_queue_open,
                 state.error_message.is_some(),
                 state.sidebar_open(cx),
                 state.sidebar_overlay_visible,
@@ -550,11 +520,9 @@ impl Render for AppView {
                 state.theme().clone(),
             )
         };
-        let text_muted = theme.text_muted;
-        let element_hover = theme.element_hover;
-
         self.parent_window_origin = Some(window.bounds().origin);
         self.parent_viewport_size = Some(window.viewport_size());
+        self.main_window_handle = Some(gpui::Window::window_handle(window));
 
         if sidebar_overlay_visible {
             self.sync_overlay_window_bounds(window, cx);
@@ -710,40 +678,12 @@ impl Render for AppView {
                         })),
                 )
             })
-            // Toggle sidebar icon (top-left) when sidebar hidden — pins the sidebar
-            .when(!sidebar_open && !sidebar_overlay_visible, |el| {
-                let app_state = self.app_state.clone();
-                el.child(
-                    div()
-                        .id("sidebar-toggle-icon")
-                        .absolute()
-                        .top(px(12.))
-                        .left(px(12.))
-                        .p(px(4.))
-                        .rounded(px(4.))
-                        .cursor_pointer()
-                        .hover(move |s| s.bg(element_hover))
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            cx.stop_propagation();
-                            app_state.update(cx, AppState::toggle_sidebar_mode);
-                        })
-                        .child(
-                            gpui::svg()
-                                .path(icons::ICON_SIDEBAR)
-                                .size(px(16.))
-                                .text_color(text_muted),
-                        ),
-                )
-            })
             // Modal overlays (highest z_index)
             .when(new_instance_modal_open, |el| {
                 el.child(self.new_instance_modal.clone())
             })
             .when(confirm_open, |el| {
                 el.child(self.confirm_modal.clone())
-            })
-            .when(questions_open, |el| {
-                el.child(self.questions_panel.clone())
             })
             .when(error_open, |el| {
                 el.child(self.error_modal.clone())

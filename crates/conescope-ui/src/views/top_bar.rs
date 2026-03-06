@@ -260,7 +260,7 @@ impl Render for TopBar {
             .flex()
             .flex_row()
             .items_center()
-            .child(div().w(px(76.)))
+            .child(div().w(px(8.)))
             .child(sidebar_btn);
 
         if let Some(fi) = &focus_info {

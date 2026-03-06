@@ -1,7 +1,5 @@
-use std::time::Duration;
-
 use gpui::prelude::*;
-use gpui::{Animation, AnimationExt, ElementId, Entity, div, ease_in_out, px};
+use gpui::{Entity, div, px};
 
 use crate::state::app_state::AppState;
 use crate::views::sidebar::{SIDEBAR_WIDTH, Sidebar};
@@ -37,19 +35,6 @@ impl Render for OverlaySidebarView {
             .size_full()
             .overflow_hidden()
             .text_color(theme.text)
-            .child(
-                div()
-                    .h_full()
-                    .w(px(SIDEBAR_WIDTH))
-                    .child(sidebar_content)
-                    .with_animation(
-                        ElementId::Name("overlay-content-slide".into()),
-                        Animation::new(Duration::from_millis(300)).with_easing(ease_in_out),
-                        move |el, delta| {
-                            let offset = SIDEBAR_WIDTH * (1.0 - delta);
-                            el.ml(px(-offset))
-                        },
-                    ),
-            )
+            .child(div().h_full().w(px(SIDEBAR_WIDTH)).child(sidebar_content))
     }
 }
