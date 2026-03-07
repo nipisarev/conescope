@@ -188,6 +188,11 @@ fn load_data_async(
                     );
                 });
 
+                // Notify AppState so resize_focused_terminal observer fires.
+                // Without this, terminals stay at the initial 80x24 PTY size
+                // because restore_terminals only notifies InstanceList/Entry.
+                app_state_for_restore.update(cx, |_, cx| cx.notify());
+
                 // Initialize git store for the focused instance's project
                 let focused_project_path = app_state_for_restore
                     .read(cx)

@@ -88,8 +88,22 @@ pub fn spawn_terminal_pane(
     window: &mut gpui::Window,
     cx: &mut gpui::App,
 ) -> TerminalPane {
-    let initial_rows: u16 = 24;
-    let initial_cols: u16 = 80;
+    // Compute initial PTY size from viewport to avoid 80x24 → actual-size
+    // transition that garbles output (shell starts emitting at wrong dimensions).
+    // Uses conservative fractions (70% width, 40% height) to account for UI chrome.
+    // The resize observer corrects to exact values shortly after.
+    let (initial_cols, initial_rows) =
+        compute_cell_metrics(window, Some(font_size), font_family, line_height_ratio).map_or(
+            (80, 24),
+            |(cw, ch)| {
+                let vp = window.viewport_size();
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                let cols = ((f32::from(vp.width) * 0.7) / cw).floor().max(80.0) as u16;
+                #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                let rows = ((f32::from(vp.height) * 0.4) / ch).floor().max(24.0) as u16;
+                (cols, rows)
+            },
+        );
 
     let pty_system = native_pty_system();
     let pty_pair = pty_system

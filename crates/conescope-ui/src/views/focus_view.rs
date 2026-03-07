@@ -35,6 +35,9 @@ const TOP_BAR_HEIGHT: f32 = 36.0;
 const ACTIVITY_BAR_HEIGHT: f32 = 28.0;
 const TERMINAL_TABS_HEIGHT: f32 = 28.0;
 const DIVIDER_SIZE: f32 = 1.0;
+// Content card margins from app_view.rs layout.
+const CONTENT_CARD_MARGIN_V: f32 = 24.0; // mt(12) + mb(12)
+const CONTENT_CARD_MARGIN_H: f32 = 12.0; // mr(12); ml(12) only when sidebar closed
 
 pub struct FocusView {
     app_state: Entity<AppState>,
@@ -915,11 +918,9 @@ impl Render for FocusView {
     }
 }
 
-/// Shared state for debounced PTY resize.
+/// Shared state for terminal resize deduplication.
 struct ResizeState {
     last_grid: Cell<(u16, u16)>,
-    last_pty_grid: Cell<(u16, u16)>,
-    pty_gen: Cell<u32>,
 }
 
 /// Compute the target (cols, rows) for the focused terminal from current layout.
@@ -954,11 +955,14 @@ fn compute_terminal_grid(
     }
 
     let size = window.viewport_size();
-    let mut content_height = f32::from(size.height) - TOP_BAR_HEIGHT - ACTIVITY_BAR_HEIGHT;
-    let mut content_width = f32::from(size.width);
+    let mut content_height =
+        f32::from(size.height) - TOP_BAR_HEIGHT - ACTIVITY_BAR_HEIGHT - CONTENT_CARD_MARGIN_V;
+    let mut content_width = f32::from(size.width) - CONTENT_CARD_MARGIN_H;
 
     if sidebar_visible {
         content_width -= this.sidebar_width(cx) + DIVIDER_SIZE;
+    } else {
+        content_width -= CONTENT_CARD_MARGIN_H; // ml(12) when no sidebar
     }
 
     content_height -= TERMINAL_TABS_HEIGHT;
@@ -983,21 +987,17 @@ fn compute_terminal_grid(
     Some((cols, rows, entry.clone()))
 }
 
-/// Resize the focused terminal view immediately, and debounce the PTY resize.
+/// Resize the focused terminal views immediately for smooth visual reflow.
 ///
-/// The visual terminal (alacritty reflow) updates every frame for smooth appearance.
-/// Resize terminal views immediately; debounce PTY resize (SIGWINCH).
-///
-/// The visual terminal (alacritty reflow) updates every frame for smooth appearance.
-/// The PTY resize (SIGWINCH → shell redraw) is deferred ~80ms so the shell doesn't
-/// spam redraws during window drag. When the debounce fires, `terminal_resize_gen`
-/// on `AppState` is bumped to trigger a fade-in animation masking the shell redraw.
+/// PTY resize (SIGWINCH) is NOT done here — it is handled solely by
+/// `ContainerResize` emitted from `TerminalView` after `TerminalElement.prepaint`
+/// computes the exact cols/rows from actual element bounds. This avoids a race
+/// where two resize paths fight over the PTY size.
 fn resize_focused_terminal(
     this: &AppState,
     window: &mut gpui::Window,
     cx: &mut gpui::App,
     state: &Rc<ResizeState>,
-    app_state: &Entity<AppState>,
 ) {
     let Some((cols, rows, entry)) = compute_terminal_grid(this, window, cx) else {
         return;
@@ -1022,42 +1022,6 @@ fn resize_focused_terminal(
     for stv in shell_tvs {
         stv.update(cx, |view, cx| view.resize_terminal(cols, rows, cx));
     }
-
-    // Debounce PTY resize (SIGWINCH) — bump generation, only the latest fires.
-    let pty_gen = state.pty_gen.get().wrapping_add(1);
-    state.pty_gen.set(pty_gen);
-
-    let state_ref = Rc::clone(state);
-    let entry2 = entry.clone();
-    let app_state2 = app_state.clone();
-    entry.update(cx, |_inst, cx| {
-        cx.spawn(async move |_this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(80))
-                .await;
-            cx.update(|cx| {
-                if state_ref.pty_gen.get() != pty_gen {
-                    return;
-                }
-                let (cols, rows) = state_ref.last_grid.get();
-                if state_ref.last_pty_grid.get() == (cols, rows) {
-                    return;
-                }
-                state_ref.last_pty_grid.set((cols, rows));
-
-                let inst = entry2.read(cx);
-                inst.resize_pty(cols, rows);
-                inst.resize_all_shell_ptys(cols, rows);
-
-                // Bump generation to trigger fade-in animation masking the shell redraw.
-                app_state2.update(cx, |s, cx| {
-                    s.terminal_resize_gen = s.terminal_resize_gen.wrapping_add(1);
-                    cx.notify();
-                });
-            });
-        })
-        .detach();
-    });
 }
 
 /// Register observers that resize the focused instance's PTY.
@@ -1077,28 +1041,23 @@ pub fn register_focus_resize(
 
     let state: Rc<ResizeState> = Rc::new(ResizeState {
         last_grid: Cell::new((0, 0)),
-        last_pty_grid: Cell::new((0, 0)),
-        pty_gen: Cell::new(0),
     });
 
     let s1 = Rc::clone(&state);
-    let as1 = app_state.clone();
     cx.observe(app_state, move |entity, cx| {
         let s = &s1;
-        let asr = &as1;
         let _ = cx.update_window(window_handle, |_, window, cx| {
             entity.update(cx, |app_state, cx| {
-                resize_focused_terminal(app_state, window, cx, s, asr);
+                resize_focused_terminal(app_state, window, cx, s);
             });
         });
     })
     .detach();
 
     let s2 = state;
-    let as2 = app_state.clone();
     app_state_observer.update(cx, |_, cx| {
         cx.observe_window_bounds(window, move |this, window, cx| {
-            resize_focused_terminal(this, window, cx, &s2, &as2);
+            resize_focused_terminal(this, window, cx, &s2);
         })
     })
 }
