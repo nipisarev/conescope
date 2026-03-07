@@ -67,7 +67,10 @@ pub fn position_overlay_at_parent(parent: RawWindowHandle, child: RawWindowHandl
         return;
     };
     let parent_frame = parent_win.frame();
-    child_win.setFrameOrigin(parent_frame.origin);
+    let mut origin = parent_frame.origin;
+    origin.x += 6.0;
+    origin.y += 6.0;
+    child_win.setFrameOrigin(origin);
 }
 
 /// Defers `setFrame:display:animate:` to the next main-queue iteration via

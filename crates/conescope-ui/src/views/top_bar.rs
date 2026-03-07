@@ -1,7 +1,6 @@
 use gpui::prelude::*;
 use gpui::{Entity, Hsla, MouseButton, div, px, svg};
 
-use crate::actions::OpenSettings;
 use crate::icons;
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -301,59 +300,11 @@ impl Render for TopBar {
 }
 
 fn render_overview_buttons(
-    app_state: &Entity<AppState>,
-    font_size: f32,
-    theme: &Theme,
+    _app_state: &Entity<AppState>,
+    _font_size: f32,
+    _theme: &Theme,
 ) -> gpui::Div {
-    let app_state_q = app_state.clone();
-    let text_muted: Hsla = theme.text_muted.into();
-    let text: Hsla = theme.text.into();
-    let icon_size = px(font_size + 1.0);
-
     div()
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap(px(8.))
-        .pr(px(12.))
-        // Questions button
-        .child(
-            div()
-                .px(px(6.))
-                .py(px(4.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(move |s| s.text_color(text))
-                .child(
-                    svg()
-                        .path(icons::ICON_QUESTION)
-                        .size(icon_size)
-                        .text_color(text_muted)
-                        .flex_shrink_0(),
-                )
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    app_state_q.update(cx, AppState::toggle_questions_queue);
-                }),
-        )
-        // Settings button
-        .child(
-            div()
-                .px(px(6.))
-                .py(px(4.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(move |s| s.text_color(text))
-                .child(
-                    svg()
-                        .path(icons::ICON_SETTINGS)
-                        .size(icon_size)
-                        .text_color(text_muted)
-                        .flex_shrink_0(),
-                )
-                .on_mouse_down(MouseButton::Left, |_, window, cx| {
-                    window.dispatch_action(Box::new(OpenSettings), cx);
-                }),
-        )
 }
 
 fn render_settings_buttons(

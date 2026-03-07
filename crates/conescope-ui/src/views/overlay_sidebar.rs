@@ -34,6 +34,7 @@ impl Render for OverlaySidebarView {
         div()
             .size_full()
             .overflow_hidden()
+            .rounded(px(10.))
             .text_color(theme.text)
             .child(div().h_full().w(px(SIDEBAR_WIDTH)).child(sidebar_content))
     }

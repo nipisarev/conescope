@@ -31,6 +31,7 @@ use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
 
 const OVERLAY_SIDEBAR_PADDING: f32 = 0.0;
+const OVERLAY_INSET: f32 = 6.0;
 
 pub struct AppView {
     pub app_state: Entity<AppState>,
@@ -158,12 +159,14 @@ impl AppView {
         }
 
         let app_state = self.app_state.clone();
-        let overlay_width = SIDEBAR_WIDTH + OVERLAY_SIDEBAR_PADDING;
         let window_bounds = self.parent_window_origin.map(|origin| {
             let height = self.parent_viewport_size.map_or(px(800.0), |s| s.height);
             gpui::WindowBounds::Windowed(gpui::Bounds {
-                origin,
-                size: size(px(overlay_width), height),
+                origin: gpui::Point {
+                    x: origin.x + px(OVERLAY_INSET),
+                    y: origin.y + px(OVERLAY_INSET),
+                },
+                size: size(px(1.0), height - px(2.0 * OVERLAY_INSET)),
             })
         });
         let overlay_handle = cx.open_window(
@@ -200,28 +203,57 @@ impl AppView {
         let Some(child_handle) = self.overlay_window.take() else {
             return;
         };
-        self.overlay_anim_gen.fetch_add(1, Ordering::Relaxed);
+        let close_gen = self
+            .overlay_anim_gen
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        let anim_gen = self.overlay_anim_gen.clone();
         self.overlay_needs_attach = false;
         let parent_raw = self.overlay_parent_handle.take();
         let main_window = self.main_window_handle;
 
-        // Detach from parent and remove
-        if let Some(parent_raw) = parent_raw {
-            let _ = cx.update_window(child_handle, |_, child_window, _| {
-                if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
-                    conescope_platform::remove_child_window(parent_raw, child_wh.as_raw());
-                }
-            });
-        }
+        // Get current height for the animate call
+        let height = self
+            .parent_viewport_size
+            .map_or(800.0_f32, |s| f32::from(s.height))
+            - 2.0 * OVERLAY_INSET;
+
+        // Animate width to near-zero (slide out to left)
         let _ = cx.update_window(child_handle, |_, child_window, _| {
-            child_window.remove_window();
+            if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
+                conescope_platform::animate_resize(child_wh.as_raw(), 1.0, f64::from(height));
+            }
         });
-        // Re-activate main window
-        if let Some(main_win) = main_window {
-            let _ = cx.update_window(main_win, |_, window, _| {
-                window.activate_window();
+
+        // After animation completes (~250ms), detach and remove
+        cx.spawn(async move |_, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(250))
+                .await;
+            // Check if this close was superseded by a newer animation
+            if anim_gen.load(Ordering::Relaxed) != close_gen {
+                return;
+            }
+            // Detach from parent
+            if let Some(parent_raw) = parent_raw {
+                let _ = cx.update_window(child_handle, |_, child_window, _| {
+                    if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
+                        conescope_platform::remove_child_window(parent_raw, child_wh.as_raw());
+                    }
+                });
+            }
+            // Remove overlay window
+            let _ = cx.update_window(child_handle, |_, child_window, _| {
+                child_window.remove_window();
             });
-        }
+            // Re-activate main window
+            if let Some(main_win) = main_window {
+                let _ = cx.update_window(main_win, |_, window, _| {
+                    window.activate_window();
+                });
+            }
+        })
+        .detach();
     }
 
     fn sync_overlay_window_bounds(&mut self, window: &gpui::Window, cx: &mut gpui::Context<Self>) {
@@ -234,8 +266,9 @@ impl AppView {
         if self.overlay_needs_attach {
             self.overlay_needs_attach = false;
 
+            // Start with tiny width (will animate to full)
             let _ = cx.update_window(child_handle, |_, child_window, _| {
-                child_window.resize(size(px(overlay_width), main_size.height));
+                child_window.resize(size(px(1.0), main_size.height - px(2.0 * OVERLAY_INSET)));
             });
 
             if let Ok(parent_wh) = HasWindowHandle::window_handle(window) {
@@ -244,13 +277,22 @@ impl AppView {
                     if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
                         conescope_platform::add_child_window(parent_raw, child_wh.as_raw());
                         conescope_platform::configure_overlay_panel(child_wh.as_raw());
+                        // Animate slide-in
+                        conescope_platform::animate_resize(
+                            child_wh.as_raw(),
+                            f64::from(overlay_width),
+                            f64::from(f32::from(main_size.height) - 2.0 * OVERLAY_INSET),
+                        );
                     }
                 });
                 self.overlay_parent_handle = Some(parent_raw);
             }
         } else {
             let _ = cx.update_window(child_handle, |_, child_window, _| {
-                child_window.resize(size(px(overlay_width), main_size.height));
+                child_window.resize(size(
+                    px(overlay_width),
+                    main_size.height - px(2.0 * OVERLAY_INSET),
+                ));
             });
         }
     }
@@ -538,7 +580,9 @@ impl Render for AppView {
             .bg(theme.background)
             .overflow_hidden()
             .shadow_lg()
-            .child(self.top_bar.clone())
+            .when(view_mode != ViewMode::Overview, |el| {
+                el.child(self.top_bar.clone())
+            })
             .child(
                 div()
                     .flex_1()
@@ -601,7 +645,7 @@ impl Render for AppView {
             // Auto-hide overlay when cursor returns to main window (delayed)
             .when(sidebar_overlay_visible, |el| {
                 el.on_mouse_move(cx.listener(|this, event: &gpui::MouseMoveEvent, _window, cx| {
-                    if f32::from(event.position.x) > 20.0 {
+                    if f32::from(event.position.x) > SIDEBAR_WIDTH {
                         this.start_auto_hide(cx);
                     }
                 }))

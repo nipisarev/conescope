@@ -285,24 +285,34 @@ fn render_close_button(
         )
 }
 
-fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &Theme) -> gpui::Div {
+fn render_bottom_section(
+    app_state: &Entity<AppState>,
+    font_size: f32,
+    glass: bool,
+    theme: &Theme,
+) -> gpui::Div {
     let app_state_click = app_state.clone();
     let element_hover = theme.element_hover;
     let text_muted = theme.text_muted;
     let text_faint = theme.text_faint;
     let icon_size = px(font_size);
     let cmd_icon_size = px(font_size - 3.0);
+    let (divider_ml, button_horiz, button_bottom) = if glass {
+        (14.0, 10.0, 6.0)
+    } else {
+        (20.0, 16.0, 12.0)
+    };
 
     div()
         .flex_shrink_0()
         // Divider
-        .child(div().h(px(1.)).ml(px(20.)).w_full().bg(theme.border))
+        .child(div().h(px(1.)).ml(px(divider_ml)).w_full().bg(theme.border))
         // Button
         .child(
             div()
                 .my(px(4.))
-                .mx(px(16.))
-                .mb(px(12.))
+                .mx(px(button_horiz))
+                .mb(px(button_bottom))
                 .pl(px(8.))
                 .py(px(6.))
                 .rounded(px(4.))
@@ -348,6 +358,29 @@ fn render_bottom_section(app_state: &Entity<AppState>, font_size: f32, theme: &T
                                 .flex_shrink_0(),
                         )
                         .child("N"),
+                )
+                // Settings gear icon
+                .child(
+                    div()
+                        .px(px(4.))
+                        .py(px(2.))
+                        .rounded(px(4.))
+                        .cursor_pointer()
+                        .hover(move |s| s.bg(element_hover))
+                        .child(
+                            svg()
+                                .path(icons::ICON_SETTINGS)
+                                .size(icon_size)
+                                .text_color(text_muted)
+                                .flex_shrink_0(),
+                        )
+                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                            cx.stop_propagation();
+                            window.dispatch_action(
+                                Box::new(crate::actions::OpenSettings),
+                                cx,
+                            );
+                        }),
                 ),
         )
 }
@@ -406,7 +439,7 @@ fn render_window_controls() -> gpui::Div {
 fn render_sidebar_header(
     app_state: &Entity<AppState>,
     sidebar_mode: SidebarMode,
-    _glass: bool,
+    glass: bool,
     prefix: &str,
     theme: &Theme,
 ) -> gpui::Div {
@@ -418,14 +451,16 @@ fn render_sidebar_header(
     let element_hover = theme.element_hover;
     let app_state_toggle = app_state.clone();
 
+    let (top_pad, left_margin) = if glass { (24.0, 18.0) } else { (30.0, 24.0) };
+
     div()
         .flex()
         .flex_row()
         .items_center()
         .h(px(36.))
-        .pt(px(30.))
+        .pt(px(top_pad))
         .pb(px(20.))
-        .ml(px(24.))
+        .ml(px(left_margin))
         .gap(px(8.))
         .flex_shrink_0()
         // Window controls (left) — hidden in overlay/glass mode
@@ -479,7 +514,8 @@ impl Sidebar {
 
         let entries = collect_sidebar_entries(&self.app_state, cx);
 
-        let mut list = div().flex().flex_col().gap(px(6.)).px(px(16.));
+        let list_px = if glass { 10.0 } else { 16.0 };
+        let mut list = div().flex().flex_col().gap(px(6.)).px(px(list_px));
         for entry in &entries {
             let input = if editing_tile_id.as_deref() == Some(entry.id.as_str()) {
                 editing_input.as_ref()
@@ -522,7 +558,7 @@ impl Sidebar {
                     .child(list),
             )
             // Pinned bottom section
-            .child(render_bottom_section(&self.app_state, font_size, &theme))
+            .child(render_bottom_section(&self.app_state, font_size, glass, &theme))
     }
 }
 
