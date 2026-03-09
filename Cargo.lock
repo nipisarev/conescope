@@ -1076,6 +1076,7 @@ dependencies = [
  "flume",
  "gpui",
  "gpui-component",
+ "indexmap",
  "notify 6.1.1",
  "portable-pty",
  "raw-window-handle",

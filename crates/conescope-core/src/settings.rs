@@ -35,7 +35,7 @@ fn default_comment_font_family() -> String {
     "Requires app restart for existing terminals".into()
 }
 fn default_theme() -> String {
-    "dark".into()
+    "Gruvbox Material".into()
 }
 fn default_font_family() -> String {
     "Menlo".into()
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn default_values() {
         let s = SettingsJson::default();
-        assert_eq!(s.theme, "dark");
+        assert_eq!(s.theme, "Gruvbox Material");
         assert_eq!(s.font_family, "Menlo");
         assert_eq!(s.editor_font_size, 13);
         assert_eq!(s.terminal_font_size, 13);
@@ -230,7 +230,7 @@ mod tests {
     fn load_missing_file_returns_defaults() {
         let dir = PathBuf::from("/tmp/conescope-test-nonexistent-dir-xyz");
         let s = SettingsJson::load_from_file(&dir);
-        assert_eq!(s.theme, "dark");
+        assert_eq!(s.theme, "Gruvbox Material");
         assert_eq!(s.font_family, "Menlo");
     }
 
@@ -264,7 +264,7 @@ mod tests {
         std::fs::write(dir.join("settings.json"), "not valid json!!!").unwrap();
 
         let s = SettingsJson::load_from_file(&dir);
-        assert_eq!(s.theme, "dark");
+        assert_eq!(s.theme, "Gruvbox Material");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

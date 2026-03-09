@@ -240,8 +240,6 @@ fn main() {
             gpui_component::init(cx);
             bind_keys(cx);
 
-            let app_state = AppState::new(db.clone(), cx);
-
             // Load user settings from JSON file (with DB migration on first run)
             let settings_dir = SettingsJson::settings_dir();
             let settings_path = SettingsJson::file_path(&settings_dir);
@@ -259,6 +257,14 @@ fn main() {
                 migrated
             };
 
+            // Build theme registry and resolve initial theme
+            let mut theme_registry = conescope_ui::theme::ThemeRegistry::new();
+            theme_registry.load_user_themes();
+            let initial_theme_name =
+                conescope_ui::theme::ThemeRegistry::resolve_legacy(&user_settings.theme);
+
+            let app_state = AppState::new(db.clone(), theme_registry, &initial_theme_name, cx);
+
             // Load session state from DB
             if let Ok(Ok(db_settings)) = db.get_all_settings().recv() {
                 let settings_store = app_state.read(cx).settings_store.clone();
@@ -272,19 +278,6 @@ fn main() {
             {
                 let settings_store = app_state.read(cx).settings_store.clone();
                 settings_store.update(cx, |store, _| store.load_settings(user_settings.clone()));
-            }
-
-            // Apply saved theme
-            {
-                let mode =
-                    conescope_ui::theme::ThemeMode::from_str_or_default(&user_settings.theme);
-                if mode != app_state.read(cx).theme().mode {
-                    app_state.update(cx, |s, cx| s.set_theme(mode, cx));
-                }
-                // Sync our theme colors into gpui-component's global theme
-                // (set_theme does this internally, but we need it for the default case too)
-                let theme = app_state.read(cx).theme().clone();
-                conescope_ui::state::app_state::sync_gpui_component_theme(&theme, cx);
             }
 
             // Read saved window bounds

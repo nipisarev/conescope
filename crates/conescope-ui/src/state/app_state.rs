@@ -8,7 +8,7 @@ use super::project_store::ProjectStore;
 use super::pulse_timer::PulseTimer;
 use super::session_detector::SessionStatus;
 use super::settings_store::{SettingsStore, SidebarMode, SidebarTab, ViewMode};
-use crate::theme::{Theme, ThemeMode};
+use crate::theme::{Theme, ThemeMode, ThemeRegistry};
 use crate::views::text_input::{TextInput, TextInputEvent};
 
 /// Pending confirmation dialog state.
@@ -37,6 +37,10 @@ pub struct AppState {
     pub editing_input: Option<Entity<TextInput>>,
     /// Active color theme.
     theme: Theme,
+    /// Theme registry (all bundled + user themes).
+    theme_registry: ThemeRegistry,
+    /// Transient preview theme name (for settings UI live preview).
+    preview_theme_name: Option<String>,
     /// Whether the overlay sidebar is currently visible (transient, not persisted).
     pub sidebar_overlay_visible: bool,
     /// Whether the overlay sidebar content should be visible (staggered animation).
@@ -57,10 +61,24 @@ impl std::fmt::Debug for AppState {
 
 impl AppState {
     #[must_use]
-    pub fn new(db: DbHandle, cx: &mut gpui::App) -> Entity<Self> {
+    pub fn new(
+        db: DbHandle,
+        theme_registry: ThemeRegistry,
+        initial_theme_name: &str,
+        cx: &mut gpui::App,
+    ) -> Entity<Self> {
         let db2 = db.clone();
         let db3 = db.clone();
         let db4 = db.clone();
+
+        let initial_theme = theme_registry
+            .get(initial_theme_name)
+            .cloned()
+            .unwrap_or_else(|| Theme::load_builtin(ThemeMode::Dark));
+
+        // Sync gpui-component global theme on startup
+        sync_gpui_component_theme(&initial_theme, cx);
+
         cx.new(|cx| {
             let instance_list = cx.new(|_| InstanceList::new(db2));
             let project_store = cx.new(|_| ProjectStore::new(db3));
@@ -93,7 +111,9 @@ impl AppState {
                 error_message: None,
                 editing_tile_id: None,
                 editing_input: None,
-                theme: Theme::load_builtin(ThemeMode::Light),
+                theme: initial_theme,
+                theme_registry,
+                preview_theme_name: None,
                 sidebar_overlay_visible: false,
                 overlay_content_visible: false,
                 sidebar_hover_gen: 0,
@@ -104,21 +124,40 @@ impl AppState {
 
     #[must_use]
     pub fn theme(&self) -> &Theme {
+        if let Some(ref name) = self.preview_theme_name {
+            if let Some(t) = self.theme_registry.get(name) {
+                return t;
+            }
+        }
         &self.theme
     }
 
-    pub fn set_theme(&mut self, mode: ThemeMode, cx: &mut gpui::Context<Self>) {
-        self.theme = Theme::load_builtin(mode);
-        sync_gpui_component_theme(&self.theme, cx);
-        self.settings_store.update(cx, |store, _| {
-            mode.as_str().clone_into(&mut store.settings_mut().theme);
-        });
-        cx.notify();
+    #[must_use]
+    pub fn theme_registry(&self) -> &ThemeRegistry {
+        &self.theme_registry
     }
 
-    pub fn cycle_theme(&mut self, cx: &mut gpui::Context<Self>) {
-        let new_mode = self.theme.mode.toggle();
-        self.set_theme(new_mode, cx);
+    pub fn set_theme_by_name(&mut self, name: &str, cx: &mut gpui::Context<Self>) {
+        if let Some(t) = self.theme_registry.get(name).cloned() {
+            self.theme = t;
+            self.preview_theme_name = None;
+            sync_gpui_component_theme(&self.theme, cx);
+            self.settings_store.update(cx, |store, _| {
+                name.clone_into(&mut store.settings_mut().theme);
+            });
+            cx.notify();
+        }
+    }
+
+    pub fn preview_theme(&mut self, name: Option<&str>, cx: &mut gpui::Context<Self>) {
+        let new_name = name.map(str::to_owned);
+        if self.preview_theme_name == new_name {
+            return;
+        }
+        self.preview_theme_name = new_name;
+        // Sync gpui-component to the preview theme (or active theme if clearing)
+        sync_gpui_component_theme(self.theme(), cx);
+        cx.notify();
     }
 
     #[must_use]
@@ -294,11 +333,10 @@ impl AppState {
     }
 
     pub fn close_settings(&mut self, cx: &mut gpui::Context<Self>) {
-        // Apply theme from current settings
-        let theme_str = self.settings_store.read(cx).settings().theme.clone();
-        let mode = crate::theme::ThemeMode::from_str_or_default(&theme_str);
-        if mode != self.theme.mode {
-            self.theme = Theme::load_builtin(mode);
+        // Clear any preview and restore the persisted theme
+        if self.preview_theme_name.is_some() {
+            self.preview_theme_name = None;
+            sync_gpui_component_theme(&self.theme, cx);
         }
 
         self.settings_store

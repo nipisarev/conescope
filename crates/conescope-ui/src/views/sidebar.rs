@@ -307,63 +307,72 @@ fn render_bottom_section(
         .flex_shrink_0()
         // Divider
         .child(div().h(px(1.)).ml(px(divider_ml)).w_full().bg(theme.border))
-        // Button
+        // Bottom bar: "Create new window" button + settings gear
         .child(
             div()
                 .my(px(4.))
                 .mx(px(button_horiz))
                 .mb(px(button_bottom))
-                .pl(px(8.))
-                .py(px(6.))
-                .rounded(px(4.))
-                .cursor_pointer()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap(px(4.))
-                .hover(move |s| s.bg(element_hover))
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    app_state_click.update(cx, AppState::toggle_new_instance_modal);
-                })
-                // Folder-plus icon
-                .child(
-                    svg()
-                        .path(icons::ICON_FOLDER_PLUS)
-                        .size(icon_size)
-                        .text_color(text_muted)
-                        .flex_shrink_0(),
-                )
-                // Label
+                // "Create a new window" button
                 .child(
                     div()
                         .flex_1()
-                        .text_color(text_muted)
-                        .text_size(px(font_size - 1.0))
-                        .child("Create a new window"),
-                )
-                // Shortcut hint
-                .child(
-                    div()
+                        .pl(px(8.))
+                        .py(px(6.))
+                        .rounded(px(4.))
+                        .cursor_pointer()
                         .flex()
                         .flex_row()
                         .items_center()
-                        .gap(px(1.))
-                        .text_color(text_faint)
-                        .text_size(px(font_size - 2.0))
+                        .gap(px(4.))
+                        .hover(move |s| s.bg(element_hover))
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            app_state_click.update(cx, AppState::toggle_new_instance_modal);
+                        })
+                        // Folder-plus icon
                         .child(
                             svg()
-                                .path(icons::ICON_COMMAND)
-                                .size(cmd_icon_size)
-                                .text_color(text_faint)
+                                .path(icons::ICON_FOLDER_PLUS)
+                                .size(icon_size)
+                                .text_color(text_muted)
                                 .flex_shrink_0(),
                         )
-                        .child("N"),
+                        // Label
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_color(text_muted)
+                                .text_size(px(font_size - 1.0))
+                                .child("Create a new window"),
+                        )
+                        // Shortcut hint
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(1.))
+                                .text_color(text_faint)
+                                .text_size(px(font_size - 2.0))
+                                .child(
+                                    svg()
+                                        .path(icons::ICON_COMMAND)
+                                        .size(cmd_icon_size)
+                                        .text_color(text_faint)
+                                        .flex_shrink_0(),
+                                )
+                                .child("N"),
+                        ),
                 )
-                // Settings gear icon
+                // Settings gear icon (separate button)
                 .child(
                     div()
                         .px(px(4.))
-                        .py(px(2.))
+                        .py(px(6.))
                         .rounded(px(4.))
                         .cursor_pointer()
                         .hover(move |s| s.bg(element_hover))
@@ -374,12 +383,12 @@ fn render_bottom_section(
                                 .text_color(text_muted)
                                 .flex_shrink_0(),
                         )
-                        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                            cx.stop_propagation();
-                            window.dispatch_action(
-                                Box::new(crate::actions::OpenSettings),
-                                cx,
-                            );
+                        .on_mouse_down(MouseButton::Left, {
+                            let app_state = app_state.clone();
+                            move |_, _, cx| {
+                                cx.stop_propagation();
+                                app_state.update(cx, AppState::open_settings);
+                            }
                         }),
                 ),
         )

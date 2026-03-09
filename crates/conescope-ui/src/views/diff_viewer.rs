@@ -145,7 +145,7 @@ impl Render for DiffViewer {
                         .w_full()
                         .px(px(8.))
                         .py(px(2.))
-                        .bg(rgba(0x2222_44ff))
+                        .bg(theme.diff_hunk_header_bg)
                         .text_size(px(font_size - 2.0))
                         .text_color(theme.text_faint)
                         .child(hunk.header.clone()),
@@ -173,8 +173,8 @@ impl Render for DiffViewer {
 /// Render a single diff line with line number gutters and content.
 fn render_diff_line(line: &DiffLine, font_size: f32, theme: &Theme) -> impl IntoElement {
     let (bg, prefix, text_color) = match line.origin {
-        LineOrigin::Addition => (rgba(0x2a3a_2aff), "+", rgba(0x98c3_79ff)),
-        LineOrigin::Deletion => (rgba(0x3a2a_2aff), "-", rgba(0xe06c_75ff)),
+        LineOrigin::Addition => (theme.diff_add_bg, "+", theme.diff_add_text),
+        LineOrigin::Deletion => (theme.diff_delete_bg, "-", theme.diff_delete_text),
         LineOrigin::Context => (rgba(0x0000_0000), " ", theme.text),
     };
 

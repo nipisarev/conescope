@@ -1,6 +1,6 @@
 use conescope_core::settings::SettingsJson;
 use gpui::prelude::*;
-use gpui::{Entity, MouseButton, div, px};
+use gpui::{Entity, MouseButton, deferred, div, px};
 
 use crate::state::app_state::AppState;
 use crate::state::settings_store::ViewMode;
@@ -13,6 +13,7 @@ pub struct SettingsView {
     editor_font_size_input: Entity<TextInput>,
     terminal_font_size_input: Entity<TextInput>,
     terminal_line_height_input: Entity<TextInput>,
+    theme_dropdown_open: bool,
 }
 
 impl std::fmt::Debug for SettingsView {
@@ -72,6 +73,7 @@ impl SettingsView {
             editor_font_size_input,
             terminal_font_size_input,
             terminal_line_height_input,
+            theme_dropdown_open: false,
         }
     }
 
@@ -223,91 +225,210 @@ fn render_setting_row(
         )
 }
 
-fn render_theme_toggle(
-    current_mode: ThemeMode,
-    app_state: &Entity<AppState>,
-    theme: &Theme,
-) -> gpui::Div {
-    let app_state_dark = app_state.clone();
-    let app_state_light = app_state.clone();
+struct ThemeDropdownCtx {
+    text: gpui::Rgba,
+    text_muted: gpui::Rgba,
+    accent: gpui::Rgba,
+    element_hover: gpui::Rgba,
+    active_name: String,
+    app_state: Entity<AppState>,
+}
 
-    let dark_active = current_mode == ThemeMode::Dark;
-    let light_active = current_mode == ThemeMode::Light;
-
-    let accent = theme.accent;
-    let border = theme.border;
-    let surface = theme.surface;
-    let text = theme.text;
-    let text_muted = theme.text_muted;
+fn render_theme_item(
+    name: &str,
+    dctx: &ThemeDropdownCtx,
+    cx: &gpui::Context<SettingsView>,
+) -> gpui::Stateful<gpui::Div> {
+    let is_active = name == dctx.active_name;
+    let app_click = dctx.app_state.clone();
+    let app_hover = dctx.app_state.clone();
+    let name_click = name.to_owned();
+    let name_hover = name.to_owned();
+    let element_hover = dctx.element_hover;
 
     div()
-        .w_full()
-        .mb(px(16.))
-        .flex()
-        .flex_col()
-        .gap(px(4.))
-        .child(
+        .id(gpui::SharedString::from(format!("theme-item-{name}")))
+        .px(px(10.))
+        .py(px(4.))
+        .text_size(px(12.))
+        .cursor_pointer()
+        .text_color(if is_active { dctx.accent } else { dctx.text })
+        .font_weight(if is_active {
+            gpui::FontWeight::SEMIBOLD
+        } else {
+            gpui::FontWeight::NORMAL
+        })
+        .hover(move |s| s.bg(element_hover))
+        .on_mouse_move(cx.listener(move |_this, _, _, cx| {
+            app_hover.update(cx, |s, cx| s.preview_theme(Some(&name_hover), cx));
+        }))
+        .on_click(cx.listener(move |this, _, _, cx| {
+            app_click.update(cx, |s, cx| s.set_theme_by_name(&name_click, cx));
+            this.theme_dropdown_open = false;
+        }))
+        .child(name.to_owned())
+}
+
+fn render_theme_section(
+    label: &str,
+    entries: &[crate::theme::ThemeEntry],
+    dctx: &ThemeDropdownCtx,
+    cx: &gpui::Context<SettingsView>,
+) -> gpui::Div {
+    let mut section = div().flex().flex_col().child(
+        div()
+            .px(px(10.))
+            .py(px(4.))
+            .text_size(px(10.))
+            .text_color(dctx.text_muted)
+            .child(label.to_owned()),
+    );
+    for entry in entries {
+        section = section.child(render_theme_item(&entry.name, dctx, cx));
+    }
+    section
+}
+
+fn render_theme_overlay(
+    dctx: &ThemeDropdownCtx,
+    theme: &Theme,
+    cx: &gpui::Context<SettingsView>,
+) -> (gpui::Stateful<gpui::Div>, gpui::Stateful<gpui::Div>) {
+    let entries = dctx.app_state.read(cx).theme_registry().list();
+    let dark: Vec<_> = entries
+        .iter()
+        .filter(|e| e.mode == ThemeMode::Dark)
+        .cloned()
+        .collect();
+    let light: Vec<_> = entries
+        .iter()
+        .filter(|e| e.mode == ThemeMode::Light)
+        .cloned()
+        .collect();
+
+    let mut list = div().flex().flex_col();
+    if !dark.is_empty() {
+        list = list.child(render_theme_section("DARK", &dark, dctx, cx));
+    }
+    if !light.is_empty() {
+        list = list.child(render_theme_section("LIGHT", &light, dctx, cx).mt(px(4.)));
+    }
+
+    let app_revert = dctx.app_state.clone();
+    let backdrop = div()
+        .id("theme-dropdown-backdrop")
+        .absolute()
+        .top(px(-1000.))
+        .left(px(-1000.))
+        .w(px(5000.))
+        .h(px(5000.))
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                app_revert.update(cx, |s, cx| s.preview_theme(None, cx));
+                this.theme_dropdown_open = false;
+            }),
+        );
+
+    let popup = div()
+        .id("theme-dropdown-popup")
+        .absolute()
+        .left_0()
+        .top(px(34.))
+        .w(px(240.))
+        .max_h(px(300.))
+        .overflow_y_scroll()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme.border)
+        .bg(theme.surface)
+        .shadow_lg()
+        .py(px(4.))
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_move(|_, _, cx| cx.stop_propagation())
+        .child(list);
+
+    (backdrop, popup)
+}
+
+impl SettingsView {
+    fn render_theme_selector(&self, theme: &Theme, cx: &gpui::Context<Self>) -> gpui::Div {
+        let current_name = theme.name.clone();
+        let dropdown_open = self.theme_dropdown_open;
+
+        let mut trigger_wrapper = div().mt(px(4.)).relative().child(
             div()
-                .text_size(px(13.))
-                .font_weight(gpui::FontWeight::SEMIBOLD)
-                .text_color(text)
-                .child("Theme"),
-        )
-        .child(
-            div()
-                .text_size(px(11.))
-                .text_color(text_muted)
-                .child("Choose between dark and light appearance"),
-        )
-        .child(
-            div()
-                .mt(px(4.))
+                .id("theme-dropdown-trigger")
+                .max_w(px(240.))
+                .px(px(10.))
+                .py(px(5.))
+                .text_size(px(12.))
+                .cursor_pointer()
+                .rounded(px(4.))
+                .border_1()
+                .border_color(if dropdown_open {
+                    theme.accent
+                } else {
+                    theme.border
+                })
+                .bg(theme.surface)
+                .text_color(theme.text)
                 .flex()
                 .flex_row()
-                .gap(px(0.))
-                .child(
-                    // Dark button
-                    div()
-                        .px(px(16.))
-                        .py(px(5.))
-                        .text_size(px(12.))
-                        .cursor_pointer()
-                        .rounded_l(px(4.))
-                        .border_1()
-                        .border_color(if dark_active { accent } else { border })
-                        .bg(if dark_active { accent } else { surface })
-                        .text_color(if dark_active {
-                            gpui::rgba(0xffff_ffff)
-                        } else {
-                            text_muted
-                        })
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            app_state_dark.update(cx, |s, cx| s.set_theme(ThemeMode::Dark, cx));
-                        })
-                        .child("Dark"),
-                )
-                .child(
-                    // Light button
-                    div()
-                        .px(px(16.))
-                        .py(px(5.))
-                        .text_size(px(12.))
-                        .cursor_pointer()
-                        .rounded_r(px(4.))
-                        .border_1()
-                        .border_color(if light_active { accent } else { border })
-                        .bg(if light_active { accent } else { surface })
-                        .text_color(if light_active {
-                            gpui::rgba(0xffff_ffff)
-                        } else {
-                            text_muted
-                        })
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            app_state_light.update(cx, |s, cx| s.set_theme(ThemeMode::Light, cx));
-                        })
-                        .child("Light"),
-                ),
-        )
+                .items_center()
+                .justify_between()
+                .child(current_name)
+                .child(div().text_size(px(10.)).text_color(theme.text_muted).child(
+                    if dropdown_open {
+                        "\u{25B2}"
+                    } else {
+                        "\u{25BC}"
+                    },
+                ))
+                .on_click(cx.listener(|this, _, _, _cx| {
+                    this.theme_dropdown_open = !this.theme_dropdown_open;
+                })),
+        );
+
+        if dropdown_open {
+            let dctx = ThemeDropdownCtx {
+                text: theme.text,
+                text_muted: theme.text_muted,
+                accent: theme.accent,
+                element_hover: theme.element_hover,
+                active_name: self.app_state.read(cx).theme().name.clone(),
+                app_state: self.app_state.clone(),
+            };
+            let (backdrop, popup) = render_theme_overlay(&dctx, theme, cx);
+            // deferred() delays painting until after all ancestors, so these
+            // render on top of sibling settings rows below the trigger.
+            trigger_wrapper = trigger_wrapper
+                .child(deferred(backdrop).with_priority(1))
+                .child(deferred(popup).with_priority(2));
+        }
+
+        div()
+            .w_full()
+            .mb(px(16.))
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme.text)
+                    .child("Theme"),
+            )
+            .child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(theme.text_muted)
+                    .child("Select a color theme for the application"),
+            )
+            .child(trigger_wrapper)
+    }
 }
 
 impl Render for SettingsView {
@@ -317,16 +438,24 @@ impl Render for SettingsView {
         cx: &mut gpui::Context<Self>,
     ) -> impl IntoElement {
         let theme = self.app_state.read(cx).theme().clone();
-        let current_mode = theme.mode;
+
+        let theme_selector = self.render_theme_selector(&theme, cx);
 
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(theme.background)
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _window, cx| {
                 if event.keystroke.key == "escape" {
-                    this.app_state.update(cx, AppState::close_settings);
+                    if this.theme_dropdown_open {
+                        this.app_state
+                            .update(cx, |s, cx| s.preview_theme(None, cx));
+                        this.theme_dropdown_open = false;
+                    } else {
+                        this.app_state.update(cx, AppState::close_settings);
+                    }
                 }
             }))
             .child(
@@ -348,11 +477,7 @@ impl Render for SettingsView {
                                     .px(px(32.))
                                     // Appearance section
                                     .child(render_section_header("Appearance", &theme))
-                                    .child(render_theme_toggle(
-                                        current_mode,
-                                        &self.app_state,
-                                        &theme,
-                                    ))
+                                    .child(theme_selector)
                                     // Editor section
                                     .child(render_section_header("Editor", &theme))
                                     .child(render_setting_row(
