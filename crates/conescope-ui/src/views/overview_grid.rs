@@ -48,7 +48,7 @@ fn grid_dimensions(total: usize) -> (usize, usize) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn render_tile(
     tile: &TileData,
     app_state: Entity<AppState>,
@@ -56,6 +56,10 @@ fn render_tile(
     terminal_font_size: f32,
     font_family: &str,
     theme: &Theme,
+    is_first_col: bool,
+    is_first_row: bool,
+    is_last_col: bool,
+    is_last_row: bool,
 ) -> gpui::AnyElement {
     let status_color = match tile.session_status {
         SessionStatus::Working => gpui::rgba(0x4ade_80ff), // green
@@ -69,15 +73,34 @@ fn render_tile(
         1.0
     };
 
-    div()
+    let r = px(10.);
+    let mut tile_div = div()
         .flex_1()
         .min_w(px(200.))
         .flex()
         .flex_col()
-        .bg(theme.panel)
-        .border_r_1()
-        .border_b_1()
-        .border_color(theme.border)
+        .bg(theme.terminal_bg)
+        .overflow_hidden()
+        .border_color(theme.border);
+    if is_first_col && is_first_row {
+        tile_div = tile_div.rounded_tl(r);
+    }
+    if is_last_col && is_first_row {
+        tile_div = tile_div.rounded_tr(r);
+    }
+    if is_first_col && is_last_row {
+        tile_div = tile_div.rounded_bl(r);
+    }
+    if is_last_col && is_last_row {
+        tile_div = tile_div.rounded_br(r);
+    }
+    if !is_last_col {
+        tile_div = tile_div.border_r_1();
+    }
+    if !is_last_row {
+        tile_div = tile_div.border_b_1();
+    }
+    tile_div
         .child(render_tile_header(
             tile,
             status_color,
@@ -114,7 +137,7 @@ fn render_tile_header(
     let title_element: gpui::AnyElement = if let Some(input) = editing_input {
         div().child(input.clone()).into_any_element()
     } else {
-        render_static_title(tile, app_state, font_size)
+        render_static_title(tile, app_state, font_size, theme)
     };
 
     let path_text = tile.project_path.as_deref().map_or_else(
@@ -265,6 +288,7 @@ fn render_static_title(
     tile: &TileData,
     app_state: Entity<AppState>,
     font_size: f32,
+    theme: &Theme,
 ) -> gpui::AnyElement {
     let click_id = tile.id.clone();
     let current_title = tile.title.clone();
@@ -272,7 +296,7 @@ fn render_static_title(
     div()
         .text_size(px(font_size))
         .font_weight(gpui::FontWeight::MEDIUM)
-        .text_color(tile.color)
+        .text_color(theme.text)
         .flex_shrink_0()
         .overflow_x_hidden()
         .cursor_pointer()
@@ -367,7 +391,7 @@ fn render_tile_body(
         div()
             .size_full()
             .relative()
-            .px(px(4.))
+            .p(px(4.))
             .child(tv.clone())
             .child(
                 div()
@@ -525,16 +549,19 @@ impl Render for OverviewGrid {
         };
         // cx borrow is now released
 
-        let (cols, _rows) = grid_dimensions(tiles.len());
+        let (cols, rows) = grid_dimensions(tiles.len());
 
         let slots: Vec<gpui::AnyElement> = tiles
             .iter()
-            .map(|tile| {
+            .enumerate()
+            .map(|(i, tile)| {
                 let input = if editing_tile_id.as_deref() == Some(tile.id.as_str()) {
                     editing_input.as_ref()
                 } else {
                     None
                 };
+                let col = i % cols;
+                let row = i / cols;
                 render_tile(
                     tile,
                     self.app_state.clone(),
@@ -542,6 +569,10 @@ impl Render for OverviewGrid {
                     terminal_font_size,
                     &font_family,
                     &theme,
+                    col == 0,
+                    row == 0,
+                    col == cols - 1,
+                    row == rows - 1,
                 )
             })
             .collect();

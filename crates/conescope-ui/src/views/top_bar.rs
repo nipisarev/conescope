@@ -2,10 +2,13 @@ use gpui::prelude::*;
 use gpui::{Entity, Hsla, MouseButton, div, px, svg};
 
 use crate::icons;
-use crate::state::app_state::AppState;
+use crate::state::app_state::{AppState, WorktreeDropdownItem};
 use crate::state::settings_store::ViewMode;
 use crate::theme::Theme;
 use crate::views::colors::{default_instance_color, hex_to_rgba};
+
+type BadgeClickHandler =
+    Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>;
 
 #[derive(Debug)]
 pub struct TopBar {
@@ -53,15 +56,46 @@ impl TopBar {
             cached_pulse_opacity: 1.0,
         }
     }
+
+    fn toggle_worktree_menu(&mut self, click_x: f32, cx: &mut gpui::Context<Self>) {
+        if self.app_state.read(cx).worktree_dropdown.is_some() {
+            self.app_state.update(cx, |s, cx| {
+                s.close_worktree_dropdown(cx);
+            });
+            return;
+        }
+
+        let state = self.app_state.read(cx);
+        let fi = focused_info(state, cx);
+        let Some(fi) = fi else {
+            return;
+        };
+
+        let siblings = collect_worktree_siblings(state, &fi, cx);
+        if siblings.is_empty() {
+            let focused_id = fi.id.clone();
+            self.app_state.update(cx, |s, cx| {
+                s.open_worktree_modal(&focused_id, cx);
+            });
+        } else {
+            let focused_id = Some(fi.id.clone());
+            self.app_state.update(cx, |s, cx| {
+                s.open_worktree_dropdown(siblings, focused_id, click_x, cx);
+            });
+        }
+    }
 }
 
 struct FocusedInfo {
+    id: String,
     num: usize,
     title: String,
     color: gpui::Rgba,
     git_branch: Option<String>,
     git_insertions: usize,
     git_deletions: usize,
+    project_id: Option<String>,
+    parent_instance_id: Option<String>,
 }
 
 /// Resolve the focused instance title, positional number, project color, and git info.
@@ -84,12 +118,15 @@ fn focused_info(state: &AppState, cx: &gpui::App) -> Option<FocusedInfo> {
         .map_or_else(default_instance_color, hex_to_rgba);
     let git = &inst.git_summary;
     Some(FocusedInfo {
+        id: id.to_owned(),
         num: pos + 1,
         title,
         color,
         git_branch: git.branch.clone(),
         git_insertions: git.insertions,
         git_deletions: git.deletions,
+        project_id: inst.instance.project_id.clone(),
+        parent_instance_id: inst.parent_instance_id().map(str::to_owned),
     })
 }
 
@@ -99,6 +136,7 @@ fn render_focus_left(
     app_state_for_back: Entity<AppState>,
     font_size: f32,
     theme: &Theme,
+    on_badge_click: Option<impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static>,
 ) -> gpui::Div {
     let icon_size = px(font_size + 1.0);
     let text_hover: Hsla = theme.text.into();
@@ -138,8 +176,10 @@ fn render_focus_left(
         let green = gpui::rgba(0x4ec9_4eff);
         let red = gpui::rgba(0xf851_49ff);
         let secondary_size = px(font_size - 1.0);
+        let accent_hover: Hsla = theme.accent.into();
 
         let mut badge = div()
+            .id("git-badge")
             .ml(px(10.))
             .flex()
             .flex_row()
@@ -147,6 +187,11 @@ fn render_focus_left(
             .gap(px(3.))
             .text_size(secondary_size)
             .text_color(theme.text_muted)
+            .cursor_pointer()
+            .rounded(px(4.))
+            .px(px(4.))
+            .py(px(2.))
+            .hover(move |s| s.text_color(accent_hover))
             .child(
                 svg()
                     .path(icons::ICON_GIT)
@@ -170,6 +215,14 @@ fn render_focus_left(
                     .child(format!("-{}", fi.git_deletions)),
             );
         }
+
+        if let Some(handler) = on_badge_click {
+            badge = badge.on_click(move |ev, win, cx| {
+                cx.stop_propagation();
+                handler(ev, win, cx);
+            });
+        }
+
         section = section.child(badge);
     }
 
@@ -266,12 +319,29 @@ impl Render for TopBar {
             .children(sidebar_btn);
 
         if let Some(fi) = &focus_info {
-            left_section =
-                left_section.child(render_focus_left(fi, app_state_for_back, font_size, &theme));
+            let badge_handler: Option<BadgeClickHandler> = if fi.git_branch.is_some() {
+                let this = cx.entity().clone();
+                Some(Box::new(
+                    move |ev: &gpui::ClickEvent, _: &mut gpui::Window, cx: &mut gpui::App| {
+                        let click_x = f32::from(ev.position().x);
+                        this.update(cx, |bar, cx| bar.toggle_worktree_menu(click_x, cx));
+                    },
+                ))
+            } else {
+                None
+            };
+            left_section = left_section.child(render_focus_left(
+                fi,
+                app_state_for_back,
+                font_size,
+                &theme,
+                badge_handler,
+            ));
         }
 
         div()
             .id("top-bar")
+            .relative()
             .h(bar_height)
             .w_full()
             .flex()
@@ -279,6 +349,8 @@ impl Render for TopBar {
             .items_center()
             .text_size(px(font_size))
             .bg(theme.panel)
+            .rounded_tl(px(10.))
+            .rounded_tr(px(10.))
             .border_b_1()
             .border_color(theme.border)
             .on_click(|event, window, _cx| {
@@ -297,6 +369,51 @@ impl Render for TopBar {
             )
             .child(right_section)
     }
+}
+
+fn collect_worktree_siblings(
+    state: &AppState,
+    fi: &FocusedInfo,
+    cx: &gpui::App,
+) -> Vec<WorktreeDropdownItem> {
+    let il = state.instance_list.read(cx);
+    let entries = il.entries();
+
+    let focused_id = &fi.id;
+    let project_id = &fi.project_id;
+    let parent_id = &fi.parent_instance_id;
+
+    let root_id = parent_id.as_deref().unwrap_or(focused_id.as_str());
+
+    entries
+        .iter()
+        .filter_map(|e| {
+            let inst = e.read(cx);
+            let id = inst.id().to_owned();
+
+            let is_sibling = id == root_id
+                || inst.parent_instance_id() == Some(root_id)
+                || (project_id.is_some()
+                    && inst.instance.project_id.as_ref() == project_id.as_ref()
+                    && inst.is_worktree());
+
+            if !is_sibling || id == *focused_id {
+                return None;
+            }
+
+            let title = inst
+                .instance
+                .title
+                .clone()
+                .unwrap_or_else(|| "Untitled".into());
+            let branch = inst
+                .worktree_branch()
+                .map(str::to_owned)
+                .or_else(|| inst.git_summary.branch.clone());
+
+            Some(WorktreeDropdownItem { id, title, branch })
+        })
+        .collect()
 }
 
 fn render_overview_buttons(

@@ -9,16 +9,8 @@ use crate::theme::Theme;
 /// Callback type for shell tab events (click/close) taking a shell tab ID.
 pub type ShellTabCb = Rc<dyn Fn(usize, &gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App)>;
 
-/// Terminal icon prefix for tab labels.
-const TERMINAL_ICON: &str = "\u{25B8}"; // ▸ small right-pointing triangle
+const TERMINAL_ICON: &str = "\u{25B8}";
 
-/// Border color shared across tab bar elements.
-const BORDER_COLOR: u32 = 0x3c3c_3cff;
-
-/// Render a terminal tab bar with raised-tab pattern: `_|‾|__`
-///
-/// Supports N shell tabs. Each shell tab has a close button.
-/// Primary tab is pinned (no close button).
 #[allow(clippy::too_many_arguments)]
 pub fn render_tab_bar(
     instance_type: InstanceType,
@@ -46,18 +38,20 @@ pub fn render_tab_bar(
         InstanceType::Terminal => "Terminal",
     };
 
-    // Left padding spacer with bottom border
-    let mut tabs = bar.child(border_b_spacer().w(px(8.)));
+    let border = theme.border;
+
+    let mut tabs = bar.child(border_b_spacer(border).w(px(8.)));
 
     tabs = tabs.child(render_tab(
         primary_label,
         active_tab == TerminalTab::Primary,
-        false, // no close on primary
+        false,
         on_click_primary,
         None::<Box<dyn Fn(&gpui::MouseDownEvent, &mut gpui::Window, &mut gpui::App)>>,
         font_size,
         active_bg,
         inactive_bg,
+        border,
     ));
 
     // Render N shell tabs
@@ -75,7 +69,7 @@ pub fn render_tab_bar(
         tabs = tabs.child(render_tab(
             &label,
             is_active,
-            true, // closeable
+            true,
             move |ev, window, cx| on_click(id, ev, window, cx),
             Some(
                 move |ev: &gpui::MouseDownEvent, window: &mut gpui::Window, cx: &mut gpui::App| {
@@ -85,6 +79,7 @@ pub fn render_tab_bar(
             font_size,
             active_bg,
             inactive_bg,
+            border,
         ));
     }
 
@@ -92,26 +87,24 @@ pub fn render_tab_bar(
     let on_click_add = Rc::new(on_click_add);
     let on_click_add_spacer = on_click_add.clone();
 
-    // Flex spacer — clicking empty area creates a new shell tab
     tabs.child(
         div()
             .id("tab-bar-spacer")
             .h_full()
             .flex_1()
             .border_b_1()
-            .border_color(rgba(BORDER_COLOR))
+            .border_color(border)
             .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
                 on_click_add_spacer(ev, window, cx);
             }),
     )
-    // "+" button wrapped with bottom border
     .child(
         div()
             .h_full()
             .flex()
             .items_center()
             .border_b_1()
-            .border_color(rgba(BORDER_COLOR))
+            .border_color(border)
             .child(
                 div()
                     .px(px(6.))
@@ -128,9 +121,8 @@ pub fn render_tab_bar(
     )
 }
 
-/// Small spacer div with only a bottom border (the baseline).
-fn border_b_spacer() -> gpui::Div {
-    div().h_full().border_b_1().border_color(rgba(BORDER_COLOR))
+fn border_b_spacer(border: gpui::Rgba) -> gpui::Div {
+    div().h_full().border_b_1().border_color(border)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -143,6 +135,7 @@ fn render_tab(
     font_size: f32,
     active_bg: gpui::Rgba,
     inactive_bg: gpui::Rgba,
+    border: gpui::Rgba,
 ) -> gpui::Div {
     let fg = if active {
         rgba(0xd4d4_d4ff)
@@ -191,12 +184,10 @@ fn render_tab(
     };
 
     if active {
-        base.border_l_1()
-            .border_r_1()
-            .border_color(rgba(BORDER_COLOR))
+        base.border_l_1().border_r_1().border_color(border)
     } else {
         base.border_b_1()
-            .border_color(rgba(BORDER_COLOR))
+            .border_color(border)
             .hover(|s| s.bg(rgba(0x3333_33ff)))
     }
 }

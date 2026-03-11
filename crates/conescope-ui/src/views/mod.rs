@@ -19,3 +19,4 @@ pub mod sidebar;
 pub mod terminal_tabs;
 pub mod text_input;
 pub mod top_bar;
+pub mod worktree_modal;

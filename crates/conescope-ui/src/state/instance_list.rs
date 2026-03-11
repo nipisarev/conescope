@@ -88,7 +88,7 @@ impl InstanceList {
 
         for entry in &self.entries {
             // Extract values while holding the read borrow, then release it
-            let (cwd, is_project) = {
+            let (cwd, is_project, is_worktree) = {
                 let inst = entry.read(cx);
                 // Prefer persisted current_cwd, fall back to project path, then HOME
                 let cwd =
@@ -101,7 +101,8 @@ impl InstanceList {
                         })
                         .unwrap_or_else(|| home.clone());
                 let is_project = inst.instance_type() == InstanceType::Project;
-                (cwd, is_project)
+                let is_worktree = inst.is_worktree();
+                (cwd, is_project, is_worktree)
             };
 
             let pane = crate::terminal::spawn_terminal_pane(
@@ -124,6 +125,15 @@ impl InstanceList {
                 e.refresh_git_summary(&git_path, cx);
                 e.start_background_polling(cx);
             });
+
+            // portable-pty silently falls back to HOME when cwd dir fails
+            // is_dir() check. Explicit cd ensures correct working directory.
+            if is_worktree {
+                let escaped = crate::views::new_instance_modal::shell_escape(&cwd);
+                entry
+                    .read(cx)
+                    .send_input(format!("cd {escaped} && clear\r").as_bytes());
+            }
 
             if is_project {
                 entry.read(cx).send_input(b"claude --continue\r");

@@ -395,12 +395,16 @@ impl FocusView {
 
         let cwd = {
             let inst = entry.read(cx);
-            inst.instance.project_id.as_ref().and_then(|pid| {
-                state
-                    .project_store
-                    .read(cx)
-                    .get(pid)
-                    .map(|p| p.path.clone())
+            // Prefer current_cwd (correct for worktree instances),
+            // fall back to project path.
+            inst.current_cwd.clone().or_else(|| {
+                inst.instance.project_id.as_ref().and_then(|pid| {
+                    state
+                        .project_store
+                        .read(cx)
+                        .get(pid)
+                        .map(|p| p.path.clone())
+                })
             })
         };
         let ff = Some(state.settings_store.read(cx).settings().font_family.clone());
@@ -513,7 +517,8 @@ fn render_terminal_pane(
                 div()
                     .flex_1()
                     .min_h_0()
-                    .px(px(2.))
+                    .p(px(4.))
+                    .bg(theme.terminal_bg)
                     .font_family(SharedString::from(font_family.to_owned()))
                     .text_size(px(font_size))
                     .line_height(relative(1.0))
@@ -623,6 +628,7 @@ fn render_main_area(
         col = col.child(render_divider(
             Axis::Vertical,
             dragging_terminal,
+            theme,
             drag_listener,
         ));
     }
@@ -904,6 +910,7 @@ impl Render for FocusView {
                 .child(render_divider(
                     Axis::Horizontal,
                     dragging_sidebar,
+                    &theme,
                     cx.listener(|this, event: &gpui::MouseDownEvent, _window, _cx| {
                         this.drag = Some(DragState {
                             target: DragTarget::Sidebar,

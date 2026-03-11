@@ -94,6 +94,9 @@ pub struct Instance {
     pub color: Option<String>,
     /// Last known CWD of the shell process (updated in real-time, persisted).
     pub current_cwd: Option<String>,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
+    pub parent_instance_id: Option<String>,
 }
 
 #[cfg(test)]
@@ -152,6 +155,9 @@ mod tests {
             instance_type: InstanceType::Project,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         // If someone re-adds instance_number, this test won't compile
         // due to missing field (struct literal without `..` requires all fields).

@@ -501,6 +501,21 @@ impl InstanceEntry {
         !self.shell_tabs.is_empty()
     }
 
+    #[must_use]
+    pub fn is_worktree(&self) -> bool {
+        self.instance.worktree_path.is_some()
+    }
+
+    #[must_use]
+    pub fn worktree_branch(&self) -> Option<&str> {
+        self.instance.worktree_branch.as_deref()
+    }
+
+    #[must_use]
+    pub fn parent_instance_id(&self) -> Option<&str> {
+        self.instance.parent_instance_id.as_deref()
+    }
+
     /// Get focus handle for a specific shell tab by ID.
     #[must_use]
     pub fn shell_focus_handle(&self, id: usize) -> Option<&gpui::FocusHandle> {
@@ -670,6 +685,9 @@ mod tests {
             instance_type: InstanceType::Terminal,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         }
     }
 

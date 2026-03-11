@@ -12,6 +12,16 @@ use crate::views::scrollbar::{self, ScrollbarCallbacks, ScrollbarState};
 
 const MAX_RECENT_PROJECTS: usize = 5;
 
+pub(crate) fn shell_escape(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_alphanumeric() || matches!(c, '/' | '.' | '-' | '_'))
+    {
+        s.to_owned()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 #[derive(Debug)]
 pub struct NewInstanceModal {
     app_state: Entity<AppState>,
@@ -30,14 +40,18 @@ impl NewInstanceModal {
     }
 }
 
-struct NewInstanceParams<'a> {
-    instance_type: InstanceType,
-    cwd: &'a str,
-    project_id: Option<String>,
-    title_prefix: &'a str,
+pub(crate) struct NewInstanceParams<'a> {
+    pub instance_type: InstanceType,
+    pub cwd: &'a str,
+    pub project_id: Option<String>,
+    pub title_prefix: &'a str,
+    pub color_override: Option<String>,
+    pub worktree_path: Option<String>,
+    pub worktree_branch: Option<String>,
+    pub parent_instance_id: Option<String>,
 }
 
-fn create_instance_at(
+pub(crate) fn create_instance_at(
     params: NewInstanceParams<'_>,
     app_state: &Entity<AppState>,
     window: &mut gpui::Window,
@@ -48,26 +62,33 @@ fn create_instance_at(
         cwd,
         project_id,
         title_prefix,
+        color_override,
+        worktree_path,
+        worktree_branch,
+        parent_instance_id,
     } = params;
     let id = uuid::Uuid::new_v4().to_string();
     let started_at = chrono::Utc::now().to_rfc3339();
 
-    // Derive color: from linked project, or cycle PROJECT_COLORS by instance count
-    let color = project_id
-        .as_deref()
-        .and_then(|pid| {
-            app_state
-                .read(cx)
-                .project_store
-                .read(cx)
-                .get(pid)
-                .map(|p| p.color.clone())
-        })
-        .unwrap_or_else(|| {
-            let count = app_state.read(cx).instance_list.read(cx).entries().len();
-            PROJECT_COLORS[count % PROJECT_COLORS.len()].to_string()
-        });
+    // Derive color: override > linked project > cycle by instance count
+    let color = color_override.unwrap_or_else(|| {
+        project_id
+            .as_deref()
+            .and_then(|pid| {
+                app_state
+                    .read(cx)
+                    .project_store
+                    .read(cx)
+                    .get(pid)
+                    .map(|p| p.color.clone())
+            })
+            .unwrap_or_else(|| {
+                let count = app_state.read(cx).instance_list.read(cx).entries().len();
+                PROJECT_COLORS[count % PROJECT_COLORS.len()].to_string()
+            })
+    });
 
+    let is_worktree = worktree_path.is_some();
     let instance = Instance {
         id: id.clone(),
         project_id,
@@ -79,7 +100,10 @@ fn create_instance_at(
         ended_at: None,
         instance_type,
         color: Some(color),
-        current_cwd: Some(params.cwd.to_owned()),
+        current_cwd: Some(cwd.to_owned()),
+        worktree_path,
+        worktree_branch,
+        parent_instance_id,
     };
 
     app_state.read(cx).db.insert_instance(instance.clone());
@@ -103,6 +127,8 @@ fn create_instance_at(
     #[allow(clippy::cast_precision_loss)]
     let tfs = settings.terminal_font_size as f32;
     let lhr = settings.terminal_line_height as f32;
+    // portable-pty silently falls back to HOME if cwd doesn't pass is_dir(),
+    // so we always send an explicit `cd` as a safety net.
     let pane = spawn_terminal_pane(Some(cwd), font_family.as_deref(), tfs, lhr, &tc, window, cx);
     let is_project = instance_type == InstanceType::Project;
 
@@ -116,6 +142,15 @@ fn create_instance_at(
 
     entry.update(cx, InstanceEntry::start_output_polling);
     entry.update(cx, InstanceEntry::start_background_polling);
+
+    // portable-pty silently falls back to HOME when cmd.cwd() dir fails
+    // is_dir() check (e.g. freshly-created worktree dirs). Explicit cd
+    // ensures the shell lands in the right directory.
+    if is_worktree {
+        entry
+            .read(cx)
+            .send_input(format!("cd {} && clear\r", shell_escape(cwd)).as_bytes());
+    }
 
     if is_project {
         entry.read(cx).send_input(b"claude\r");
@@ -143,6 +178,10 @@ fn create_terminal(app_state: &Entity<AppState>, window: &mut gpui::Window, cx: 
             cwd: &home,
             project_id: None,
             title_prefix: "Terminal",
+            color_override: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         },
         app_state,
         window,
@@ -163,6 +202,10 @@ fn create_project_at_home(
             cwd: &home,
             project_id: None,
             title_prefix: "Project",
+            color_override: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         },
         app_state,
         window,
@@ -187,6 +230,10 @@ fn create_project_for(
             cwd: &project.path,
             project_id: Some(project.id.clone()),
             title_prefix: &project.display_name,
+            color_override: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         },
         app_state,
         window,
@@ -545,6 +592,10 @@ fn browse_for_directory(
                                     cwd: &path_str,
                                     project_id: Some(project_id),
                                     title_prefix: &display_name,
+                                    color_override: None,
+                                    worktree_path: None,
+                                    worktree_branch: None,
+                                    parent_instance_id: None,
                                 },
                                 &app_state,
                                 window,

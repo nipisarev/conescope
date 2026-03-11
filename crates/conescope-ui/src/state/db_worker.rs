@@ -372,6 +372,9 @@ mod tests {
             instance_type: conescope_core::instance::InstanceType::Terminal,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         handle.insert_instance(inst);
 

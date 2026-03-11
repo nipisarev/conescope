@@ -51,6 +51,11 @@ const MIGRATIONS: &[M<'_>] = &[
         );",
     ),
     M::up("ALTER TABLE instances ADD COLUMN current_cwd TEXT;"),
+    M::up(
+        "ALTER TABLE instances ADD COLUMN worktree_path TEXT;
+         ALTER TABLE instances ADD COLUMN worktree_branch TEXT;
+         ALTER TABLE instances ADD COLUMN parent_instance_id TEXT;",
+    ),
 ];
 
 #[derive(Debug)]
@@ -169,7 +174,7 @@ impl Database {
 
     pub fn get_all_instances(&self) -> Result<Vec<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd, worktree_path, worktree_branch, parent_instance_id
              FROM instances WHERE ended_at IS NULL ORDER BY started_at ASC",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -189,6 +194,9 @@ impl Database {
                     .unwrap_or(InstanceType::Project),
                 color: row.get(9)?,
                 current_cwd: row.get(10)?,
+                worktree_path: row.get(11)?,
+                worktree_branch: row.get(12)?,
+                parent_instance_id: row.get(13)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>()
@@ -197,7 +205,7 @@ impl Database {
 
     pub fn get_instance(&self, id: &str) -> Result<Option<Instance>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd
+            "SELECT id, project_id, title, status, tokens_used, cost_estimate, started_at, ended_at, type, color, current_cwd, worktree_path, worktree_branch, parent_instance_id
              FROM instances WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
@@ -217,6 +225,9 @@ impl Database {
                     .unwrap_or(InstanceType::Project),
                 color: row.get(9)?,
                 current_cwd: row.get(10)?,
+                worktree_path: row.get(11)?,
+                worktree_branch: row.get(12)?,
+                parent_instance_id: row.get(13)?,
             })
         })?;
         match rows.next() {
@@ -263,8 +274,8 @@ impl Database {
 
     pub fn insert_instance(&self, inst: &Instance) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO instances (id, project_id, title, status, tokens_used, cost_estimate, started_at, type, color, current_cwd)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO instances (id, project_id, title, status, tokens_used, cost_estimate, started_at, type, color, current_cwd, worktree_path, worktree_branch, parent_instance_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 inst.id,
                 inst.project_id,
@@ -276,6 +287,9 @@ impl Database {
                 inst.instance_type.as_str(),
                 inst.color,
                 inst.current_cwd,
+                inst.worktree_path,
+                inst.worktree_branch,
+                inst.parent_instance_id,
             ],
         )?;
         Ok(())
@@ -481,6 +495,9 @@ mod tests {
             instance_type: InstanceType::Terminal,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -516,6 +533,9 @@ mod tests {
             instance_type: InstanceType::Terminal,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
         db.save_terminal_history("i2", r#"["hello","world"]"#)
@@ -569,6 +589,9 @@ mod tests {
             instance_type: InstanceType::Project,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -611,6 +634,9 @@ mod tests {
             instance_type: InstanceType::Terminal,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -639,6 +665,9 @@ mod tests {
             instance_type: InstanceType::Project,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -716,6 +745,9 @@ mod tests {
             instance_type: InstanceType::Project,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
 
@@ -778,6 +810,9 @@ mod tests {
             instance_type: InstanceType::Project,
             color: None,
             current_cwd: None,
+            worktree_path: None,
+            worktree_branch: None,
+            parent_instance_id: None,
         };
         db.insert_instance(&inst).unwrap();
         assert_eq!(db.get_all_instances().unwrap().len(), 1);

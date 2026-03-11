@@ -1,5 +1,7 @@
 use gpui::prelude::*;
-use gpui::{CursorStyle, MouseButton, MouseDownEvent, Pixels, div, px, rgba};
+use gpui::{CursorStyle, MouseButton, MouseDownEvent, Pixels, div, px};
+
+use crate::theme::Theme;
 
 /// Axis of a resizable divider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,23 +59,24 @@ impl DragState {
 pub fn render_divider(
     axis: Axis,
     active: bool,
+    theme: &Theme,
     on_drag_start: impl Fn(&MouseDownEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> gpui::Div {
     let cursor_style = match axis {
         Axis::Horizontal => CursorStyle::ResizeLeftRight,
         Axis::Vertical => CursorStyle::ResizeUpDown,
     };
-    // Divider doesn't have theme access; keep neutral colors
     let color = if active {
-        rgba(0x007a_ccff)
+        theme.divider_active
     } else {
-        rgba(0x3c3c_3cff)
+        theme.border
     };
+    let active_color = theme.divider_active;
 
     let base = div()
         .cursor(cursor_style)
         .bg(color)
-        .hover(|s| s.bg(rgba(0x007a_ccff)))
+        .hover(move |s| s.bg(active_color))
         .on_mouse_down(MouseButton::Left, on_drag_start);
 
     match axis {

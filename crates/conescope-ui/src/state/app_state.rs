@@ -17,6 +17,23 @@ pub struct ConfirmAction {
     pub title: String,
     pub message: String,
     pub instance_id: String,
+    pub worktree_cleanup_path: Option<String>,
+}
+
+/// A single item in the worktree dropdown menu.
+#[derive(Debug, Clone)]
+pub struct WorktreeDropdownItem {
+    pub id: String,
+    pub title: String,
+    pub branch: Option<String>,
+}
+
+/// State for the worktree dropdown overlay (rendered by `AppView`).
+#[derive(Debug, Clone)]
+pub struct WorktreeDropdown {
+    pub items: Vec<WorktreeDropdownItem>,
+    pub focused_id: Option<String>,
+    pub dropdown_left_px: f32,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -41,6 +58,10 @@ pub struct AppState {
     theme_registry: ThemeRegistry,
     /// Transient preview theme name (for settings UI live preview).
     preview_theme_name: Option<String>,
+    pub worktree_modal_open: bool,
+    pub worktree_modal_source_id: Option<String>,
+    /// Path to delete after second confirmation (worktree disk cleanup).
+    pub pending_worktree_cleanup: Option<String>,
     /// Whether the overlay sidebar is currently visible (transient, not persisted).
     pub sidebar_overlay_visible: bool,
     /// Whether the overlay sidebar content should be visible (staggered animation).
@@ -49,6 +70,8 @@ pub struct AppState {
     pub sidebar_hover_gen: u32,
     /// Bumped when a debounced terminal resize completes (drives fade-in animation).
     pub terminal_resize_gen: usize,
+    /// Worktree dropdown menu state (rendered by `AppView` as an overlay).
+    pub worktree_dropdown: Option<WorktreeDropdown>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -108,6 +131,9 @@ impl AppState {
                 questions_queue_open: false,
                 new_instance_modal_open: false,
                 confirm_action: None,
+                worktree_modal_open: false,
+                worktree_modal_source_id: None,
+                pending_worktree_cleanup: None,
                 error_message: None,
                 editing_tile_id: None,
                 editing_input: None,
@@ -118,6 +144,7 @@ impl AppState {
                 overlay_content_visible: false,
                 sidebar_hover_gen: 0,
                 terminal_resize_gen: 0,
+                worktree_dropdown: None,
             }
         })
     }
@@ -276,10 +303,17 @@ impl AppState {
 
     /// Request confirmation before closing an instance.
     pub fn request_close_instance(&mut self, id: &str, title: &str, cx: &mut gpui::Context<Self>) {
+        let wt_path = self
+            .instance_list
+            .read(cx)
+            .find_by_id(id, cx)
+            .and_then(|e| e.read(cx).instance.worktree_path.clone());
+
         self.confirm_action = Some(ConfirmAction {
             title: "Close Instance".to_owned(),
             message: format!("Close \"{title}\"? The terminal session will be killed."),
             instance_id: id.to_owned(),
+            worktree_cleanup_path: wt_path,
         });
         cx.notify();
     }
@@ -289,6 +323,14 @@ impl AppState {
         let Some(action) = self.confirm_action.take() else {
             return;
         };
+
+        // Second confirmation: worktree disk cleanup was accepted
+        if let Some(wt_path) = self.pending_worktree_cleanup.take() {
+            Self::spawn_worktree_cleanup(&wt_path, cx);
+            cx.notify();
+            return;
+        }
+
         let il = self.instance_list.clone();
         // Return to overview if we're closing the focused instance
         let focused = self.focused_instance_id(cx).map(str::to_owned);
@@ -302,13 +344,51 @@ impl AppState {
         self.settings_store.update(cx, |store, _| {
             store.remove_instance_layout(&action.instance_id);
         });
+
+        // If instance had a worktree, ask whether to delete it from disk
+        if let Some(wt_path) = action.worktree_cleanup_path {
+            self.confirm_action = Some(ConfirmAction {
+                title: "Delete Worktree".to_owned(),
+                message: format!("Delete worktree from disk?\n{wt_path}"),
+                instance_id: String::new(),
+                worktree_cleanup_path: None,
+            });
+            self.pending_worktree_cleanup = Some(wt_path);
+            cx.notify();
+            return;
+        }
+
         cx.notify();
     }
 
     /// Dismiss the confirm dialog without acting.
     pub fn cancel_confirm(&mut self, cx: &mut gpui::Context<Self>) {
         self.confirm_action = None;
+        self.pending_worktree_cleanup = None;
         cx.notify();
+    }
+
+    fn spawn_worktree_cleanup(wt_path: &str, cx: &mut gpui::Context<Self>) {
+        let path = wt_path.to_owned();
+        cx.spawn(async move |_this, cx| {
+            cx.background_executor()
+                .spawn(async move {
+                    // Discover the main repo root via commondir so we don't run
+                    // `git worktree remove` from inside the worktree itself.
+                    let wt = std::path::Path::new(&path);
+                    if let Ok(main_dir) = conescope_git::repository::main_repo_root(wt) {
+                        if let Ok(cli) = conescope_git::cli::GitCli::new(&main_dir) {
+                            let _ = cli.run(&["worktree", "remove", "--force", &path]);
+                        }
+                    }
+                    // Fallback: remove directory if it still exists
+                    if std::path::Path::new(&path).exists() {
+                        let _ = std::fs::remove_dir_all(&path);
+                    }
+                })
+                .await;
+        })
+        .detach();
     }
 
     pub fn set_error(&mut self, message: String, cx: &mut gpui::Context<Self>) {
@@ -377,6 +457,38 @@ impl AppState {
 
     pub fn toggle_new_instance_modal(&mut self, cx: &mut gpui::Context<Self>) {
         self.new_instance_modal_open = !self.new_instance_modal_open;
+        cx.notify();
+    }
+
+    pub fn open_worktree_dropdown(
+        &mut self,
+        items: Vec<WorktreeDropdownItem>,
+        focused_id: Option<String>,
+        dropdown_left_px: f32,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.worktree_dropdown = Some(WorktreeDropdown {
+            items,
+            focused_id,
+            dropdown_left_px,
+        });
+        cx.notify();
+    }
+
+    pub fn close_worktree_dropdown(&mut self, cx: &mut gpui::Context<Self>) {
+        self.worktree_dropdown = None;
+        cx.notify();
+    }
+
+    pub fn open_worktree_modal(&mut self, source_instance_id: &str, cx: &mut gpui::Context<Self>) {
+        self.worktree_modal_source_id = Some(source_instance_id.to_owned());
+        self.worktree_modal_open = true;
+        cx.notify();
+    }
+
+    pub fn close_worktree_modal(&mut self, cx: &mut gpui::Context<Self>) {
+        self.worktree_modal_open = false;
+        self.worktree_modal_source_id = None;
         cx.notify();
     }
 

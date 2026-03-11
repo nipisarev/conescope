@@ -231,6 +231,8 @@ impl Render for ActivityBar {
             .items_center()
             .px(px(8.))
             .bg(theme.background)
+            .rounded_bl(px(10.))
+            .rounded_br(px(10.))
             .border_t_1()
             .border_color(theme.border)
             .child(left)

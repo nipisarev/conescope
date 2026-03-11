@@ -36,6 +36,8 @@ struct SidebarEntry {
     git_branch: Option<String>,
     git_insertions: usize,
     git_deletions: usize,
+    is_worktree: bool,
+    worktree_branch: Option<String>,
 }
 
 fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<SidebarEntry> {
@@ -84,6 +86,8 @@ fn collect_sidebar_entries(app_state: &Entity<AppState>, cx: &gpui::App) -> Vec<
                 git_branch: git.branch.clone(),
                 git_insertions: git.insertions,
                 git_deletions: git.deletions,
+                is_worktree: inst.is_worktree(),
+                worktree_branch: inst.worktree_branch().map(str::to_owned),
             }
         })
         .collect()
@@ -100,6 +104,7 @@ fn shorten_path(path: &str) -> String {
     path.to_owned()
 }
 
+#[allow(clippy::too_many_lines)]
 fn render_instance_row(
     entry: &SidebarEntry,
     app_state: &Entity<AppState>,
@@ -113,8 +118,10 @@ fn render_instance_row(
     let element_selected = theme.element_selected;
     let element_hover = theme.element_hover;
     let text_muted = theme.text_muted;
+    let accent = theme.accent;
     let destructive_hover: gpui::Hsla = theme.destructive_hover.into();
     let icon_size = px(font_size - 2.0);
+    let has_git_branch = entry.git_branch.is_some();
 
     div()
         .id(element_id)
@@ -188,8 +195,36 @@ fn render_instance_row(
                         .child(entry.title.clone())
                         .into_any_element()
                 })
-                // Spacer to push close button right
+                // Spacer to push buttons right
                 .child(div().flex_1())
+                // Worktree button (only when git branch exists)
+                .when(has_git_branch, {
+                    let app_state_wt = app_state.clone();
+                    let wt_id = entry.id.clone();
+                    let accent_hover: gpui::Hsla = accent.into();
+                    move |el| {
+                        el.child(
+                            div()
+                                .px(px(2.))
+                                .rounded(px(2.))
+                                .cursor_pointer()
+                                .hover(move |s| s.text_color(accent_hover))
+                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    app_state_wt.update(cx, |s, cx| {
+                                        s.open_worktree_modal(&wt_id, cx);
+                                    });
+                                })
+                                .child(
+                                    svg()
+                                        .path(icons::ICON_GIT)
+                                        .size(px(font_size - 3.0))
+                                        .text_color(text_muted)
+                                        .flex_shrink_0(),
+                                ),
+                        )
+                    }
+                })
                 // Close button
                 .child(render_close_button(
                     app_state,
@@ -209,10 +244,36 @@ fn render_instance_row(
                 .whitespace_nowrap()
                 .child(entry.path.clone()),
         )
-        // Line 3: git badge (optional)
-        .when(entry.git_branch.is_some(), |el| {
-            el.child(render_git_badge(entry, font_size, text_muted))
+        // Line 3: worktree branch badge (for worktree instances)
+        .when(entry.is_worktree && entry.worktree_branch.is_some(), {
+            let wt_branch = entry.worktree_branch.clone().unwrap_or_default();
+            let accent_color: gpui::Hsla = accent.into();
+            move |el| {
+                el.child(
+                    div()
+                        .pl(px(4.))
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(3.))
+                        .text_size(px(font_size - 2.0))
+                        .text_color(accent_color)
+                        .child(
+                            svg()
+                                .path(icons::ICON_GIT)
+                                .size(px(font_size - 3.0))
+                                .text_color(accent_color)
+                                .flex_shrink_0(),
+                        )
+                        .child(wt_branch),
+                )
+            }
         })
+        // Line 3/4: git badge (optional, for non-worktree or in addition)
+        .when(
+            entry.git_branch.is_some() && !(entry.is_worktree && entry.worktree_branch.is_some()),
+            |el| el.child(render_git_badge(entry, font_size, text_muted)),
+        )
 }
 
 fn render_git_badge(entry: &SidebarEntry, font_size: f32, text_muted: gpui::Rgba) -> gpui::Div {

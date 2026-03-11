@@ -115,6 +115,14 @@ impl SettingsJson {
             .join(project_id.unwrap_or("_no_project"))
     }
 
+    #[must_use]
+    pub fn worktree_dir(project_name: &str, branch: &str) -> PathBuf {
+        Self::settings_dir()
+            .join("worktree")
+            .join(project_name)
+            .join(branch)
+    }
+
     /// Returns true if the path is inside the scratch directory.
     #[must_use]
     pub fn is_scratch_file(path: &Path) -> bool {
@@ -338,6 +346,17 @@ mod tests {
 
         let no_proj = SettingsJson::archive_dir(None);
         assert!(no_proj.to_string_lossy().contains("_no_project"));
+    }
+
+    #[test]
+    fn worktree_dir_structure() {
+        let dir = SettingsJson::worktree_dir("my-project", "feature-branch");
+        let settings = SettingsJson::settings_dir();
+        assert!(dir.starts_with(&settings));
+        assert!(
+            dir.to_string_lossy()
+                .contains("worktree/my-project/feature-branch")
+        );
     }
 
     #[test]

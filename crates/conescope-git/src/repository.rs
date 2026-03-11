@@ -2,10 +2,26 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use git2::{DiffFormat, DiffOptions, Repository, StatusOptions};
+use tracing::warn;
 
-use crate::cli::GitCli;
+use crate::cli::{GitCli, WorktreeInfo};
 use crate::diff::{DiffHunk, DiffLine, LineOrigin};
 use crate::status::{FileStatus, GitFileEntry, StageStatus};
+
+/// Discover the main (non-worktree) repository root for any path.
+///
+/// For linked worktrees this returns the parent repo's work directory,
+/// not the worktree itself. Uses `commondir()` which always points to
+/// the main repo's `.git` directory.
+pub fn main_repo_root(path: &Path) -> Result<PathBuf> {
+    let repo = Repository::discover(path)
+        .with_context(|| format!("no git repo found at {}", path.display()))?;
+    let common = repo.commondir();
+    common
+        .parent()
+        .map(Path::to_owned)
+        .context("commondir has no parent")
+}
 
 pub struct GitRepo {
     repo: Repository,
@@ -252,6 +268,58 @@ impl GitRepo {
             let full = self.work_dir.join(path);
             let _ = std::fs::remove_file(full);
         }
+        Ok(())
+    }
+
+    pub fn worktree_add(&self, path: &str, branch: &str) -> Result<()> {
+        self.cli.worktree_add(path, branch)
+    }
+
+    pub fn worktree_remove(&self, path: &str, force: bool) -> Result<()> {
+        self.cli.worktree_remove(path, force)
+    }
+
+    pub fn worktree_list(&self) -> Result<Vec<WorktreeInfo>> {
+        self.cli.worktree_list()
+    }
+
+    pub fn worktree_prune(&self) -> Result<()> {
+        self.cli.worktree_prune()
+    }
+
+    pub fn copy_ignored_files(&self, dest: &Path) -> Result<()> {
+        let output = self.cli.run(&["status", "--ignored", "--porcelain"])?;
+
+        for line in output.lines() {
+            let Some(rel_path) = line.strip_prefix("!! ") else {
+                continue;
+            };
+            let rel_path = rel_path.trim();
+            if rel_path.is_empty() {
+                continue;
+            }
+
+            let src = self.work_dir.join(rel_path);
+            if !src.is_file() {
+                continue;
+            }
+
+            let dst_path = dest.join(rel_path);
+            if let Some(parent) = dst_path.parent() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    warn!("failed to create dir {}: {e}", parent.display());
+                    continue;
+                }
+            }
+            if let Err(e) = std::fs::copy(&src, &dst_path) {
+                warn!(
+                    "failed to copy {} -> {}: {e}",
+                    src.display(),
+                    dst_path.display()
+                );
+            }
+        }
+
         Ok(())
     }
 }

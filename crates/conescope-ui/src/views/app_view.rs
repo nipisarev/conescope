@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    Animation, AnimationExt, AnyWindowHandle, AppContext, ElementId, Entity, WindowKind,
-    WindowOptions, div, ease_in_out, px, size,
+    Animation, AnimationExt, AnyWindowHandle, AppContext, ElementId, Entity, Hsla, MouseButton,
+    WindowKind, WindowOptions, div, ease_in_out, px, size,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -15,7 +15,7 @@ use crate::actions::{
     NewTerminalTab, OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel,
     ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
 };
-use crate::state::app_state::AppState;
+use crate::state::app_state::{AppState, WorktreeDropdown};
 use crate::state::settings_store::ViewMode;
 use crate::views::overlay_sidebar::OverlaySidebarView;
 use crate::views::sidebar::SIDEBAR_WIDTH;
@@ -29,6 +29,7 @@ use super::overview_grid::OverviewGrid;
 use super::settings_view::SettingsView;
 use super::sidebar::Sidebar;
 use super::top_bar::TopBar;
+use super::worktree_modal::WorktreeModal;
 
 const OVERLAY_SIDEBAR_PADDING: f32 = 0.0;
 const OVERLAY_INSET: f32 = 6.0;
@@ -42,6 +43,7 @@ pub struct AppView {
     pub focus_view: Entity<FocusView>,
     pub new_instance_modal: Entity<NewInstanceModal>,
     pub settings_view: Entity<SettingsView>,
+    pub worktree_modal: Entity<WorktreeModal>,
     pub confirm_modal: Entity<ConfirmModal>,
     pub error_modal: Entity<ErrorModal>,
     /// Generation counter for sidebar slide animation (bumped on each toggle).
@@ -79,6 +81,7 @@ impl AppView {
         let focus_view = cx.new(|cx| FocusView::new(app_state.clone(), cx));
         let new_instance_modal = cx.new(|_| NewInstanceModal::new(app_state.clone()));
         let settings_view = cx.new(|cx| SettingsView::new(app_state.clone(), cx));
+        let worktree_modal = cx.new(|cx| WorktreeModal::new(app_state.clone(), cx));
         let confirm_modal = cx.new(|_| ConfirmModal::new(app_state.clone()));
         let error_modal = cx.new(|_| ErrorModal::new(app_state.clone()));
 
@@ -138,6 +141,7 @@ impl AppView {
             focus_view,
             new_instance_modal,
             settings_view,
+            worktree_modal,
             confirm_modal,
             error_modal,
             sidebar_anim_gen: 0,
@@ -509,23 +513,29 @@ impl Render for AppView {
         let (
             view_mode,
             new_instance_modal_open,
+            worktree_modal_open,
             confirm_open,
             error_open,
             sidebar_open,
             sidebar_overlay_visible,
             pinned_sidebar_width,
             theme,
+            worktree_dropdown,
+            font_size,
         ) = {
             let state = self.app_state.read(cx);
             (
                 state.view_mode(cx),
                 state.new_instance_modal_open,
+                state.worktree_modal_open,
                 state.confirm_action.is_some(),
                 state.error_message.is_some(),
                 state.sidebar_open(cx),
                 state.sidebar_overlay_visible,
                 state.sidebar_width(cx).max(SIDEBAR_WIDTH),
                 state.theme().clone(),
+                state.worktree_dropdown.clone(),
+                state.settings_store.read(cx).settings().ui_font_size(),
             )
         };
         self.parent_window_origin = Some(window.bounds().origin);
@@ -591,7 +601,9 @@ impl Render for AppView {
                     .flex_row()
                     .child(content_view),
             )
-            .child(self.activity_bar.clone());
+            .when(view_mode != ViewMode::Overview, |el| {
+                el.child(self.activity_bar.clone())
+            });
 
         // Detect sidebar open/close transitions and bump animation gen
         if sidebar_open != self.sidebar_was_open {
@@ -664,9 +676,22 @@ impl Render for AppView {
                         })),
                 )
             })
+            // Worktree dropdown overlay (below modals, above content)
+            .when_some(worktree_dropdown, |el, dropdown| {
+                el.child(render_worktree_dropdown(
+                    &dropdown,
+                    font_size,
+                    &theme,
+                    &self.app_state,
+                    cx,
+                ))
+            })
             // Modal overlays (highest z_index)
             .when(new_instance_modal_open, |el| {
                 el.child(self.new_instance_modal.clone())
+            })
+            .when(worktree_modal_open, |el| {
+                el.child(self.worktree_modal.clone())
             })
             .when(confirm_open, |el| {
                 el.child(self.confirm_modal.clone())
@@ -675,4 +700,120 @@ impl Render for AppView {
                 el.child(self.error_modal.clone())
             })
     }
+}
+
+fn render_worktree_dropdown(
+    dropdown: &WorktreeDropdown,
+    font_size: f32,
+    theme: &crate::theme::Theme,
+    app_state: &Entity<AppState>,
+    _cx: &mut gpui::Context<AppView>,
+) -> gpui::Div {
+    let bar_height = px(font_size * 2.0 + 6.0);
+    let hover_bg = theme.element_hover;
+    let accent: Hsla = theme.accent.into();
+
+    // Full-screen backdrop
+    let app_state_dismiss = app_state.clone();
+    let app_state_dismiss2 = app_state.clone();
+    let backdrop = div()
+        .id("wt-dropdown-dismiss")
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+            app_state_dismiss.update(cx, AppState::close_worktree_dropdown);
+        })
+        .on_mouse_down(MouseButton::Right, move |_, _, cx| {
+            app_state_dismiss2.update(cx, AppState::close_worktree_dropdown);
+        });
+
+    // Menu container
+    let mut menu = div()
+        .absolute()
+        .top(bar_height)
+        .left(px(dropdown.dropdown_left_px))
+        .w(px(220.))
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.border)
+        .rounded(px(6.))
+        .py(px(4.))
+        .text_size(px(font_size))
+        .shadow_md()
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .on_mouse_down(MouseButton::Right, |_, _, cx| cx.stop_propagation());
+
+    for item in &dropdown.items {
+        let id = item.id.clone();
+        let title = item.title.clone();
+        let branch_label = item.branch.as_deref().unwrap_or("(no branch)").to_owned();
+        let is_current = dropdown.focused_id.as_deref() == Some(id.as_str());
+        let text_color: Hsla = if is_current {
+            accent
+        } else {
+            theme.text.into()
+        };
+        let muted: Hsla = theme.text_muted.into();
+        let app_state_click = app_state.clone();
+
+        menu = menu.child(
+            div()
+                .px(px(10.))
+                .py(px(5.))
+                .cursor_pointer()
+                .hover(move |s| s.bg(hover_bg))
+                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    app_state_click.update(cx, |s, cx| {
+                        s.close_worktree_dropdown(cx);
+                        s.focus_instance(&id, cx);
+                    });
+                })
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .child(div().text_color(text_color).child(title))
+                        .child(
+                            div()
+                                .text_size(px(font_size - 2.0))
+                                .text_color(muted)
+                                .child(branch_label),
+                        ),
+                ),
+        );
+    }
+
+    // Divider
+    menu = menu.child(div().mx(px(8.)).my(px(4.)).h(px(1.)).bg(theme.border));
+
+    // "+ New Worktree..." item
+    let focused_for_modal = dropdown.focused_id.clone();
+    let app_state_new = app_state.clone();
+    menu = menu.child(
+        div()
+            .px(px(10.))
+            .py(px(5.))
+            .cursor_pointer()
+            .text_color(theme.text_muted)
+            .hover(move |s| s.bg(hover_bg).text_color(accent))
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                app_state_new.update(cx, |s, cx| {
+                    s.close_worktree_dropdown(cx);
+                    if let Some(ref fid) = focused_for_modal {
+                        s.open_worktree_modal(fid, cx);
+                    }
+                });
+            })
+            .child("+ New Worktree..."),
+    );
+
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .child(backdrop)
+        .child(menu)
 }

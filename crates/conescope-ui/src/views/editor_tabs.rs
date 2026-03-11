@@ -1,13 +1,10 @@
 use std::path::Path;
 
 use gpui::prelude::*;
-use gpui::{Entity, EventEmitter, MouseButton, div, px, rgba};
+use gpui::{Entity, EventEmitter, MouseButton, Rgba, div, px};
 
 use crate::state::app_state::AppState;
 use crate::theme::Theme;
-
-/// Border color shared across tab bar elements (matches terminal tabs).
-const BORDER_COLOR: u32 = 0x3c3c_3cff;
 
 #[derive(Debug, Clone)]
 pub enum EditorTabsEvent {
@@ -294,7 +291,7 @@ impl Render for EditorTabs {
             return div()
                 .h(px(28.))
                 .border_b_1()
-                .border_color(rgba(BORDER_COLOR))
+                .border_color(theme.border)
                 .bg(theme.background)
                 .cursor_pointer()
                 .on_mouse_down(
@@ -319,7 +316,7 @@ impl Render for EditorTabs {
             .bg(inactive_bg);
 
         // Left padding spacer with bottom border
-        bar = bar.child(border_b_spacer().w(px(8.)));
+        bar = bar.child(border_b_spacer(theme.border).w(px(8.)));
 
         for (i, tab) in self.tabs.iter().enumerate() {
             let active = self.active_index == Some(i);
@@ -336,21 +333,26 @@ impl Render for EditorTabs {
         }
 
         // Flex spacer with bottom border (continues the baseline), click to create untitled
-        bar.child(border_b_spacer().flex_1().cursor_pointer().on_mouse_down(
-            MouseButton::Left,
-            cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
-                if event.click_count == 2 {
-                    let pid = this.current_project_id.clone();
-                    this.create_untitled(pid.as_deref(), cx);
-                }
-            }),
-        ))
+        bar.child(
+            border_b_spacer(theme.border)
+                .flex_1()
+                .cursor_pointer()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, event: &gpui::MouseDownEvent, _window, cx| {
+                        if event.click_count == 2 {
+                            let pid = this.current_project_id.clone();
+                            this.create_untitled(pid.as_deref(), cx);
+                        }
+                    }),
+                ),
+        )
     }
 }
 
 /// Small spacer div with only a bottom border (the baseline).
-fn border_b_spacer() -> gpui::Div {
-    div().h_full().border_b_1().border_color(rgba(BORDER_COLOR))
+fn border_b_spacer(border: Rgba) -> gpui::Div {
+    div().h_full().border_b_1().border_color(border)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -401,7 +403,7 @@ fn render_tab(
                 .text_size(px(font_size - 2.0))
                 .text_color(theme.text_faint)
                 .cursor_pointer()
-                .hover(|s| s.text_color(rgba(0xcccc_ccff)))
+                .hover(|s| s.text_color(theme.text))
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _event: &gpui::MouseDownEvent, _window, cx| {
@@ -412,14 +414,10 @@ fn render_tab(
         );
 
     if active {
-        // Active tab: left+right borders, no bottom border (connects to editor content)
-        base.border_l_1()
-            .border_r_1()
-            .border_color(rgba(BORDER_COLOR))
+        base.border_l_1().border_r_1().border_color(theme.border)
     } else {
-        // Inactive tab: bottom border (the baseline), hover effect
         base.border_b_1()
-            .border_color(rgba(BORDER_COLOR))
-            .hover(|s| s.bg(rgba(0x3333_33ff)))
+            .border_color(theme.border)
+            .hover(|s| s.bg(theme.element_hover))
     }
 }

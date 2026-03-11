@@ -30,6 +30,7 @@ rust-embed = "8"
 gpui-component = { git = "https://github.com/longbridge/gpui-component", features = ["tree-sitter-languages"] }
 rfd = "0.15"
 notify = "6"
+names = "0.14"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
