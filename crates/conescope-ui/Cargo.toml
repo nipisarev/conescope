@@ -27,6 +27,7 @@ rfd.workspace = true
 notify.workspace = true
 names.workspace = true
 indexmap = "2"
+pulldown-cmark = "0.12"
 strip-ansi-escapes = "0.2"
 raw-window-handle = "0.6"
 core-graphics = "0.24"
