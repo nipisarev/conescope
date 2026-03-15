@@ -334,6 +334,7 @@ impl EditorTabs {
 }
 
 impl Render for EditorTabs {
+    #[allow(clippy::too_many_lines)]
     fn render(
         &mut self,
         _window: &mut gpui::Window,
@@ -394,9 +395,13 @@ impl Render for EditorTabs {
         }
 
         // Preview icon — only show when active tab is a .md file
-        let active_is_md = self
-            .active_tab()
-            .is_some_and(|t| t.path.ends_with(".md") && !t.preview && t.diff_mode.is_none());
+        let active_is_md = self.active_tab().is_some_and(|t| {
+            Path::new(&t.path)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                && !t.preview
+                && t.diff_mode.is_none()
+        });
         if active_is_md {
             let active_path = self.active_path().unwrap().to_owned();
             bar = bar.child(
@@ -416,9 +421,11 @@ impl Render for EditorTabs {
                             .hover(|s| s.text_color(theme.text))
                             .on_mouse_down(
                                 MouseButton::Left,
-                                cx.listener(move |_this, _event: &gpui::MouseDownEvent, _window, cx| {
-                                    cx.emit(EditorTabsEvent::OpenPreview(active_path.clone()));
-                                }),
+                                cx.listener(
+                                    move |_this, _event: &gpui::MouseDownEvent, _window, cx| {
+                                        cx.emit(EditorTabsEvent::OpenPreview(active_path.clone()));
+                                    },
+                                ),
                             )
                             .child(
                                 svg()
