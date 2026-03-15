@@ -60,6 +60,7 @@ fn render_tile(
     is_first_row: bool,
     is_last_col: bool,
     is_last_row: bool,
+    is_focused: bool,
 ) -> gpui::AnyElement {
     let status_color = match tile.session_status {
         SessionStatus::Working => gpui::rgba(0x4ade_80ff), // green
@@ -80,8 +81,7 @@ fn render_tile(
         .flex()
         .flex_col()
         .bg(theme.terminal_bg)
-        .overflow_hidden()
-        .border_color(theme.border);
+        .overflow_hidden();
     if is_first_col && is_first_row {
         tile_div = tile_div.rounded_tl(r);
     }
@@ -94,11 +94,18 @@ fn render_tile(
     if is_last_col && is_last_row {
         tile_div = tile_div.rounded_br(r);
     }
-    if !is_last_col {
-        tile_div = tile_div.border_r_1();
-    }
-    if !is_last_row {
-        tile_div = tile_div.border_b_1();
+    let highlight = theme.border_variant;
+    if is_focused {
+        tile_div = tile_div.border_2().border_color(highlight);
+    } else {
+        tile_div = tile_div.border_color(theme.border);
+        if !is_last_col {
+            tile_div = tile_div.border_r_1();
+        }
+        if !is_last_row {
+            tile_div = tile_div.border_b_1();
+        }
+        tile_div = tile_div.hover(move |s| s.border_2().border_color(highlight));
     }
     tile_div
         .child(render_tile_header(
@@ -115,7 +122,6 @@ fn render_tile(
             app_state,
             terminal_font_size,
             font_family,
-            theme,
         ))
         .into_any_element()
 }
@@ -137,7 +143,7 @@ fn render_tile_header(
     let title_element: gpui::AnyElement = if let Some(input) = editing_input {
         div().child(input.clone()).into_any_element()
     } else {
-        render_static_title(tile, app_state, font_size, theme)
+        render_static_title(tile, app_state, font_size)
     };
 
     let path_text = tile.project_path.as_deref().map_or_else(
@@ -288,7 +294,6 @@ fn render_static_title(
     tile: &TileData,
     app_state: Entity<AppState>,
     font_size: f32,
-    theme: &Theme,
 ) -> gpui::AnyElement {
     let click_id = tile.id.clone();
     let current_title = tile.title.clone();
@@ -296,7 +301,7 @@ fn render_static_title(
     div()
         .text_size(px(font_size))
         .font_weight(gpui::FontWeight::MEDIUM)
-        .text_color(theme.text)
+        .text_color(tile.color)
         .flex_shrink_0()
         .overflow_x_hidden()
         .cursor_pointer()
@@ -381,11 +386,8 @@ fn render_tile_body(
     app_state: Entity<AppState>,
     terminal_font_size: f32,
     font_family: &str,
-    theme: &Theme,
 ) -> gpui::Div {
     let tile_id = tile.id.clone();
-    let tile_focus_handle = tile.focus_handle.clone();
-    let panel = theme.panel;
 
     let terminal_child = tile.terminal_view.as_ref().map(|tv| {
         div()
@@ -400,11 +402,8 @@ fn render_tile_body(
                     .left_0()
                     .size_full()
                     .cursor_pointer()
-                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    .on_mouse_down(MouseButton::Left, move |_, _window, cx| {
                         app_state.update(cx, |s, cx| s.focus_instance(&tile_id, cx));
-                        if let Some(ref fh) = tile_focus_handle {
-                            fh.focus(window, cx);
-                        }
                     }),
             )
             .into_any_element()
@@ -416,7 +415,6 @@ fn render_tile_body(
         .font_family(gpui::SharedString::from(font_family.to_owned()))
         .text_size(px(terminal_font_size))
         .line_height(relative(1.0))
-        .hover(move |s| s.bg(panel))
         .children(terminal_child)
 }
 
@@ -474,7 +472,15 @@ impl Render for OverviewGrid {
     ) -> impl IntoElement {
         // Extract all data from state upfront, then drop the borrow so we can
         // mutably borrow cx later (for focus).
-        let (theme, editing_tile_id, editing_input, terminal_font_size, font_family, tiles) = {
+        let (
+            theme,
+            editing_tile_id,
+            editing_input,
+            terminal_font_size,
+            font_family,
+            focused_id,
+            tiles,
+        ) = {
             let state = self.app_state.read(cx);
             let il = state.instance_list.read(cx);
             let theme = state.theme().clone();
@@ -484,6 +490,7 @@ impl Render for OverviewGrid {
             }
 
             let ps = state.project_store.read(cx);
+            let focused_id = state.focused_instance_id(cx).map(str::to_owned);
             let editing_tile_id = state.editing_tile_id.clone();
             let editing_input = state.editing_input.clone();
             let terminal_font_size = state.settings_store.read(cx).settings().ui_font_size();
@@ -544,6 +551,7 @@ impl Render for OverviewGrid {
                 editing_input,
                 terminal_font_size,
                 font_family,
+                focused_id,
                 tiles,
             )
         };
@@ -573,6 +581,7 @@ impl Render for OverviewGrid {
                     row == 0,
                     col == cols - 1,
                     row == rows - 1,
+                    focused_id.as_deref() == Some(tile.id.as_str()),
                 )
             })
             .collect();
