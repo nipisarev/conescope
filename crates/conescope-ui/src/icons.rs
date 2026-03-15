@@ -57,6 +57,7 @@ pub const ICON_GIT: &str = "icons/git-branch.svg";
 pub const ICON_FOLDER_PLUS: &str = "icons/folder-plus.svg";
 pub const ICON_PIN: &str = "icons/pin.svg";
 pub const ICON_QUESTION: &str = "icons/question.svg";
+pub const ICON_EYE: &str = "icons/eye.svg";
 
 // Aliases for tile headers (same as above, all regular weight now)
 pub const ICON_TERMINAL_WINDOW: &str = ICON_TERMINAL;

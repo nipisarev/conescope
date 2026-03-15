@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use gpui::prelude::*;
-use gpui::{Entity, EventEmitter, MouseButton, Rgba, div, px};
+use gpui::{Entity, EventEmitter, MouseButton, Rgba, div, px, svg};
 
 use crate::state::app_state::AppState;
 use crate::theme::Theme;
@@ -391,6 +391,43 @@ impl Render for EditorTabs {
                 &theme,
                 cx,
             ));
+        }
+
+        // Preview icon — only show when active tab is a .md file
+        let active_is_md = self
+            .active_tab()
+            .is_some_and(|t| t.path.ends_with(".md") && !t.preview && t.diff_mode.is_none());
+        if active_is_md {
+            let active_path = self.active_path().unwrap().to_owned();
+            bar = bar.child(
+                div()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .child(
+                        div()
+                            .px(px(6.))
+                            .py(px(2.))
+                            .cursor_pointer()
+                            .text_size(px(font_size))
+                            .text_color(theme.text_faint)
+                            .hover(|s| s.text_color(theme.text))
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |_this, _event: &gpui::MouseDownEvent, _window, cx| {
+                                    cx.emit(EditorTabsEvent::OpenPreview(active_path.clone()));
+                                }),
+                            )
+                            .child(
+                                svg()
+                                    .path(crate::icons::ICON_EYE)
+                                    .size(px(font_size))
+                                    .text_color(theme.text_faint),
+                            ),
+                    ),
+            );
         }
 
         // Flex spacer with bottom border (continues the baseline), click to create untitled
