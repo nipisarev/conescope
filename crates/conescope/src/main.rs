@@ -8,8 +8,8 @@ use conescope_ui::actions::{
     FileDelete, FileDuplicate, FilePaste, FileRename, FileTrash, FocusInstance1, FocusInstance2,
     FocusInstance3, FocusInstance4, FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8,
     FocusInstance9, NewFile, NewFolder, NewInstance, OpenSettings, Quit, ReturnToOverview,
-    RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleOverviewSidebar, ToggleSidebar,
-    ToggleTerminal,
+    RevealInFinder, SaveFile, ToggleEditor, ToggleGitPanel, ToggleMarkdownPreview,
+    ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
 };
 use conescope_ui::state::app_state::{AppState, WindowBounds as SavedWindowBounds};
 use conescope_ui::state::db_worker::DbHandle;
@@ -114,6 +114,7 @@ fn bind_keys(cx: &mut gpui::App) {
         KeyBinding::new("cmd-e", ToggleEditor, None),
         KeyBinding::new("cmd-t", ToggleTerminal, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
+        KeyBinding::new("cmd-shift-m", ToggleMarkdownPreview, None),
         // Escape for CloseSettings handled via on_key_down in SettingsView
         // to avoid capturing escape from Terminal key_context.
     ]);

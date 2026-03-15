@@ -42,5 +42,6 @@ actions!(
         FileDelete,
         CancelRename,
         ToggleOverviewSidebar,
+        ToggleMarkdownPreview,
     ]
 );
