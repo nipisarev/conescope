@@ -9,6 +9,7 @@ pub mod error_modal;
 pub mod file_tree;
 pub mod focus_view;
 pub mod git_panel;
+pub mod markdown_viewer;
 pub mod new_instance_modal;
 pub mod overlay_sidebar;
 pub mod overview_grid;

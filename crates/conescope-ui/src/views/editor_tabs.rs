@@ -182,9 +182,7 @@ impl EditorTabs {
             .tabs
             .iter()
             .enumerate()
-            .filter(|(_, t)| {
-                t.preview && !self.tabs.iter().any(|s| s.path == t.path && !s.preview)
-            })
+            .filter(|(_, t)| t.preview && !self.tabs.iter().any(|s| s.path == t.path && !s.preview))
             .map(|(i, _)| i)
             .collect();
         for idx in orphans.into_iter().rev() {
