@@ -13,7 +13,7 @@ use crate::actions::{
     CloseSettings, CloseTab, FocusInstance1, FocusInstance2, FocusInstance3, FocusInstance4,
     FocusInstance5, FocusInstance6, FocusInstance7, FocusInstance8, FocusInstance9, NewInstance,
     NewTerminalTab, OpenSettings, ReturnToOverview, SaveFile, ToggleEditor, ToggleGitPanel,
-    ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
+    ToggleMarkdownPreview, ToggleOverviewSidebar, ToggleSidebar, ToggleTerminal,
 };
 use crate::state::app_state::{AppState, WorktreeDropdown};
 use crate::state::settings_store::ViewMode;
@@ -424,6 +424,13 @@ fn with_action_handlers(
                 focus_view.update(cx, |fv, cx| fv.save_active_file(cx));
             }
         });
+
+    let root = root.on_action({
+        let focus_view = focus_view.clone();
+        move |_: &ToggleMarkdownPreview, _window, cx| {
+            focus_view.update(cx, FocusView::toggle_markdown_preview);
+        }
+    });
 
     let root = root
         .on_action({

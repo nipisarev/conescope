@@ -138,6 +138,11 @@ impl EditorTabs {
         cx.notify();
     }
 
+    #[must_use]
+    pub fn has_preview_for(&self, path: &str) -> bool {
+        self.tabs.iter().any(|t| t.path == path && t.preview)
+    }
+
     pub fn close_preview_for(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
         if let Some(idx) = self.tabs.iter().position(|t| t.path == path && t.preview) {
             self.close_tab(idx, cx);

@@ -22,6 +22,7 @@ use crate::views::diff_viewer::DiffViewer;
 use crate::views::editor_tabs::{EditorTabs, EditorTabsEvent};
 use crate::views::file_tree::{FileTree, FileTreeEvent};
 use crate::views::git_panel::{GitPanel, GitPanelEvent};
+use crate::views::markdown_viewer::MarkdownViewer;
 use crate::views::resizable_divider::{Axis, DragState, DragTarget, clamp_size, render_divider};
 use crate::views::terminal_tabs::{ShellTabCb, render_tab_bar};
 
@@ -47,6 +48,7 @@ pub struct FocusView {
     editor_tabs: Entity<EditorTabs>,
     git_panel: Entity<GitPanel>,
     diff_viewer: Entity<DiffViewer>,
+    markdown_viewer: Entity<MarkdownViewer>,
     /// Last focused instance ID, used to detect switches.
     last_focused_id: Option<String>,
     /// Per-instance editor buffers to preserve unsaved changes across instance switches.
@@ -72,6 +74,7 @@ impl FocusView {
 
         let git_panel = cx.new(|_| GitPanel::new(app_state.clone(), git_store.clone()));
         let diff_viewer = cx.new(|_| DiffViewer::new(app_state.clone()));
+        let markdown_viewer = cx.new(|_| MarkdownViewer::new(app_state.clone()));
 
         // Get the initial project_id for the focused instance
         let initial_project_id = {
@@ -104,6 +107,7 @@ impl FocusView {
         let cv2 = code_editor.clone();
         let et2 = editor_tabs.clone();
         let app_state_tabs = app_state.clone();
+        let mv = markdown_viewer.clone();
         cx.subscribe(&editor_tabs, move |_this, _tabs, event, cx| {
             match event {
                 EditorTabsEvent::SelectTab(_idx) => {
@@ -133,8 +137,12 @@ impl FocusView {
                     // Ensure editor panel is visible
                     app_state_tabs.update(cx, AppState::ensure_editor_visible);
                 }
-                EditorTabsEvent::OpenPreview(_path) => {
-                    // Handled by MarkdownViewer integration
+                EditorTabsEvent::OpenPreview(path) => {
+                    let content = std::fs::read_to_string(path).unwrap_or_default();
+                    mv.update(cx, |viewer, cx| {
+                        viewer.show_preview(path, &content, cx);
+                    });
+                    app_state_tabs.update(cx, AppState::ensure_editor_visible);
                 }
             }
             // Persist tab state after any change
@@ -276,6 +284,7 @@ impl FocusView {
             editor_tabs,
             git_panel,
             diff_viewer,
+            markdown_viewer,
             last_focused_id,
             instance_buffers: HashMap::new(),
         }
@@ -428,6 +437,32 @@ impl FocusView {
         }
     }
 
+    pub fn toggle_markdown_preview(&mut self, cx: &mut gpui::Context<Self>) {
+        let active_tab = self.editor_tabs.read(cx).active_tab().cloned();
+        let Some(tab) = active_tab else { return };
+        let is_md = std::path::Path::new(&tab.path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+        if !is_md || tab.preview || tab.diff_mode.is_some() {
+            return;
+        }
+
+        let has_preview = self.editor_tabs.read(cx).has_preview_for(&tab.path);
+
+        if has_preview {
+            self.editor_tabs
+                .update(cx, |tabs, cx| tabs.close_preview_for(&tab.path, cx));
+        } else {
+            let content = std::fs::read_to_string(&tab.path).unwrap_or_default();
+            self.markdown_viewer.update(cx, |viewer, cx| {
+                viewer.show_preview(&tab.path, &content, cx);
+            });
+            self.editor_tabs
+                .update(cx, |tabs, cx| tabs.open_preview_tab(&tab.path, cx));
+            self.app_state.update(cx, AppState::ensure_editor_visible);
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn build_tab_bar(
         entry: &gpui::Entity<crate::state::instance_entry::InstanceEntry>,
@@ -569,7 +604,9 @@ fn render_editor_area(
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
     diff_viewer: &Entity<DiffViewer>,
+    markdown_viewer: &Entity<MarkdownViewer>,
     active_diff_mode: Option<bool>,
+    active_preview: bool,
     editor_font_size: f32,
     theme: &Theme,
 ) -> gpui::Div {
@@ -586,7 +623,9 @@ fn render_editor_area(
                 .flex_1()
                 .min_h_0()
                 .overflow_hidden()
-                .child(if active_diff_mode.is_some() {
+                .child(if active_preview {
+                    markdown_viewer.clone().into_any_element()
+                } else if active_diff_mode.is_some() {
                     diff_viewer.clone().into_any_element()
                 } else {
                     code_editor.clone().into_any_element()
@@ -594,14 +633,16 @@ fn render_editor_area(
         )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
 fn render_main_area(
     editor_visible: bool,
     terminal_visible: bool,
     editor_tabs: &Entity<EditorTabs>,
     code_editor: &Entity<CodeEditor>,
     diff_viewer: &Entity<DiffViewer>,
+    markdown_viewer: &Entity<MarkdownViewer>,
     active_diff_mode: Option<bool>,
+    active_preview: bool,
     terminal_view: Option<&gpui::Entity<crate::terminal::terminal_view::TerminalView>>,
     focus_handle: Option<&gpui::FocusHandle>,
     tab_bar: gpui::Div,
@@ -621,7 +662,9 @@ fn render_main_area(
             editor_tabs,
             code_editor,
             diff_viewer,
+            markdown_viewer,
             active_diff_mode,
+            active_preview,
             editor_font_size,
             theme,
         ));
@@ -751,8 +794,9 @@ impl Render for FocusView {
                 });
             }
 
-            // Clear diff viewer on instance switch
+            // Clear diff/preview viewers on instance switch
             self.diff_viewer.update(cx, DiffViewer::clear);
+            self.markdown_viewer.update(cx, MarkdownViewer::clear);
 
             // Restore scratch files for the new instance's project
             if focused_id.is_some() {
@@ -840,11 +884,9 @@ impl Render for FocusView {
             .as_ref()
             .is_some_and(|d| d.target == DragTarget::Terminal);
 
-        let active_diff_mode = self
-            .editor_tabs
-            .read(cx)
-            .active_tab()
-            .and_then(|t| t.diff_mode);
+        let active_tab_ref = self.editor_tabs.read(cx).active_tab().cloned();
+        let active_diff_mode = active_tab_ref.as_ref().and_then(|t| t.diff_mode);
+        let active_preview = active_tab_ref.as_ref().is_some_and(|t| t.preview);
 
         let editor_font_size = state
             .settings_store
@@ -865,7 +907,9 @@ impl Render for FocusView {
             &self.editor_tabs,
             &self.code_editor,
             &self.diff_viewer,
+            &self.markdown_viewer,
             active_diff_mode,
+            active_preview,
             terminal_view.as_ref(),
             click_focus_handle.as_ref(),
             tab_bar,
