@@ -11,6 +11,7 @@ pub enum EditorTabsEvent {
     SelectTab(usize),
     CloseTab(usize),
     NewUntitled,
+    OpenPreview(String),
 }
 
 impl EventEmitter<EditorTabsEvent> for EditorTabs {}
@@ -22,6 +23,7 @@ pub struct EditorTab {
     pub modified: bool,
     /// `Some(staged)` for diff tabs, `None` for file tabs.
     pub diff_mode: Option<bool>,
+    pub preview: bool,
 }
 
 pub struct EditorTabs {
@@ -74,6 +76,7 @@ impl EditorTabs {
             name,
             modified: false,
             diff_mode: None,
+            preview: false,
         });
         let idx = self.tabs.len() - 1;
         self.active_index = Some(idx);
@@ -104,11 +107,41 @@ impl EditorTabs {
             name: format!("{file_name} [diff]"),
             modified: false,
             diff_mode: Some(staged),
+            preview: false,
         });
         let idx = self.tabs.len() - 1;
         self.active_index = Some(idx);
         cx.emit(EditorTabsEvent::SelectTab(idx));
         cx.notify();
+    }
+
+    pub fn open_preview_tab(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.path == path && t.preview) {
+            self.active_index = Some(idx);
+            cx.emit(EditorTabsEvent::SelectTab(idx));
+            cx.notify();
+            return;
+        }
+        let file_name = std::path::Path::new(path)
+            .file_name()
+            .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().to_string());
+        self.tabs.push(EditorTab {
+            path: path.to_owned(),
+            name: format!("{file_name} [preview]"),
+            modified: false,
+            diff_mode: None,
+            preview: true,
+        });
+        let idx = self.tabs.len() - 1;
+        self.active_index = Some(idx);
+        cx.emit(EditorTabsEvent::SelectTab(idx));
+        cx.notify();
+    }
+
+    pub fn close_preview_for(&mut self, path: &str, cx: &mut gpui::Context<Self>) {
+        if let Some(idx) = self.tabs.iter().position(|t| t.path == path && t.preview) {
+            self.close_tab(idx, cx);
+        }
     }
 
     /// Close a tab by index. Scratch files are archived instead of deleted.
@@ -142,6 +175,30 @@ impl EditorTabs {
                 self.active_index = Some(self.tabs.len() - 1);
             } else if active > index {
                 self.active_index = Some(active - 1);
+            }
+        }
+        // Auto-close orphaned preview tabs
+        let orphans: Vec<usize> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| {
+                t.preview && !self.tabs.iter().any(|s| s.path == t.path && !s.preview)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for idx in orphans.into_iter().rev() {
+            self.tabs.remove(idx);
+            if let Some(active) = self.active_index {
+                if active >= self.tabs.len() {
+                    self.active_index = if self.tabs.is_empty() {
+                        None
+                    } else {
+                        Some(self.tabs.len() - 1)
+                    };
+                } else if active > idx {
+                    self.active_index = Some(active - 1);
+                }
             }
         }
         cx.emit(EditorTabsEvent::CloseTab(index));
@@ -188,7 +245,7 @@ impl EditorTabs {
     pub fn tab_paths(&self) -> Vec<String> {
         self.tabs
             .iter()
-            .filter(|t| t.diff_mode.is_none())
+            .filter(|t| t.diff_mode.is_none() && !t.preview)
             .map(|t| t.path.clone())
             .collect()
     }
@@ -205,6 +262,7 @@ impl EditorTabs {
                 name,
                 modified: false,
                 diff_mode: None,
+                preview: false,
             });
         }
         self.active_index = active.and_then(|a| self.tabs.iter().position(|t| t.path == a));

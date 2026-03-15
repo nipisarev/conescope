@@ -133,6 +133,9 @@ impl FocusView {
                     // Ensure editor panel is visible
                     app_state_tabs.update(cx, AppState::ensure_editor_visible);
                 }
+                EditorTabsEvent::OpenPreview(_path) => {
+                    // Handled by MarkdownViewer integration
+                }
             }
             // Persist tab state after any change
             let tabs = et2.read(cx).tab_paths();
