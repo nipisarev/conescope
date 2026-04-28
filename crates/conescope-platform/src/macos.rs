@@ -1,5 +1,7 @@
-use objc2_app_kit::{NSView, NSWindowOrderingMode};
+use objc2_app_kit::{NSView, NSWindowAnimationBehavior, NSWindowOrderingMode};
 use raw_window_handle::RawWindowHandle;
+
+const OVERLAY_INSET: f64 = 6.0;
 
 #[allow(unsafe_code)]
 fn ns_window_from_raw(
@@ -27,6 +29,15 @@ pub fn window_id_from_raw_handle(handle: RawWindowHandle) -> Option<u32> {
     }
 }
 
+/// Attach `child` as a native `AppKit` child of `parent` so that subsequent
+/// parent moves are auto-propagated by `AppKit` at zero per-frame cost.
+///
+/// `addChildWindow:` only propagates moves when the child shares the parent's
+/// `level` and `collectionBehavior`. `GPUI`'s `WindowKind::PopUp` raises the
+/// child to `NSPopUpWindowLevel` (101) and gives it `FullScreenAuxiliary`
+/// collection behavior — both of which silently defeat auto-follow on macOS
+/// 13+. We mirror the parent's level / collection behavior onto the child
+/// here, anchor it at parent + 6 px inset, and let `AppKit` handle the rest.
 #[allow(unsafe_code)]
 pub fn add_child_window(parent: RawWindowHandle, child: RawWindowHandle) {
     let Some(parent_win) = ns_window_from_raw(parent) else {
@@ -35,7 +46,19 @@ pub fn add_child_window(parent: RawWindowHandle, child: RawWindowHandle) {
     let Some(child_win) = ns_window_from_raw(child) else {
         return;
     };
+
     unsafe { parent_win.addChildWindow_ordered(&child_win, NSWindowOrderingMode::Above) };
+
+    child_win.setLevel(parent_win.level());
+    child_win.setCollectionBehavior(parent_win.collectionBehavior());
+    child_win.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    child_win.setHasShadow(true);
+
+    let parent_frame = parent_win.frame();
+    let mut origin = parent_frame.origin;
+    origin.x += OVERLAY_INSET;
+    origin.y += OVERLAY_INSET;
+    child_win.setFrameOrigin(origin);
 }
 
 pub fn remove_child_window(parent: RawWindowHandle, child: RawWindowHandle) {
@@ -46,31 +69,6 @@ pub fn remove_child_window(parent: RawWindowHandle, child: RawWindowHandle) {
         return;
     };
     parent_win.removeChildWindow(&child_win);
-}
-
-pub fn configure_overlay_panel(handle: RawWindowHandle) {
-    use objc2_app_kit::NSWindowCollectionBehavior;
-
-    let Some(window) = ns_window_from_raw(handle) else {
-        return;
-    };
-
-    window.setCollectionBehavior(NSWindowCollectionBehavior::FullScreenAuxiliary);
-    window.setHasShadow(true);
-}
-
-pub fn position_overlay_at_parent(parent: RawWindowHandle, child: RawWindowHandle) {
-    let Some(parent_win) = ns_window_from_raw(parent) else {
-        return;
-    };
-    let Some(child_win) = ns_window_from_raw(child) else {
-        return;
-    };
-    let parent_frame = parent_win.frame();
-    let mut origin = parent_frame.origin;
-    origin.x += 6.0;
-    origin.y += 6.0;
-    child_win.setFrameOrigin(origin);
 }
 
 /// Defers `setFrame:display:animate:` to the next main-queue iteration via

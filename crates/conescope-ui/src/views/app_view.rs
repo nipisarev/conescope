@@ -58,8 +58,9 @@ pub struct AppView {
     overlay_parent_handle: Option<RawWindowHandle>,
     /// Main window handle (for re-activation after overlay close).
     main_window_handle: Option<AnyWindowHandle>,
-    /// Cached parent window origin (screen coords) for overlay initial placement.
-    parent_window_origin: Option<gpui::Point<gpui::Pixels>>,
+    /// Cached viewport size from last render — used to size the overlay's
+    /// height to match the parent. Position is handled natively by `AppKit`
+    /// once `add_child_window` attaches the panel.
     parent_viewport_size: Option<gpui::Size<gpui::Pixels>>,
     /// Generation counter for overlay animations — cancels stale open/close tasks.
     overlay_anim_gen: Arc<AtomicU32>,
@@ -151,7 +152,6 @@ impl AppView {
             overlay_needs_attach: false,
             overlay_parent_handle: None,
             main_window_handle: None,
-            parent_window_origin: None,
             parent_viewport_size: None,
             overlay_anim_gen: Arc::new(AtomicU32::new(0)),
         }
@@ -163,16 +163,15 @@ impl AppView {
         }
 
         let app_state = self.app_state.clone();
-        let window_bounds = self.parent_window_origin.map(|origin| {
-            let height = self.parent_viewport_size.map_or(px(800.0), |s| s.height);
-            gpui::WindowBounds::Windowed(gpui::Bounds {
-                origin: gpui::Point {
-                    x: origin.x + px(OVERLAY_INSET),
-                    y: origin.y + px(OVERLAY_INSET),
-                },
-                size: size(px(1.0), height - px(2.0 * OVERLAY_INSET)),
-            })
-        });
+        // Open at default origin with 1px width — `add_child_window` snaps the
+        // window to parent + inset before the first visible paint. Using 1px
+        // also masks any one-frame mis-positioning since the window is
+        // effectively invisible until `animate_resize` slides it open.
+        let height = self.parent_viewport_size.map_or(px(800.0), |s| s.height);
+        let window_bounds = Some(gpui::WindowBounds::Windowed(gpui::Bounds {
+            origin: gpui::Point::default(),
+            size: size(px(1.0), height - px(2.0 * OVERLAY_INSET)),
+        }));
         let overlay_handle = cx.open_window(
             WindowOptions {
                 window_bounds,
@@ -279,8 +278,10 @@ impl AppView {
                 let parent_raw = parent_wh.as_raw();
                 let _ = cx.update_window(child_handle, |_, child_window, _| {
                     if let Ok(child_wh) = HasWindowHandle::window_handle(child_window) {
+                        // `add_child_window` mirrors level + collection behavior from
+                        // parent and anchors origin at parent + inset; AppKit handles
+                        // all subsequent move propagation natively.
                         conescope_platform::add_child_window(parent_raw, child_wh.as_raw());
-                        conescope_platform::configure_overlay_panel(child_wh.as_raw());
                         // Animate slide-in
                         conescope_platform::animate_resize(
                             child_wh.as_raw(),
@@ -545,7 +546,6 @@ impl Render for AppView {
                 state.settings_store.read(cx).settings().ui_font_size(),
             )
         };
-        self.parent_window_origin = Some(window.bounds().origin);
         self.parent_viewport_size = Some(window.viewport_size());
         self.main_window_handle = Some(gpui::Window::window_handle(window));
 
