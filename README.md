@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">Conescope</h1>
+  <h1 align="center">📺 Conescope</h1>
   <p align="center">Native macOS app for managing multiple Claude Code CLI instances in a unified interface.<br>Built with Rust and <a href="https://github.com/nicehash/gpui-standalone">GPUI</a> (from Zed editor).</p>
 </p>
 
